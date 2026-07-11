@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+*.egg
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Local data / databases
+data/
+*.sqlite3
+*.db
+
+# Build artifacts
+backend-build/
+backend-dist/
+localpyc/
+desktop/app/release/
+desktop/app/dist-electron/
+desktop/app/dist-renderer/
+release-web-local/
+
+# Node / frontend
+node_modules/
+.npm
+.yarn/
+.pnpm-debug.log*
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+*.log
+
+# RepoMind runtime artifacts
+logs/
+tmp/
+*.log
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Tooling state
+.claude/
