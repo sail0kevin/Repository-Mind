@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from service.api.v1.repos import analysis_router, router as repos_router
 from service.api.v1.collaborate import router as collaborate_router
 from service.api.v1.code_graph import router as code_graph_router
+from service.api.v1.jobs import router as jobs_router
+from service.api.v1.settings import router as settings_router
 from service.config.settings import get_settings
 from service.storage.sqlite_db import get_connection
 
@@ -43,6 +45,8 @@ def create_app() -> FastAPI:
     app.include_router(repos_router, prefix="/api/v1")
     app.include_router(analysis_router, prefix="/api/v1")
     app.include_router(collaborate_router, prefix="/api/v1")
+    app.include_router(jobs_router, prefix="/api/v1")
+    app.include_router(settings_router, prefix="/api/v1")
     app.include_router(code_graph_router, prefix="")
     return app
 

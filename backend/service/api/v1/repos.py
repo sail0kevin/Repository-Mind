@@ -24,7 +24,7 @@ from service.core.vector_store import replace_repo_vector_index, search_vectors
 from service.core.workflow_analysis import build_workflow_report, clone_public_github_repo, register_cloned_repository
 from service.storage.chunk_store import count_chunks, get_chunk_record, list_indexable_file_records, replace_repo_chunks, search_chunks
 from service.core.codegraph.builder import CodeGraphBuilder
-from service.core.codegraph.store import CodeGraphStore
+from service.core.codegraph.store import save_graph
 from service.storage.analysis_store import get_analysis_report, list_analysis_report_summaries, save_analysis_report
 from service.storage.job_store import create_job_record, finish_job_record, update_job_progress, update_job_repo, get_job_record
 from service.storage.models import (
@@ -263,7 +263,7 @@ def _run_ingest_task(job_id: str, repo_id: str, progress_callback):
     progress_callback(0.5, "构建向量索引...")
     # 使用优化的并行 embedding 计算 + 批量插入
     from service.core.parallel_ingest import parallel_build_embeddings, batch_insert_embeddings
-    from service.core.vector_store import list_chunk_texts
+    from service.storage.chunk_store import list_chunk_texts
     chunks = list_chunk_texts(repo_id)
     embeddings = parallel_build_embeddings(chunks, max_workers=4, progress_callback=progress_callback)
     batch_insert_embeddings(repo_id, embeddings)
@@ -272,11 +272,9 @@ def _run_ingest_task(job_id: str, repo_id: str, progress_callback):
     # 阶段4：构建代码知识图谱 (100% 进度)
     progress_callback(0.8, "构建代码知识图谱...")
     try:
-        settings = get_settings()
-        graph_store = CodeGraphStore(settings.paths.database_path)
         builder = CodeGraphBuilder()
         graph = builder.build_from_directory(record["repo_path"])
-        graph_store.save_graph(repo_id, graph)
+        save_graph(repo_id, graph)
         logger.info("代码图谱构建完成: %d 节点, %d 边", len(graph.nodes), len(graph.edges))
     except Exception as graph_exc:
         logger.warning("代码图谱构建失败(非关键): %s", graph_exc)
