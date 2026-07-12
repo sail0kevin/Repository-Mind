@@ -24,7 +24,7 @@ function startBackend(): void {
   if (backendProcess) {
     return;
   }
-  // In dev __dirname is dist-electron/, in prod it's inside app.asar
+  // repoRoot: folder containing both `desktop/` and `backend/`
   const repoRoot = app.isPackaged
     ? path.dirname(path.dirname(path.dirname(__dirname)))
     : path.join(__dirname, "..", "..", "..");
@@ -33,52 +33,50 @@ function startBackend(): void {
     : path.join(repoRoot, "backend-dist", "repomind-backend.exe");
   const backendRoot = path.join(repoRoot, "backend");
 
-  // Prefer the bundled EXE; in dev, fall back to the local Python interpreter.
-  if (!app.isPackaged && !fs.existsSync(bundledExe)) {
-    // If a backend is already listening on 8000, reuse it instead of spawning a duplicate.
-    const net = require("net");
-    const probe = net.connect({ host: "127.0.0.1", port: 8000 });
-    let decided = false;
-    probe.on("connect", () => {
-      decided = true;
-      probe.destroy();
-      logBackend("Backend already listening on 8000; reusing it.");
-    });
-    probe.on("error", () => {});
-    setTimeout(() => {
-      if (decided) {
-        return;
-      }
-      const launcher = findPythonInterpreter();
-      if (!launcher) {
-        logBackend("Failed to locate any Python interpreter. RepoMind backend not started.");
-        return;
-      }
-      logBackend("Starting backend via python: " + launcher + " (cwd=" + backendRoot + ")");
+  // If a backend is already listening on 8000, reuse it instead of spawning a duplicate.
+  const net = require("net");
+  const probe = net.connect({ host: "127.0.0.1", port: 8000 });
+  let decided = false;
+  probe.on("connect", () => {
+    decided = true;
+    probe.destroy();
+    logBackend("Backend already listening on 8000; reusing it.");
+  });
+  probe.on("error", () => {});
+  setTimeout(() => {
+    if (decided) {
+      return;
+    }
+    if (fs.existsSync(bundledExe)) {
+      logBackend("Starting bundled backend: " + bundledExe);
       try {
-        backendProcess = childProcess.spawn(launcher, ["-m", "service.main"], {
-          cwd: backendRoot,
-          env: { ...process.env, PYTHONPATH: backendRoot },
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-        backendProcess.stdout?.on("data", (d) => logBackend("[py-out] " + d.toString().trim()));
-        backendProcess.stderr?.on("data", (d) => logBackend("[py-err] " + d.toString().trim()));
+        backendProcess = childProcess.spawn(bundledExe, [], { stdio: ["ignore", "pipe", "pipe"] });
         backendProcess.on("error", (err) => logBackend("backend spawn error: " + err.message));
-        backendProcess.on("exit", (c) => logBackend("backend exited with code=" + c));
       } catch (err) {
-        logBackend("Failed to start python backend: " + (err as Error).message);
+        logBackend("Failed to start backend: " + (err as Error).message);
       }
-    }, 200);
-    return;
-  }
-
-  logBackend("Starting backend via exe: " + bundledExe);
-  try {
-    backendProcess = childProcess.spawn(bundledExe, [], { stdio: ["ignore", "pipe", "pipe"] });
-    backendProcess.on("error", (err) => logBackend("backend spawn error: " + err.message));
-  } catch (err) {
-    logBackend("Failed to start backend: " + (err as Error).message);
-  }
+      return;
+    }
+    const launcher = findPythonInterpreter();
+    if (!launcher) {
+      logBackend("Failed to locate any Python interpreter. RepoMind backend not started.");
+      return;
+    }
+    logBackend("Starting backend via python: " + launcher + " (cwd=" + backendRoot + ")");
+    try {
+      backendProcess = childProcess.spawn(launcher, ["-m", "service.main"], {
+        cwd: backendRoot,
+        env: { ...process.env, PYTHONPATH: backendRoot },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      backendProcess.stdout?.on("data", (d) => logBackend("[py-out] " + d.toString().trim()));
+      backendProcess.stderr?.on("data", (d) => logBackend("[py-err] " + d.toString().trim()));
+      backendProcess.on("error", (err) => logBackend("backend spawn error: " + err.message));
+      backendProcess.on("exit", (c) => logBackend("backend exited with code=" + c));
+    } catch (err) {
+      logBackend("Failed to start python backend: " + (err as Error).message);
+    }
+  }, 200);
 }
 
 function findPythonInterpreter(): string | null {

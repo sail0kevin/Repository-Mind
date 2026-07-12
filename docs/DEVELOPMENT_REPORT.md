@@ -87,21 +87,34 @@ release-web-local/desktop-app/RepoMind.exe
 - Electron 只内嵌冻结后端 EXE，不再复制整套 `backend-source`。
 - 发布脚本支持 `-IncludeDesktop`，并优先复用本机 Electron ZIP 缓存，避免下载超时。
 
-三份后端 EXE 的 SHA-256 一致：
+后端 EXE SHA-256（恢复后重打包）：
 
 ```text
-4247961497098CEBFE4E28BE931E114C87F6DBFACB276C2B97EB4CF601198720
+027e7369040f2a393f08b316a6e0de566314ecc70ebdda93177b4a1e30f774e5
 ```
 
 对应文件：
 
 ```text
 backend-dist/repomind-backend.exe
-release-web-local/backend/repomind-backend.exe
-release-web-local/desktop-app/resources/backend/repomind-backend.exe
 ```
 
-构建目录与发布目录中的 `resources/app.asar` 哈希也一致。
+构建命令：
+
+```powershell
+cd backend
+pyinstaller --onefile --name repomind-backend `
+  --paths . `
+  --hidden-import service.main `
+  --hidden-import uvicorn.logging --hidden-import uvicorn.loops.auto `
+  --hidden-import uvicorn.protocols.http.auto `
+  --hidden-import uvicorn.protocols.websockets.auto `
+  --hidden-import uvicorn.lifespan.on `
+  --hidden-import fastapi --hidden-import pydantic --hidden-import pydantic_settings `
+  --hidden-import openai --hidden-import sqlite3 --hidden-import asyncio `
+  --workpath ../../backend-build --distpath ../../backend-dist `
+  --clean --noconfirm service/main.py
+```
 
 ### 桌面运行验证
 
