@@ -24,10 +24,14 @@ function startBackend(): void {
   if (backendProcess) {
     return;
   }
+  // In dev __dirname is dist-electron/, in prod it's inside app.asar
+  const repoRoot = app.isPackaged
+    ? path.dirname(path.dirname(path.dirname(__dirname)))
+    : path.join(__dirname, "..", "..", "..");
   const bundledExe = app.isPackaged
     ? path.join(process.resourcesPath, "backend", "repomind-backend.exe")
-    : path.join(__dirname, "..", "..", "backend-dist", "repomind-backend.exe");
-  const backendRoot = path.join(__dirname, "..", "..");
+    : path.join(repoRoot, "backend-dist", "repomind-backend.exe");
+  const backendRoot = path.join(repoRoot, "backend");
 
   // Prefer the bundled EXE; in dev, fall back to the local Python interpreter.
   if (!app.isPackaged && !fs.existsSync(bundledExe)) {
