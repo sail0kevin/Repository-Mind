@@ -1,0 +1,14 @@
+appId: com.repomind.app
+productName: RepoMind
+directories:
+  output: release
+files:
+  - dist-renderer/**/*
+  - dist-electron/**/*
+  - package.json
+extraResources:
+  - from: ../backend-dist/repomind-backend.exe
+    to: backend/repomind-backend.exe
+win:
+  target: dir
+  artifactName: RepoMind-${version}.${ext}
