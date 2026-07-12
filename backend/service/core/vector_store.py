@@ -51,7 +51,7 @@ def search_vectors(repo_id: str, query: str, limit: int = 8) -> list[dict]:
         return []
     with get_connection() as connection:
         rows = connection.execute(
-            "SELECT chunk_id, content FROM chunks WHERE repo_id = ?",
+            "SELECT id, content FROM chunks WHERE repo_id = ?",
             (repo_id,),
         ).fetchall()
     scored = []
@@ -60,6 +60,6 @@ def search_vectors(repo_id: str, query: str, limit: int = 8) -> list[dict]:
         score = sum(haystack.count(term) for term in terms)
         if score <= 0:
             continue
-        scored.append({"chunk_id": row["chunk_id"], "vector_score": float(score)})
+        scored.append({"chunk_id": row["id"], "vector_score": float(score)})
     scored.sort(key=lambda item: item["vector_score"], reverse=True)
     return scored[:limit]

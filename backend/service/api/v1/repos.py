@@ -356,8 +356,8 @@ def build_evidence_items(rows: list[dict], repo_id: str) -> list[EvidenceItem]:
     """把搜索结果转换成证据展示模型。"""
     return [
         EvidenceItem(
-            file_path=row["file_path"],
-            chunk_id=row["chunk_id"],
+            file_path=row.get("file_path") or row.get("relative_path") or "",
+            chunk_id=row.get("chunk_id") or row.get("id") or "",
             start_line=row.get("start_line"),
             end_line=row.get("end_line"),
             source_type=row.get("source_type", "unknown"),
@@ -416,23 +416,24 @@ def ask_repository(repo_id: str, request: QARequest) -> QAResponse:
         evidence=[item.model_dump() for item in evidence],
         repo_summary=repo_summary,
     )
-    create_session_record(repo_id, request.question, answer_draft.answer, answer_draft.trace_id)
+    # answer_question 返回的是字典
+    create_session_record(repo_id, request.question, answer_draft.get("answer", ""), answer_draft.get("trace_id", ""))
 
     # 估算费用：按输入/输出分别估算（粗估：输入占 70% token，输出占 30%）
     input_cost = get_setting("input_cost_per_1k_tokens", 0.0005) if get_setting("input_cost_per_1k_tokens") is not None else 0.0005
     output_cost = get_setting("output_cost_per_1k_tokens", 0.0015) if get_setting("output_cost_per_1k_tokens") is not None else 0.0015
-    tokens = answer_draft.token_count
+    tokens = answer_draft.get("token_count", 0)
     estimated_cost = (tokens * 0.7 / 1000 * input_cost) + (tokens * 0.3 / 1000 * output_cost)
 
     return QAResponse(
-        answer=answer_draft.answer,
+        answer=answer_draft.get("answer", ""),
         evidence=evidence,
         suggestions=[],
-        confidence=answer_draft.confidence,
-        used_context=answer_draft.used_context,
-        trace_id=answer_draft.trace_id,
-        next_steps=answer_draft.next_steps,
-        token_count=answer_draft.token_count,
+        confidence=answer_draft.get("confidence", "low"),
+        used_context=answer_draft.get("used_context", 0),
+        trace_id=answer_draft.get("trace_id", ""),
+        next_steps=answer_draft.get("next_steps", []),
+        token_count=tokens,
     )
 
 

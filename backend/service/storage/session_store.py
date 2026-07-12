@@ -16,7 +16,7 @@ def create_session_record(repo_id: str, question: str, answer: str, trace_id: st
         connection.execute(
             """
             INSERT INTO sessions (id, repo_id, question, answer, trace_id)
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (session_id, repo_id, question, answer, trace_id),
         )
