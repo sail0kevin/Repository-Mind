@@ -9,6 +9,10 @@ It is not an auto-coding tool: it does not execute the target repository, edit f
 1. **Evidence/RAG layer** — Snapshot → Parser → Evidence/Catalog → FTS5/BM25, optional Embedding, and RRF fusion.
 2. **Bounded Agent layer** — deterministic routing to a direct answer (zero tools), `security_review`, or `dependency_impact`, followed by a persisted Trace.
 
+### Why a collaboration layer?
+
+Repository overview, local explanation, security clues, and impact analysis need different evidence scopes and output constraints. A free-form single model is difficult to reproduce and audit, so the Main Agent owns Snapshot selection, evidence budgets, and synthesis, then delegates to at most one narrow Specialist Tool. This is observable, bounded collaboration—not a multi-agent chat room. The two core layers are the Evidence/RAG layer and the Main Agent/tool layer.
+
 ```mermaid
 flowchart LR
   A[Git commit] --> B[Immutable Snapshot] --> C[Parser] --> D[Evidence + Catalog]
