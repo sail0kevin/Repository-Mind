@@ -1,0 +1,21 @@
+appId: com.repomind.app
+productName: RepoMind
+directories:
+  output: release
+files:
+  - dist-renderer/**/*
+  - dist-electron/**/*
+  - package.json
+extraResources:
+  - from: ../../backend-dist/repomind-backend.exe
+    to: backend/repomind-backend.exe
+win:
+  target:
+    - nsis
+    - portable
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: RepoMind-${version}-${arch}-setup.${ext}
+portable:
+  artifactName: RepoMind-${version}-${arch}-portable.${ext}

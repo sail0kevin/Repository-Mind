@@ -1,0 +1,9 @@
+{
+  "queries": [
+    {"query": "parseConfigKey", "relevant": ["src/config_loader.py"]},
+    {"query": "parse_config_key", "relevant": ["src/config_loader.py"]},
+    {"query": "src/auth/token_service.py", "relevant": ["src/auth/token_service.py"]},
+    {"query": "用户认证", "relevant": ["src/auth/token_service.py"]},
+    {"query": "database timeout", "relevant": ["config/database.yaml"]}
+  ]
+}
