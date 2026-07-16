@@ -1,0 +1,109 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+*.egg
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+
+# Virtual environments
+.venv/
+.venv-build/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Local data / databases
+# 数据库、迁移备份和 SQLite 侧车文件可能包含用户仓库、证据、问答和 Trace，禁止上传。
+/data/
+/backend/tests/.tmp/
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.db-journal
+*.db-wal
+*.db-shm
+# 如果未来需要提交人工构造的数据库安全夹具，可放在 fixtures 下并显式追踪。
+!backend/tests/fixtures/**/*.sqlite
+!backend/tests/fixtures/**/*.sqlite3
+!backend/tests/fixtures/**/*.db
+
+# Build artifacts
+/backend-build/
+/backend-dist/
+/localpyc/
+/desktop/app/release/
+/desktop/app/dist-electron/
+/desktop/app/dist-renderer/
+/release-web-local/
+
+# Node / frontend
+node_modules/
+.npm
+.yarn/
+.pnpm-debug.log*
+.next/
+out/
+.vite/
+.vitest/
+*.tsbuildinfo
+*.log
+
+# RepoMind runtime artifacts
+logs/
+tmp/
+*.log
+
+# Local historical documents
+# 这些文件保留在本机作为历史归档，不属于当前公开项目说明。
+docs/旧的文件/
+
+# Sensitive key and certificate material
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+# 安全测试夹具必须是人工构造且不含真实凭据，必要时可在 fixtures 下显式追踪。
+!backend/tests/fixtures/**/*.pem
+!backend/tests/fixtures/**/*.key
+!backend/tests/fixtures/**/*.p12
+!backend/tests/fixtures/**/*.pfx
+secrets.json
+secrets.json.tmp
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Tooling state
+.claude/
+
+# Portable distribution
+RepoMindPortable/
+*.exe
