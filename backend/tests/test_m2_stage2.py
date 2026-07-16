@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from service.core.ingest_service import ingest_repository_snapshot
+from service.core.parsing.markdown_adapter import parse_markdown
 from service.main import create_app
 from service.storage.repository_store import create_repo_record, get_repo_record
 from service.storage.snapshot_store import create_or_get_snapshot, finish_snapshot, get_snapshot
@@ -23,6 +24,18 @@ def _commit(repo: Path, message: str) -> str:
     subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=test@example.com",
                     "commit", "-m", message], check=True, stdout=subprocess.DEVNULL)
     return _git(repo, "rev-parse", "HEAD")
+
+
+def test_markdown_paragraphs_have_distinct_identity_within_section():
+    """同一标题下的多个段落必须能同时写入 Evidence 存储。"""
+    result = parse_markdown(
+        "# Demo\n\n第一段。\n\n第二段。\n\n```text\n第三段代码块\n```\n",
+        snapshot_id="snap_markdown",
+        file_path="README.md",
+    )
+    paragraphs = [item for item in result.evidence if item.kind == "paragraph"]
+    assert len(paragraphs) == 3
+    assert len({item.logical_id for item in paragraphs}) == 3
 
 
 @pytest.fixture

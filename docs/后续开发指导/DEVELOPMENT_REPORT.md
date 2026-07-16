@@ -236,6 +236,8 @@ scripts/package_windows.ps1
 
 使用临时 `APPDATA`、临时数据库、随机端口、随机 Session ID 和空 Key 环境，验证：
 
+> 开发版 Electron 的隔离验收可设置 `REPOMIND_USER_DATA_PATH=<临时目录>`。未设置时仍使用历史 `%APPDATA%\repomind-desktop`，因此自动化和人工验收都必须显式传入临时目录，不能接触真实用户数据库。
+
 - `/api/v1/health`；
 - 后端身份与 API v1；
 - 实际 Schema 7；

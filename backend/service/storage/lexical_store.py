@@ -126,9 +126,11 @@ def search_fts_chunks(
         try:
             rows = connection.execute(
                 """SELECT chunks.*,
+                          COALESCE(NULLIF(chunks.file_path, ''), files.relative_path) AS resolved_file_path,
                           bm25(evidence_fts, 1.0, 3.0, 5.0, 4.0, 1.5, 2.0) AS bm25_rank
                    FROM evidence_fts
                    JOIN chunks ON chunks.id = evidence_fts.evidence_id
+                   LEFT JOIN files ON files.id = chunks.file_id AND files.snapshot_id IS chunks.snapshot_id
                    WHERE evidence_fts MATCH ?
                      AND evidence_fts.repo_id = ?
                      AND evidence_fts.snapshot_id = ?
@@ -146,9 +148,11 @@ def search_fts_chunks(
             try:
                 rows = connection.execute(
                     """SELECT chunks.*,
+                              COALESCE(NULLIF(chunks.file_path, ''), files.relative_path) AS resolved_file_path,
                               bm25(evidence_fts, 1.0, 3.0, 5.0, 4.0, 1.5, 2.0) AS bm25_rank
                        FROM evidence_fts
                        JOIN chunks ON chunks.id = evidence_fts.evidence_id
+                       LEFT JOIN files ON files.id = chunks.file_id AND files.snapshot_id IS chunks.snapshot_id
                        WHERE evidence_fts MATCH ?
                          AND evidence_fts.repo_id = ?
                          AND evidence_fts.snapshot_id = ?
@@ -179,6 +183,10 @@ def search_fts_chunks(
         for rank, (score, boost, row) in enumerate(scored[:safe_limit], start=1):
             data = dict(row)
             data.pop("bm25_rank", None)
+            # 旧快照可能只在 files 表保留相对路径；不要把 null 泄漏到 Evidence/Trace。
+            if not data.get("file_path"):
+                data["file_path"] = data.get("resolved_file_path") or "repository"
+            data.pop("resolved_file_path", None)
             data["vector_score"] = 0.0
             data["score"] = float(score)
             data["match_type"] = "lexical"

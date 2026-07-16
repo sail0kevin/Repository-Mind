@@ -1,0 +1,659 @@
+{
+  "format": "repomind.trace.v1",
+  "demo": {
+    "alias": "RepoMind 内置 Demo",
+    "commit": "e718d4a31f9df9d74b8b74fe5f5e49b92625862b",
+    "branch": "main",
+    "file_count": 10,
+    "knowledge_chunks": 150
+  },
+  "retrieval_mode": "lexical_only",
+  "generation_mode": "no_key_fallback",
+  "limitations": [
+    "No target-repository code was executed.",
+    "No Chat or Embedding key was used.",
+    "Security findings are static clues, not a complete audit."
+  ],
+  "questions": {
+    "local_explanation": {
+      "question": "GreetingService.build_message 方法是做什么的？",
+      "response": {
+        "answer": "根据当前仓库概览：仓库 RepoMind 内置 Demo 当前包含 10 个已扫描文件，其中 10 个可索引文本文件。主要语言/文本类型：python, json, markdown。优先阅读 README：README.md。可能入口文件：repomind_demo/app/main.py。关键配置文件：config.json, expected/showcase.json。当前已建立 150 个知识片段。\n\n可以重点参考以下证据片段：\n[1] README.md:11-16: ```text\nrepomind_demo.app.main\n  -> GreetingService.build_message\n  -> GreetingService._format_name\n  -> ConsoleNotifier.send\n```\n[2] tests/test_greeting.py:13-16: def test_build_message_strips_name(self) -> None:\n        # 该断言覆盖 build_message 对私有格式化方法的调用结果。\n        service = GreetingService(\"Hello\")\n        self.assertEqual(service.build_mes\n[3] tests/test_greeting.py:13-16: def test_build_message_strips_name(self) -> None:\n        # 该断言覆盖 build_message 对私有格式化方法的调用结果。\n        service = GreetingService(\"Hello\")\n        self.assertEqual(service.build_mes\n[4] README.md:5-5: ## 这个项目做什么\n[5] README.md:9-9: 代码链路：\n\n根据当前证据无法确定完整答案时，可能还需要结合源代码进一步确认。",
+        "snapshot_id": "snap_d9e2f164c4130b652aa516224eedf921916e280bb9c12899c484119f621d0a93",
+        "trace_id": "trace_c43161b41d8e43dcaf86c8d5a6b42b85",
+        "generation_mode": "no_key_fallback",
+        "retrieval_mode": "lexical_only",
+        "evidence": [
+          {
+            "chunk_id": "ev_43dbbf9826982bdf2c12b279fdef86cf68124313d972b842151e8cd7cf3abf15",
+            "file_path": "README.md",
+            "start_line": 11,
+            "end_line": 16,
+            "reason": "文本匹配",
+            "snippet": "```text repomind_demo.app.main -> GreetingService.build_message -> GreetingService._format_name -> ConsoleNotifier.send ```"
+          },
+          {
+            "chunk_id": "ev_2fc04ff12ba3e2324283a7145725dd65d91b4dd0d4a942b3afdf838b0472c315",
+            "file_path": "tests/test_greeting.py",
+            "start_line": 13,
+            "end_line": 16,
+            "reason": "文本匹配",
+            "snippet": "def test_build_message_strips_name(self) -> None: # 该断言覆盖 build_message 对私有格式化方法的调用结果。 service = GreetingService(\"Hello\") self.assertEqual(service.build_message(\" RepoMind demo \"), \"Hello, RepoMind demo!\")"
+          },
+          {
+            "chunk_id": "ev_640bfce0a8e49973d8b2aeded18f6d0c1042a908e988b5ca8cb635cd74c0db30",
+            "file_path": "tests/test_greeting.py",
+            "start_line": 13,
+            "end_line": 16,
+            "reason": "文本匹配",
+            "snippet": "def test_build_message_strips_name(self) -> None: # 该断言覆盖 build_message 对私有格式化方法的调用结果。 service = GreetingService(\"Hello\") self.assertEqual(service.build_message(\" RepoMind demo \"), \"Hello, RepoMind demo!\")"
+          },
+          {
+            "chunk_id": "ev_61ed82bfcd80ac40959247a0bee0d77899060c6eb347d1c1dc15a4514b178108",
+            "file_path": "README.md",
+            "start_line": 5,
+            "end_line": 5,
+            "reason": "文本匹配",
+            "snippet": "## 这个项目做什么"
+          },
+          {
+            "chunk_id": "ev_8f178f3e1489286945ea2b4925a6cdf141c25be42c0c8c5e84e94ee363248a99",
+            "file_path": "README.md",
+            "start_line": 9,
+            "end_line": 9,
+            "reason": "文本匹配",
+            "snippet": "代码链路："
+          }
+        ]
+      },
+      "trace": {
+        "trace_id": "trace_c43161b41d8e43dcaf86c8d5a6b42b85",
+        "mode": "direct_qa",
+        "status": "fallback",
+        "token_count": 0,
+        "steps": [
+          {
+            "step_no": 1,
+            "step_type": "route",
+            "tool_name": null,
+            "status": "succeeded",
+            "duration_ms": null,
+            "evidence_refs": []
+          },
+          {
+            "step_no": 2,
+            "step_type": "retrieval",
+            "tool_name": "hybrid_retriever",
+            "status": "succeeded",
+            "duration_ms": null,
+            "evidence_refs": [
+              {
+                "chunk_id": "ev_43dbbf9826982bdf2c12b279fdef86cf68124313d972b842151e8cd7cf3abf15",
+                "end_line": 16,
+                "file_path": "README.md",
+                "reason": "文本匹配",
+                "start_line": 11
+              },
+              {
+                "chunk_id": "ev_2fc04ff12ba3e2324283a7145725dd65d91b4dd0d4a942b3afdf838b0472c315",
+                "end_line": 16,
+                "file_path": "tests/test_greeting.py",
+                "reason": "文本匹配",
+                "start_line": 13
+              },
+              {
+                "chunk_id": "ev_640bfce0a8e49973d8b2aeded18f6d0c1042a908e988b5ca8cb635cd74c0db30",
+                "end_line": 16,
+                "file_path": "tests/test_greeting.py",
+                "reason": "文本匹配",
+                "start_line": 13
+              },
+              {
+                "chunk_id": "ev_61ed82bfcd80ac40959247a0bee0d77899060c6eb347d1c1dc15a4514b178108",
+                "end_line": 5,
+                "file_path": "README.md",
+                "reason": "文本匹配",
+                "start_line": 5
+              },
+              {
+                "chunk_id": "ev_8f178f3e1489286945ea2b4925a6cdf141c25be42c0c8c5e84e94ee363248a99",
+                "end_line": 9,
+                "file_path": "README.md",
+                "reason": "文本匹配",
+                "start_line": 9
+              }
+            ]
+          },
+          {
+            "step_no": 3,
+            "step_type": "synthesis",
+            "tool_name": null,
+            "status": "succeeded",
+            "duration_ms": null,
+            "evidence_refs": [
+              {
+                "chunk_id": "ev_43dbbf9826982bdf2c12b279fdef86cf68124313d972b842151e8cd7cf3abf15",
+                "end_line": 16,
+                "file_path": "README.md",
+                "reason": "文本匹配",
+                "start_line": 11
+              },
+              {
+                "chunk_id": "ev_2fc04ff12ba3e2324283a7145725dd65d91b4dd0d4a942b3afdf838b0472c315",
+                "end_line": 16,
+                "file_path": "tests/test_greeting.py",
+                "reason": "文本匹配",
+                "start_line": 13
+              },
+              {
+                "chunk_id": "ev_640bfce0a8e49973d8b2aeded18f6d0c1042a908e988b5ca8cb635cd74c0db30",
+                "end_line": 16,
+                "file_path": "tests/test_greeting.py",
+                "reason": "文本匹配",
+                "start_line": 13
+              },
+              {
+                "chunk_id": "ev_61ed82bfcd80ac40959247a0bee0d77899060c6eb347d1c1dc15a4514b178108",
+                "end_line": 5,
+                "file_path": "README.md",
+                "reason": "文本匹配",
+                "start_line": 5
+              },
+              {
+                "chunk_id": "ev_8f178f3e1489286945ea2b4925a6cdf141c25be42c0c8c5e84e94ee363248a99",
+                "end_line": 9,
+                "file_path": "README.md",
+                "reason": "文本匹配",
+                "start_line": 9
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "security_review": {
+      "question": "security token 安全风险",
+      "response": {
+        "answer": "根据当前仓库概览：仓库 RepoMind 内置 Demo 当前包含 10 个已扫描文件，其中 10 个可索引文本文件。主要语言/文本类型：python, json, markdown。优先阅读 README：README.md。可能入口文件：repomind_demo/app/main.py。关键配置文件：config.json, expected/showcase.json。当前已建立 150 个知识片段。\n专业工具：security_review: 规则扫描发现 17 条需要人工确认的安全线索。\n\n可以重点参考以下证据片段：\n[1] README.md:42-45: - **概览问题**：README、`config.json`、`repomind_demo/app/main.py` 和 `tests/test_greeting.py` 应出现在推荐阅读范围内。\n- **影响问题**：修改 `GreetingService.build_message` 时，应检查其调用入口 `app/main.py` 和覆盖输出格式的 \n[2] repomind_demo/security_examples.py:9-13: def load_demo_yaml(text: str) -> object:\n    \"\"\"不安全示例：yaml.load 应改为 yaml.safe_load。\"\"\"\n    import yaml\n\n    return yaml.load(text)\n[3] repomind_demo/security_examples.py:4-6: def parse_demo_expression(expression: str) -> object:\n    \"\"\"不安全示例：eval 应改为受限的解析或白名单映射。\"\"\"\n    return eval(expression)\n[4] README.md:34-34: ## 安全演示边界\n[5] repomind_demo/security_examples.py:9-13: def load_demo_yaml(text: str) -> object:\n    \"\"\"不安全示例：yaml.load 应改为 yaml.safe_load。\"\"\"\n    import yaml\n\n    return yaml.load(text)\n\n根据当前证据无法确定完整答案时，可能还需要结合源代码进一步确认。\n\n限制说明：静态规则扫描不是完整安全审计，也不会执行仓库代码。",
+        "snapshot_id": "snap_d9e2f164c4130b652aa516224eedf921916e280bb9c12899c484119f621d0a93",
+        "trace_id": "trace_c7c2e0abb0d544e0af09c6d3ebbb0c65",
+        "generation_mode": "no_key_fallback",
+        "retrieval_mode": "lexical_only",
+        "evidence": [
+          {
+            "chunk_id": "ev_396947da81bd3dfcbc79bc001daa8f9a0df714d3e6ba87bea6a96e1e6ab96b84",
+            "file_path": "README.md",
+            "start_line": 42,
+            "end_line": 45,
+            "reason": "文本匹配",
+            "snippet": "- **概览问题**：README、`config.json`、`repomind_demo/app/main.py` 和 `tests/test_greeting.py` 应出现在推荐阅读范围内。 - **影响问题**：修改 `GreetingService.build_message` 时，应检查其调用入口 `app/main.py` 和覆盖输出格式的 `tests/test_greeting.py`。 - **测试问题**：README 明确给出 unittest 命令，`tests/` 目录会被识别为测试目录。 - **安全问题**：`secur..."
+          },
+          {
+            "chunk_id": "ev_4729fc0277d7b2448eb52468d7710eb40d4c1f93d53128ac22b7866c28ba3675",
+            "file_path": "repomind_demo/security_examples.py",
+            "start_line": 9,
+            "end_line": 13,
+            "reason": "文本匹配",
+            "snippet": "def load_demo_yaml(text: str) -> object: \"\"\"不安全示例：yaml.load 应改为 yaml.safe_load。\"\"\" import yaml return yaml.load(text)"
+          },
+          {
+            "chunk_id": "ev_28fcee361c2bf9b90d136ee42d30f0abe73712f0a30eafc31734452f66ab241e",
+            "file_path": "repomind_demo/security_examples.py",
+            "start_line": 4,
+            "end_line": 6,
+            "reason": "文本匹配",
+            "snippet": "def parse_demo_expression(expression: str) -> object: \"\"\"不安全示例：eval 应改为受限的解析或白名单映射。\"\"\" return eval(expression)"
+          },
+          {
+            "chunk_id": "ev_4810f72681d0a834e7ed58f0f6c3e88ace0215b76970aa2e434ca85ab1e9c70d",
+            "file_path": "README.md",
+            "start_line": 34,
+            "end_line": 34,
+            "reason": "文本匹配",
+            "snippet": "## 安全演示边界"
+          },
+          {
+            "chunk_id": "ev_f64dcb0ca5534014c5dcb0587b4908e3fb95e02b55b494316276c41c5f437308",
+            "file_path": "repomind_demo/security_examples.py",
+            "start_line": 9,
+            "end_line": 13,
+            "reason": "文本匹配",
+            "snippet": "def load_demo_yaml(text: str) -> object: \"\"\"不安全示例：yaml.load 应改为 yaml.safe_load。\"\"\" import yaml return yaml.load(text)"
+          }
+        ]
+      },
+      "trace": {
+        "trace_id": "trace_c7c2e0abb0d544e0af09c6d3ebbb0c65",
+        "mode": "security_review",
+        "status": "fallback",
+        "token_count": 0,
+        "steps": [
+          {
+            "step_no": 1,
+            "step_type": "route",
+            "tool_name": null,
+            "status": "succeeded",
+            "duration_ms": null,
+            "evidence_refs": []
+          },
+          {
+            "step_no": 2,
+            "step_type": "retrieval",
+            "tool_name": "hybrid_retriever",
+            "status": "succeeded",
+            "duration_ms": null,
+            "evidence_refs": [
+              {
+                "chunk_id": "ev_396947da81bd3dfcbc79bc001daa8f9a0df714d3e6ba87bea6a96e1e6ab96b84",
+                "end_line": 45,
+                "file_path": "README.md",
+                "reason": "文本匹配",
+                "start_line": 42
+              },
+              {
+                "chunk_id": "ev_4729fc0277d7b2448eb52468d7710eb40d4c1f93d53128ac22b7866c28ba3675",
+                "end_line": 13,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "文本匹配",
+                "start_line": 9
+              },
+              {
+                "chunk_id": "ev_28fcee361c2bf9b90d136ee42d30f0abe73712f0a30eafc31734452f66ab241e",
+                "end_line": 6,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "文本匹配",
+                "start_line": 4
+              },
+              {
+                "chunk_id": "ev_4810f72681d0a834e7ed58f0f6c3e88ace0215b76970aa2e434ca85ab1e9c70d",
+                "end_line": 34,
+                "file_path": "README.md",
+                "reason": "文本匹配",
+                "start_line": 34
+              },
+              {
+                "chunk_id": "ev_f64dcb0ca5534014c5dcb0587b4908e3fb95e02b55b494316276c41c5f437308",
+                "end_line": 13,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "文本匹配",
+                "start_line": 9
+              }
+            ]
+          },
+          {
+            "step_no": 3,
+            "step_type": "tool",
+            "tool_name": "security_review",
+            "status": "succeeded",
+            "duration_ms": 8.325299997522961,
+            "evidence_refs": [
+              {
+                "chunk_id": "ev_fa8d6af42eb6a3d7d860b47ce7da433cbff3debcd4355b6677fec198d4131ad2",
+                "end_line": 5,
+                "file_path": "config.json",
+                "reason": "安全规则命中",
+                "start_line": 1
+              },
+              {
+                "chunk_id": "ev_a33ff3e172c37e4d68616750b45163f6be28777ae067b903c617a5ad1b98df57",
+                "end_line": 4,
+                "file_path": "config.json",
+                "reason": "安全规则命中",
+                "start_line": 4
+              },
+              {
+                "chunk_id": "ev_71d1a5bf05a333ed74e13e92e70d98625bcafe52d5947ff270d5be96a3ec744e",
+                "end_line": 73,
+                "file_path": "expected/showcase.json",
+                "reason": "安全规则命中",
+                "start_line": 1
+              },
+              {
+                "chunk_id": "ev_e839ff543223c29610ed0bbbb66eef0402daf80b28f2874a42b1c6fa98d0d5cf",
+                "end_line": 73,
+                "file_path": "expected/showcase.json",
+                "reason": "安全规则命中",
+                "start_line": 1
+              },
+              {
+                "chunk_id": "ev_22a5c5318ab5de964880369f0b5a30fdba26958ce367c708c2ba4d337fd86d19",
+                "end_line": 4,
+                "file_path": "expected/showcase.json",
+                "reason": "安全规则命中",
+                "start_line": 4
+              },
+              {
+                "chunk_id": "ev_49415ea1267c81b3b97b4f5aa377b31e0edd265f84fd71ae44cbd62fe938590f",
+                "end_line": 54,
+                "file_path": "expected/showcase.json",
+                "reason": "安全规则命中",
+                "start_line": 54
+              },
+              {
+                "chunk_id": "ev_34c44d316c8e0c21318d45e8ec87fa17c3010a574c4b0232076679903863dc97",
+                "end_line": 66,
+                "file_path": "expected/showcase.json",
+                "reason": "安全规则命中",
+                "start_line": 66
+              },
+              {
+                "chunk_id": "ev_dfd3f7f0c94c3a57a4733573996b7061f1c3a8e103cadd3c1875d275b648be14",
+                "end_line": 36,
+                "file_path": "README.md",
+                "reason": "安全规则命中",
+                "start_line": 36
+              },
+              {
+                "chunk_id": "ev_0ced1f286ef27098decef9380c65a219de2c97e0ac869b98ec9a47e0779bd51a",
+                "end_line": 38,
+                "file_path": "README.md",
+                "reason": "安全规则命中",
+                "start_line": 38
+              },
+              {
+                "chunk_id": "ev_3d84f3ab2533475100e7057d1ae69f659ecbd3e82f90d38e150c980102f78832",
+                "end_line": 20,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "安全规则命中",
+                "start_line": 1
+              },
+              {
+                "chunk_id": "ev_28fcee361c2bf9b90d136ee42d30f0abe73712f0a30eafc31734452f66ab241e",
+                "end_line": 6,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "安全规则命中",
+                "start_line": 4
+              },
+              {
+                "chunk_id": "ev_d56b419e34a8ad43dfb3c0d40c0f20e57901b6c4e0eea96f1492598cef9d0c47",
+                "end_line": 6,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "安全规则命中",
+                "start_line": 4
+              },
+              {
+                "chunk_id": "ev_4729fc0277d7b2448eb52468d7710eb40d4c1f93d53128ac22b7866c28ba3675",
+                "end_line": 13,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "安全规则命中",
+                "start_line": 9
+              },
+              {
+                "chunk_id": "ev_f64dcb0ca5534014c5dcb0587b4908e3fb95e02b55b494316276c41c5f437308",
+                "end_line": 13,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "安全规则命中",
+                "start_line": 9
+              },
+              {
+                "chunk_id": "ev_128f79158260a652cb4a001c3e751d76950ac13245237cf862ec8212710ed4ea",
+                "end_line": 20,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "安全规则命中",
+                "start_line": 16
+              },
+              {
+                "chunk_id": "ev_c182b35f9d6f6f3d119a9457a4135c285c70beabe800cfd069174730b75cdbf4",
+                "end_line": 20,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "安全规则命中",
+                "start_line": 16
+              },
+              {
+                "chunk_id": "ev_bba38dda3e38397ef08769f8e242d008ebf7f75389f635589ac59f0346e5a9f0",
+                "end_line": 20,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "安全规则命中",
+                "start_line": 20
+              }
+            ]
+          },
+          {
+            "step_no": 4,
+            "step_type": "synthesis",
+            "tool_name": null,
+            "status": "succeeded",
+            "duration_ms": null,
+            "evidence_refs": [
+              {
+                "chunk_id": "ev_396947da81bd3dfcbc79bc001daa8f9a0df714d3e6ba87bea6a96e1e6ab96b84",
+                "end_line": 45,
+                "file_path": "README.md",
+                "reason": "文本匹配",
+                "start_line": 42
+              },
+              {
+                "chunk_id": "ev_4729fc0277d7b2448eb52468d7710eb40d4c1f93d53128ac22b7866c28ba3675",
+                "end_line": 13,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "文本匹配",
+                "start_line": 9
+              },
+              {
+                "chunk_id": "ev_28fcee361c2bf9b90d136ee42d30f0abe73712f0a30eafc31734452f66ab241e",
+                "end_line": 6,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "文本匹配",
+                "start_line": 4
+              },
+              {
+                "chunk_id": "ev_4810f72681d0a834e7ed58f0f6c3e88ace0215b76970aa2e434ca85ab1e9c70d",
+                "end_line": 34,
+                "file_path": "README.md",
+                "reason": "文本匹配",
+                "start_line": 34
+              },
+              {
+                "chunk_id": "ev_f64dcb0ca5534014c5dcb0587b4908e3fb95e02b55b494316276c41c5f437308",
+                "end_line": 13,
+                "file_path": "repomind_demo/security_examples.py",
+                "reason": "文本匹配",
+                "start_line": 9
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "dependency_impact": {
+      "question": "Changing GreetingService.build_message impact call chain and tests",
+      "response": {
+        "answer": "根据当前仓库概览：仓库 RepoMind 内置 Demo 当前包含 10 个已扫描文件，其中 10 个可索引文本文件。主要语言/文本类型：python, json, markdown。优先阅读 README：README.md。可能入口文件：repomind_demo/app/main.py。关键配置文件：config.json, expected/showcase.json。当前已建立 150 个知识片段。\n专业工具：dependency_impact: 图谱命中 5 个节点，调用链包含 0 个节点。\n\n可以重点参考以下证据片段：\n[1] expected/showcase.json:1-73: {\n  \"corpus\": \"repomind-demo\",\n  \"expected_impact\": {\n    \"behavioral_dependencies\": [\n      \"repomind_demo.service.GreetingService._format_name\",\n      \"repomind_demo.notifier.Con\n[2] expected/showcase.json:32-32: {\n  \"behavioral_dependencies\": [\n    \"repomind_demo.service.GreetingService._format_name\",\n    \"repomind_demo.notifier.ConsoleNotifier.send\"\n  ],\n  \"change_target\": \"repomind_demo.\n[3] expected/showcase.json:40-40: \"The entrypoint calls build_message and the tests assert its public greeting-format contract and the end-to-end notification flow.\"\n[4] expected/showcase.json:12-12: {\n  \"config\": \"config.json\",\n  \"entrypoint\": \"repomind_demo/app/main.py\",\n  \"readme\": \"README.md\",\n  \"recommended_flow\": [\n    \"README.md\",\n    \"config.json\",\n    \"repomind_demo/ap\n[5] expected/showcase.json:1-73: \"repomind_demo.service.GreetingService.build_message\"\n\n根据当前证据无法确定完整答案时，可能还需要结合源代码进一步确认。",
+        "snapshot_id": "snap_d9e2f164c4130b652aa516224eedf921916e280bb9c12899c484119f621d0a93",
+        "trace_id": "trace_08582472b7a440748395117b793ff041",
+        "generation_mode": "no_key_fallback",
+        "retrieval_mode": "lexical_only",
+        "evidence": [
+          {
+            "chunk_id": "ev_e839ff543223c29610ed0bbbb66eef0402daf80b28f2874a42b1c6fa98d0d5cf",
+            "file_path": "expected/showcase.json",
+            "start_line": 1,
+            "end_line": 73,
+            "reason": "文本匹配",
+            "snippet": "{ \"corpus\": \"repomind-demo\", \"expected_impact\": { \"behavioral_dependencies\": [ \"repomind_demo.service.GreetingService._format_name\", \"repomind_demo.notifier.ConsoleNotifier.send\" ], \"change_target\": \"repomind_demo.service.GreetingService.build_message\", \"direct_callers\": [ \"repom..."
+          },
+          {
+            "chunk_id": "ev_f808cd0305ebb8d372137e2aaaea86359b2c1e5d79d27a7e09d4a0d13889c111",
+            "file_path": "expected/showcase.json",
+            "start_line": 32,
+            "end_line": 32,
+            "reason": "文本匹配",
+            "snippet": "{ \"behavioral_dependencies\": [ \"repomind_demo.service.GreetingService._format_name\", \"repomind_demo.notifier.ConsoleNotifier.send\" ], \"change_target\": \"repomind_demo.service.GreetingService.build_message\", \"direct_callers\": [ \"repomind_demo.app.main.main\" ], \"reason\": \"The entryp..."
+          },
+          {
+            "chunk_id": "ev_d6b98b2fb539b9cf121f143bb2b0dcbe26e396105dc3b9cc5f378d1bc289d6d2",
+            "file_path": "expected/showcase.json",
+            "start_line": 40,
+            "end_line": 40,
+            "reason": "文本匹配",
+            "snippet": "\"The entrypoint calls build_message and the tests assert its public greeting-format contract and the end-to-end notification flow.\""
+          },
+          {
+            "chunk_id": "ev_7112d5402f9f329c8d44ab1ca0c224bd38e3c4b4119157d4d0b809887e5bda93",
+            "file_path": "expected/showcase.json",
+            "start_line": 12,
+            "end_line": 12,
+            "reason": "文本匹配",
+            "snippet": "{ \"config\": \"config.json\", \"entrypoint\": \"repomind_demo/app/main.py\", \"readme\": \"README.md\", \"recommended_flow\": [ \"README.md\", \"config.json\", \"repomind_demo/app/main.py\", \"repomind_demo/service.py\", \"repomind_demo/notifier.py\", \"tests/test_greeting.py\" ], \"runtime_chain\": [ \"rep..."
+          },
+          {
+            "chunk_id": "ev_3f519f6a3f21c29d6bb4c688ba936a99c76dca7e1d6cb032ad686fb3c0f20d9d",
+            "file_path": "expected/showcase.json",
+            "start_line": 1,
+            "end_line": 73,
+            "reason": "文本匹配",
+            "snippet": "\"repomind_demo.service.GreetingService.build_message\""
+          }
+        ]
+      },
+      "trace": {
+        "trace_id": "trace_08582472b7a440748395117b793ff041",
+        "mode": "dependency_impact",
+        "status": "fallback",
+        "token_count": 0,
+        "steps": [
+          {
+            "step_no": 1,
+            "step_type": "route",
+            "tool_name": null,
+            "status": "succeeded",
+            "duration_ms": null,
+            "evidence_refs": []
+          },
+          {
+            "step_no": 2,
+            "step_type": "retrieval",
+            "tool_name": "hybrid_retriever",
+            "status": "succeeded",
+            "duration_ms": null,
+            "evidence_refs": [
+              {
+                "chunk_id": "ev_e839ff543223c29610ed0bbbb66eef0402daf80b28f2874a42b1c6fa98d0d5cf",
+                "end_line": 73,
+                "file_path": "expected/showcase.json",
+                "reason": "文本匹配",
+                "start_line": 1
+              },
+              {
+                "chunk_id": "ev_f808cd0305ebb8d372137e2aaaea86359b2c1e5d79d27a7e09d4a0d13889c111",
+                "end_line": 32,
+                "file_path": "expected/showcase.json",
+                "reason": "文本匹配",
+                "start_line": 32
+              },
+              {
+                "chunk_id": "ev_d6b98b2fb539b9cf121f143bb2b0dcbe26e396105dc3b9cc5f378d1bc289d6d2",
+                "end_line": 40,
+                "file_path": "expected/showcase.json",
+                "reason": "文本匹配",
+                "start_line": 40
+              },
+              {
+                "chunk_id": "ev_7112d5402f9f329c8d44ab1ca0c224bd38e3c4b4119157d4d0b809887e5bda93",
+                "end_line": 12,
+                "file_path": "expected/showcase.json",
+                "reason": "文本匹配",
+                "start_line": 12
+              },
+              {
+                "chunk_id": "ev_3f519f6a3f21c29d6bb4c688ba936a99c76dca7e1d6cb032ad686fb3c0f20d9d",
+                "end_line": 73,
+                "file_path": "expected/showcase.json",
+                "reason": "文本匹配",
+                "start_line": 1
+              }
+            ]
+          },
+          {
+            "step_no": 3,
+            "step_type": "tool",
+            "tool_name": "dependency_impact",
+            "status": "succeeded",
+            "duration_ms": 12.49400000233436,
+            "evidence_refs": [
+              {
+                "chunk_id": "",
+                "end_line": 28,
+                "file_path": "tests/test_greeting.py",
+                "reason": "代码图谱影响",
+                "start_line": 10
+              },
+              {
+                "chunk_id": "",
+                "end_line": 16,
+                "file_path": "tests/test_greeting.py",
+                "reason": "代码图谱影响",
+                "start_line": 13
+              },
+              {
+                "chunk_id": "",
+                "end_line": 21,
+                "file_path": "tests/test_greeting.py",
+                "reason": "代码图谱影响",
+                "start_line": 18
+              },
+              {
+                "chunk_id": "",
+                "end_line": 32,
+                "file_path": "tests/test_greeting.py",
+                "reason": "代码图谱影响",
+                "start_line": 1
+              },
+              {
+                "chunk_id": "",
+                "end_line": 28,
+                "file_path": "tests/test_greeting.py",
+                "reason": "代码图谱影响",
+                "start_line": 24
+              }
+            ]
+          },
+          {
+            "step_no": 4,
+            "step_type": "synthesis",
+            "tool_name": null,
+            "status": "succeeded",
+            "duration_ms": null,
+            "evidence_refs": [
+              {
+                "chunk_id": "ev_e839ff543223c29610ed0bbbb66eef0402daf80b28f2874a42b1c6fa98d0d5cf",
+                "end_line": 73,
+                "file_path": "expected/showcase.json",
+                "reason": "文本匹配",
+                "start_line": 1
+              },
+              {
+                "chunk_id": "ev_f808cd0305ebb8d372137e2aaaea86359b2c1e5d79d27a7e09d4a0d13889c111",
+                "end_line": 32,
+                "file_path": "expected/showcase.json",
+                "reason": "文本匹配",
+                "start_line": 32
+              },
+              {
+                "chunk_id": "ev_d6b98b2fb539b9cf121f143bb2b0dcbe26e396105dc3b9cc5f378d1bc289d6d2",
+                "end_line": 40,
+                "file_path": "expected/showcase.json",
+                "reason": "文本匹配",
+                "start_line": 40
+              },
+              {
+                "chunk_id": "ev_7112d5402f9f329c8d44ab1ca0c224bd38e3c4b4119157d4d0b809887e5bda93",
+                "end_line": 12,
+                "file_path": "expected/showcase.json",
+                "reason": "文本匹配",
+                "start_line": 12
+              },
+              {
+                "chunk_id": "ev_3f519f6a3f21c29d6bb4c688ba936a99c76dca7e1d6cb032ad686fb3c0f20d9d",
+                "end_line": 73,
+                "file_path": "expected/showcase.json",
+                "reason": "文本匹配",
+                "start_line": 1
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

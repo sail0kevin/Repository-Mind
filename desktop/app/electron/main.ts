@@ -12,8 +12,17 @@ const EXPECTED_INSTANCE_ID = "repomind-desktop-backend";
 const EXPECTED_BACKEND_CONTRACT_VERSION = "1";
 export const MIN_BACKEND_SCHEMA_VERSION = 7;
 
-// productName 只控制显示名称；用户数据目录必须始终沿用历史 package name，防止升级后出现一套空数据库。
-app.setPath("userData", path.join(app.getPath("appData"), USER_DATA_BASENAME));
+export function resolveUserDataPath(appDataPath: string, overridePath?: string): string {
+  return overridePath
+    ? path.resolve(overridePath)
+    : path.join(appDataPath, USER_DATA_BASENAME);
+}
+
+// 默认继续使用稳定历史目录；本地验收可显式指定隔离目录，避免接触真实用户数据库。
+app.setPath(
+  "userData",
+  resolveUserDataPath(app.getPath("appData"), process.env.REPOMIND_USER_DATA_PATH),
+);
 app.setAppUserModelId(APP_ID);
 
 let mainWindow: BrowserWindow | null = null;
@@ -39,6 +48,26 @@ interface BackendHealth {
 interface BackendStartResult {
   started: boolean;
   apiBaseUrl: string;
+}
+
+interface SaveTextRequest {
+  suggestedName: string;
+  content: string;
+  kind: "markdown" | "json";
+}
+
+interface SaveTextResult {
+  saved: boolean;
+  fileName?: string;
+}
+
+export function sanitizeExportFileName(value: string, extension: string): string {
+  const stem = value
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-")
+    .replace(/[. ]+$/g, "")
+    .trim()
+    .slice(0, 100) || "repomind-export";
+  return stem.toLowerCase().endsWith(extension) ? stem : stem + extension;
 }
 
 // 后端日志只写入当前 Electron userData，且调用方不会把密钥传入本函数。
@@ -165,7 +194,7 @@ async function startBackend(): Promise<BackendStartResult> {
   const sessionId = randomUUID();
   const env = backendEnvironment(backendRoot, port, sessionId);
 
-  if (fs.existsSync(bundledExe)) {
+  if (app.isPackaged && fs.existsSync(bundledExe)) {
     logBackend("Starting bundled backend: " + bundledExe + " port=" + port);
     backendProcess = childProcess.spawn(bundledExe, [], {
       env,
@@ -263,6 +292,58 @@ async function stopBackend(): Promise<void> {
   }
 }
 
+interface DemoPrepareResult {
+  repoPath: string;
+  created: boolean;
+}
+
+// 内置 Demo 只在用户数据目录生成运行副本；绝不修改打包资源或源码目录。
+function prepareDemoRepository(): DemoPrepareResult {
+  const repoRoot = path.join(__dirname, "..", "..", "..");
+  const sourcePath = app.isPackaged
+    ? path.join(process.resourcesPath, "demo", "repomind-demo")
+    : path.join(repoRoot, "demo", "repomind-demo");
+  const targetPath = path.join(app.getPath("userData"), "demo-workspaces", "repomind-demo-v1");
+  const gitPath = path.join(targetPath, ".git");
+
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error("内置 Demo 资源缺失：" + sourcePath);
+  }
+  if (fs.existsSync(gitPath)) {
+    return { repoPath: targetPath, created: false };
+  }
+
+  // 半成品目录不作为有效 Demo；只清理应用自己管理的版本化目标目录。
+  fs.rmSync(targetPath, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.cpSync(sourcePath, targetPath, { recursive: true });
+
+  const gitEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "RepoMind Demo",
+    GIT_AUTHOR_EMAIL: "demo@repomind.local",
+    GIT_COMMITTER_NAME: "RepoMind Demo",
+    GIT_COMMITTER_EMAIL: "demo@repomind.local",
+    GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z",
+    GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z",
+  };
+  const runGit = (args: string[]) => childProcess.execFileSync(
+    "git",
+    args,
+    { cwd: targetPath, env: gitEnv, stdio: "ignore" },
+  );
+  try {
+    runGit(["init", "--initial-branch=main"]);
+    runGit(["add", "--all"]);
+    runGit(["commit", "-m", "Create RepoMind built-in demo"]);
+  } catch (error) {
+    fs.rmSync(targetPath, { recursive: true, force: true });
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error("初始化内置 Demo Git 仓库失败：" + message);
+  }
+  return { repoPath: targetPath, created: true };
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -282,6 +363,23 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   ipcMain.handle("backend:start", () => startBackend());
   ipcMain.handle("backend:stop", async () => { await stopBackend(); return true; });
+  ipcMain.handle("demo:prepare", () => prepareDemoRepository());
+  ipcMain.handle("export:save-text", async (_event, request: SaveTextRequest): Promise<SaveTextResult> => {
+    if (!request || typeof request.content !== "string" || request.content.length > 10 * 1024 * 1024) {
+      throw new Error("导出内容无效或超过 10 MB 限制。");
+    }
+    const kind = request.kind === "json" ? "json" : "markdown";
+    const extension = kind === "json" ? ".json" : ".md";
+    const defaultPath = sanitizeExportFileName(request.suggestedName, extension);
+    const result = await dialog.showSaveDialog(mainWindow ?? undefined, {
+      title: kind === "json" ? "导出 Trace JSON" : "导出 Markdown 报告",
+      defaultPath,
+      filters: [{ name: kind === "json" ? "JSON" : "Markdown", extensions: [extension.slice(1)] }],
+    });
+    if (result.canceled || !result.filePath) return { saved: false };
+    fs.writeFileSync(result.filePath, request.content, { encoding: "utf8", flag: "w" });
+    return { saved: true, fileName: path.basename(result.filePath) };
+  });
   try {
     await startBackend();
     createWindow();

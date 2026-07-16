@@ -516,7 +516,8 @@ def build_evidence_items(rows: list[dict]) -> list[EvidenceItem]:
     """把搜索结果转换成证据展示模型，并如实标记结果来自哪种检索。"""
     return [
         EvidenceItem(
-            file_path=row.get("file_path") or row.get("relative_path") or "",
+            # Main Agent 的 EvidenceBundle 使用 path 字段；兼容旧的 file_path/relative_path 投影。
+            file_path=row.get("file_path") or row.get("path") or row.get("relative_path") or "",
             chunk_id=row.get("chunk_id") or row.get("id") or "",
             start_line=row.get("start_line"),
             end_line=row.get("end_line"),

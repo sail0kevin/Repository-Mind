@@ -9,7 +9,7 @@ import pytest
 
 from service.storage.chunk_store import replace_repo_chunks, search_chunks
 from service.storage.lexical_store import normalize_query
-from service.storage.repository_store import create_repo_record
+from service.storage.repository_store import create_repo_record, replace_file_records
 from service.storage.snapshot_store import get_or_create_snapshot, publish_snapshot
 from service.storage.sqlite_db import get_connection, require_fts5
 
@@ -108,3 +108,30 @@ def test_recall_at_5_10_and_mrr_baseline(tmp_path: Path) -> None:
     assert recall5 == 1.0
     assert recall10 == 1.0
     assert mrr == 1.0
+
+
+def test_lexical_search_backfills_path_for_legacy_null_chunk_path(tmp_path: Path) -> None:
+    """Legacy chunks with a null path must still expose the immutable file identity."""
+    repo_id = create_repo_record(tmp_path / "legacy-path", alias="legacy-path")
+    snapshot, _ = get_or_create_snapshot(repo_id, "c" * 40, "main")
+    replace_file_records(
+        repo_id,
+        [{"relative_path": "src/legacy.py", "language": "python", "file_type": "text",
+          "is_binary": False, "is_test_file": False, "parse_status": "parsed"}],
+        snapshot_id=snapshot["id"],
+    )
+    with get_connection() as connection:
+        file_id = connection.execute(
+            "SELECT id FROM files WHERE repo_id = ? AND snapshot_id = ?", (repo_id, snapshot["id"])
+        ).fetchone()[0]
+    replace_repo_chunks(
+        repo_id,
+        {"legacy": [{"file_id": file_id, "file_path": None, "chunk_type": "python",
+                      "content": "legacy needle", "content_hash": "legacy-path-hash"}]},
+        snapshot_id=snapshot["id"],
+    )
+    publish_snapshot(repo_id, snapshot["id"], "main", 1)
+
+    hits = search_chunks(repo_id, "needle", limit=5)
+    assert hits
+    assert hits[0]["file_path"] == "src/legacy.py"

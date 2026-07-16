@@ -15,7 +15,15 @@ def _fallback_answer(question: str, evidence: list[dict], repo_summary: dict | N
     summary_text = (repo_summary or {}).get("summary", "") if repo_summary else ""
     evidence_lines = []
     for index, item in enumerate(evidence[:5], start=1):
-        evidence_lines.append(f"[{index}] {item.get('file_path', '')}: {(item.get('snippet') or '')[:180]}")
+        path = str(item.get("file_path") or item.get("path") or "repository")
+        start_line = item.get("start_line")
+        end_line = item.get("end_line")
+        if start_line is not None:
+            end_line = end_line if end_line is not None else start_line
+            location = f"{path}:{start_line}-{end_line}"
+        else:
+            location = path
+        evidence_lines.append(f"[{index}] {location}: {(item.get('snippet') or item.get('content') or '')[:180]}")
     answer_parts = []
     if summary_text:
         answer_parts.append(f"根据当前仓库概览：{summary_text}")

@@ -1,0 +1,73 @@
+{
+  "corpus": "repomind-demo",
+  "purpose": "Synthetic, deterministic corpus for RepoMind overview, impact, test, and rule-based security demonstrations.",
+  "safety": {
+    "synthetic_only": true,
+    "contains_real_secrets": false,
+    "contains_generated_git_directory": false,
+    "contains_database": false,
+    "security_examples_are_executed": false,
+    "note": "config.json contains only an explicitly non-functional placeholder. security_examples.py is intentionally unimported by the runtime path."
+  },
+  "expected_overview": {
+    "entrypoint": "repomind_demo/app/main.py",
+    "readme": "README.md",
+    "config": "config.json",
+    "tests": ["tests/test_greeting.py"],
+    "recommended_flow": [
+      "README.md",
+      "config.json",
+      "repomind_demo/app/main.py",
+      "repomind_demo/service.py",
+      "repomind_demo/notifier.py",
+      "tests/test_greeting.py"
+    ],
+    "runtime_chain": [
+      "repomind_demo.app.main.main",
+      "repomind_demo.service.GreetingService.build_message",
+      "repomind_demo.service.GreetingService._format_name",
+      "repomind_demo.notifier.ConsoleNotifier.send"
+    ]
+  },
+  "expected_impact": {
+    "change_target": "repomind_demo.service.GreetingService.build_message",
+    "direct_callers": ["repomind_demo.app.main.main"],
+    "behavioral_dependencies": [
+      "repomind_demo.service.GreetingService._format_name",
+      "repomind_demo.notifier.ConsoleNotifier.send"
+    ],
+    "tests_to_run": ["tests/test_greeting.py"],
+    "reason": "The entrypoint calls build_message and the tests assert its public greeting-format contract and the end-to-end notification flow."
+  },
+  "expected_tests": {
+    "command": "python -m unittest discover -s tests -v",
+    "test_detection_paths": ["tests/test_greeting.py"],
+    "expected_result": "3 tests pass without third-party dependencies."
+  },
+  "expected_security_findings": {
+    "source_file": "repomind_demo/security_examples.py",
+    "finding_count": 3,
+    "rules": ["eval", "unsafe YAML loader", "subprocess with shell option"],
+    "severities": ["high", "medium", "medium"],
+    "interpretation": "Demonstration-only static findings. Do not execute the example functions; use safer replacements in real code."
+  },
+  "parser_triggers": {
+    "python_symbols": [
+      "GreetingService",
+      "GreetingService.build_message",
+      "GreetingService._format_name",
+      "ConsoleNotifier.send",
+      "main"
+    ],
+    "imports": [
+      "repomind_demo.notifier.ConsoleNotifier",
+      "repomind_demo.service.GreetingService"
+    ],
+    "config_paths": [
+      "$.app_name",
+      "$.greeting_prefix",
+      "$.demo_api_key"
+    ],
+    "test_naming": "tests/test_greeting.py"
+  }
+}

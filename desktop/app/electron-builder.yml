@@ -9,6 +9,8 @@ files:
 extraResources:
   - from: ../../backend-dist/repomind-backend.exe
     to: backend/repomind-backend.exe
+  - from: ../../demo/repomind-demo
+    to: demo/repomind-demo
 win:
   target:
     - nsis

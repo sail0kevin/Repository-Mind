@@ -40,14 +40,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.middleware("http")
-    async def allow_options_preflight(request, call_next):
-        """让所有 OPTIONS 预检请求直接返回 200，避免桌面端 Fast Refresh 的 OPTIONS 探测被路由层拒绝。"""
-        if request.method == "OPTIONS":
-            from fastapi.responses import Response
-            return Response(status_code=200)
-        return await call_next(request)
-
     @app.on_event("startup")
     def initialize_runtime() -> None:
         """初始化数据库，并把上次进程遗留的 running 任务标记为 interrupted。"""

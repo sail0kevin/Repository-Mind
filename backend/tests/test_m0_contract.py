@@ -98,6 +98,36 @@ def test_health_exposes_backend_identity():
     assert Path(body["database_path"]).resolve() == TEST_DIR.joinpath("test.sqlite3").resolve()
 
 
+def test_cors_preflight_allows_vite_renderer():
+    """开发版 renderer 的真实 Origin 能完成 CORS 预检和健康请求。"""
+    origin = "http://localhost:5173"
+    with TestClient(create_app()) as client:
+        preflight = client.options(
+            "/api/v1/health",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        health = client.get("/api/v1/health", headers={"Origin": origin})
+        denied = client.options(
+            "/api/v1/health",
+            headers={
+                "Origin": "https://example.invalid",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == origin
+    assert "GET" in preflight.headers["access-control-allow-methods"]
+    assert "content-type" in preflight.headers["access-control-allow-headers"].lower()
+    assert health.status_code == 200
+    assert health.headers["access-control-allow-origin"] == origin
+    assert denied.headers.get("access-control-allow-origin") is None
+
+
 def test_code_graph_get_contract_and_legacy_compatibility():
     """新 GET 契约可用，同时旧 POST search/function 参数继续工作。"""
     repo_id = _seed_repo_and_graph()

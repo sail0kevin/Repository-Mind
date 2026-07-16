@@ -31,7 +31,12 @@ class Settings(BaseSettings):
     session_id: str | None = None
     port: int = Field(default=8000, ge=1, le=65535)
     api_base_url: str = "http://127.0.0.1:8000/api/v1"
-    cors_origins: list[str] = ["null", "http://localhost", "http://127.0.0.1"]
+    # Electron 打包页使用 Origin: null；Vite 开发页必须匹配包含端口的完整 Origin。
+    cors_origins: list[str] = [
+        "null",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
     debug: bool = False
     paths: Paths = Field(default_factory=Paths)
 

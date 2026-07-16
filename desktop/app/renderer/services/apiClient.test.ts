@@ -4,6 +4,7 @@ import {
   getCallChain,
   getClassHierarchy,
   getCodeGraphStats,
+  getHealth,
   getImportantFunctions,
   getRepositoryCatalogItem,
   getRepositoryCatalogTree,
@@ -39,6 +40,29 @@ function mockSuccessfulFetch(payload: unknown = {}) {
 
 afterEach(() => {
   setApiBaseUrl("http://127.0.0.1:8000/api/v1");
+});
+
+describe("HTTP 请求头契约", () => {
+  it("GET 健康检查不发送 JSON Content-Type", async () => {
+    const fetchMock = mockSuccessfulFetch({ status: "ok" });
+
+    await getHealth();
+
+    const options = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = new Headers(options.headers);
+    expect(headers.has("Content-Type")).toBe(false);
+  });
+
+  it("携带 JSON 请求体时发送 Content-Type", async () => {
+    const fetchMock = mockSuccessfulFetch({ evidence: [] });
+
+    await searchRepository("repo-1", "入口");
+
+    const options = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = new Headers(options.headers);
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(options.body).toBe(JSON.stringify({ query: "入口" }));
+  });
 });
 
 describe("parseApiError", () => {

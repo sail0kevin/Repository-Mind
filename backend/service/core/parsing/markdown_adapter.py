@@ -112,7 +112,9 @@ class MarkdownParser(ParserAdapter):
         parent_symbol, parent_evidence = active if active else (None, None)
         evidence = EvidenceUnit.create(document, start + 1, end + 1, kind="paragraph", content="\n".join(lines),
             parent_id=parent_evidence.id if parent_evidence else None,
-            title=parent_evidence.title if parent_evidence else None, metadata={"part": part})
+            title=parent_evidence.title if parent_evidence else None, metadata={"part": part},
+            # 同一章节会产生多个段落；part 参与结构身份，避免它们共享 logical_id。
+            identity=(parent_evidence.logical_id if parent_evidence else document.path, part))
         result.evidence.append(evidence)
         if parent_symbol:
             result.relations.append(Relation.create(document, kind="contains", source_id=parent_symbol.id,

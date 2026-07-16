@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from service.core.agent.router import route_question
+from service.core.qa import _fallback_answer
 from service.main import create_app
 from service.storage.repository_store import create_repo_record, replace_file_records
 from service.storage.snapshot_store import get_or_create_snapshot, publish_snapshot
@@ -33,6 +34,7 @@ def _seed(tmp_path: Path) -> tuple[str, str]:
 
 def test_router_simple_question_uses_zero_tools_and_specialized_questions_are_narrow():
     assert route_question("这个函数做什么").tools == ()
+    assert route_question("GreetingService.build_message 方法是做什么的？").tools == ()
     assert [item.name for item in route_question("认证和密钥是否安全").tools] == ["security_review"]
     assert [item.name for item in route_question("修改 authenticate 会影响谁").tools] == ["dependency_impact"]
     assert len(route_question("测试失败怎么运行").tools) <= 2
@@ -46,6 +48,8 @@ def test_ask_persists_trace_and_no_key_fallback(tmp_path: Path):
         payload = response.json()
         assert payload["snapshot_id"] == snapshot_id
         assert payload["trace_id"].startswith("trace_")
+        assert payload["evidence"]
+        assert all(item["file_path"] for item in payload["evidence"])
         trace = client.get(f"/api/v1/repos/{repo_id}/traces/{payload['trace_id']}")
     assert trace.status_code == 200
     body = trace.json()
@@ -62,3 +66,21 @@ def test_security_question_calls_only_security_tool(tmp_path: Path):
         trace = client.get(f"/api/v1/repos/{repo_id}/traces/{response.json()['trace_id']}").json()
     tools = [step["tool_name"] for step in trace["steps"] if step["step_type"] == "tool"]
     assert tools == ["security_review"]
+
+
+def test_rule_fallback_never_emits_empty_evidence_reference():
+    result = _fallback_answer(
+        "where is the entry point?",
+        [{"file_path": None, "path": "src/main.py", "start_line": 3, "end_line": 4,
+          "snippet": "def main(): ..."}],
+        None,
+    )
+    assert "[1] :" not in result["answer"]
+    assert "src/main.py:3-4" in result["answer"]
+
+
+def test_missing_trace_returns_404(tmp_path: Path):
+    repo_id, _ = _seed(tmp_path)
+    with TestClient(create_app()) as client:
+        response = client.get(f"/api/v1/repos/{repo_id}/traces/trace_does_not_exist")
+    assert response.status_code == 404

@@ -16,8 +16,16 @@ from service.storage.repository_store import get_repo_record, list_file_records
 
 
 def _refs(items: list[dict]) -> list[dict]:
-    return [{key: item.get(key) for key in ("chunk_id", "file_path", "start_line", "end_line", "reason")}
-            for item in items]
+    refs = []
+    for item in items:
+        refs.append({
+            "chunk_id": item.get("chunk_id") or item.get("id") or "",
+            "file_path": item.get("file_path") or item.get("path") or "repository",
+            "start_line": item.get("start_line"),
+            "end_line": item.get("end_line"),
+            "reason": item.get("reason") or "检索匹配",
+        })
+    return refs
 
 
 def run_main_agent(context: AgentContext) -> MainAgentResult:

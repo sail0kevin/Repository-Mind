@@ -167,6 +167,12 @@ function normalizeResultList(value: unknown): any[] {
   return [];
 }
 
+const DEMO_QUESTIONS = [
+  "这个演示仓库的主要入口和职责是什么？",
+  "这个仓库有哪些安全风险线索？",
+  "修改 GreetingService.build_message 可能影响哪些调用方和测试？",
+];
+
 function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [settings, setSettings] = useState<SettingsResponse>(DEFAULT_SETTINGS);
@@ -214,6 +220,7 @@ function App() {
   const [selectedChunk, setSelectedChunk] = useState<ChunkDetailResponse | null>(null);
   const [selectedTrace, setSelectedTrace] = useState<AgentTraceResponse | null>(null);
   const [isEvidenceDrawerOpen, setIsEvidenceDrawerOpen] = useState(false);
+  const [exportStatus, setExportStatus] = useState("");
 
   const [totalTokens, setTotalTokens] = useState(0);
   const [totalCost, setTotalCost] = useState(0);
@@ -241,6 +248,8 @@ function App() {
   const streamRef = useRef<HTMLDivElement | null>(null);
   const knowledgeRequestRef = useRef(0);
   const catalogRequestRef = useRef(0);
+  // 代码图谱与知识目录共用仓库/快照上下文；递增编号可丢弃切换前才返回的请求。
+  const codeGraphRequestRef = useRef(0);
   const canUseRepo = !!repo
     && !!selectedSnapshotId
     && snapshots.some((snapshot) => snapshot.snapshot_id === selectedSnapshotId && snapshot.status === "succeeded")
@@ -383,6 +392,13 @@ function App() {
     const requestId = knowledgeRequestRef.current + 1;
     knowledgeRequestRef.current = requestId;
     catalogRequestRef.current += 1;
+    codeGraphRequestRef.current += 1;
+    // 切换仓库或快照时清空上一份图谱结果，避免在新上下文中显示旧快照的数据。
+    setCodeGraphStats(null);
+    setImportantFunctions([]);
+    setFunctionResults([]);
+    setCallChain(null);
+    setClassHierarchy(null);
     setIsKnowledgeLoading(true);
     setError(null);
     // 每次切换仓库时先清空旧卡片和证据，防止异步请求期间展示跨仓库内容。
@@ -500,6 +516,51 @@ function App() {
     throw new Error("索引等待超时，请在系统日志中查看后端状态。");
   }
 
+  async function processLocalRepository(targetPath: string, targetAlias?: string) {
+    const created = await registerRepository(targetPath, undefined, undefined, targetAlias);
+    await ingestThenLoadRepository(created.repo_id, {
+      ingestRepository,
+      pollIngestJob,
+      loadRepository,
+      refreshRepositoryInsights: async (targetRepoId) => {
+        await refreshRepoInsights(targetRepoId);
+        await loadRepositoryKnowledge(targetRepoId);
+        setRegisterProgress("索引完成，可以开始浏览 Catalog、问答和代码图谱查询");
+      },
+    });
+  }
+
+  async function handleOpenDemo() {
+    const desktopBridge = (window as Window & {
+      repomind?: { demo?: { prepare?: () => Promise<{ repoPath: string; created: boolean }> } };
+    }).repomind;
+    if (!desktopBridge?.demo?.prepare) {
+      setError("当前环境不支持内置 Demo，请从 RepoMind 桌面端打开。");
+      return;
+    }
+
+    setError(null);
+    setIsRegistering(true);
+    setRegisterProgress("正在准备本地合成 Demo，无需网络和 API Key");
+    try {
+      const prepared = await desktopBridge.demo.prepare();
+      setRepoPath(prepared.repoPath);
+      setGithubUrl("");
+      setAlias("RepoMind 内置 Demo");
+      setQuestion(DEMO_QUESTIONS[0]);
+      addLog(`[INFO] ${prepared.created ? "已创建" : "已复用"}内置 Demo：${prepared.repoPath}`);
+      await processLocalRepository(prepared.repoPath, "RepoMind 内置 Demo");
+      setActiveTab("qa");
+    } catch (err) {
+      const message = extractErrorMessage(err);
+      setError(message);
+      setRegisterProgress("Demo 打开失败，请查看错误信息");
+      addLog(`[ERROR] Demo 打开失败：${message}`);
+    } finally {
+      setIsRegistering(false);
+    }
+  }
+
   async function handleRegisterRepository() {
     const trimmedGithubUrl = githubUrl.trim();
     const trimmedRepoPath = repoPath.trim();
@@ -530,6 +591,7 @@ function App() {
     setRepoSummary(null);
     setWorkflowReport(null);
     setActiveWorkflowSection("");
+    codeGraphRequestRef.current += 1;
     setAnswer(null);
     setEvidence([]);
     setCodeGraphStats(null);
@@ -553,11 +615,11 @@ function App() {
       } else {
         setRegisterProgress("正在注册本地仓库并扫描文件");
         addLog(`[INFO] 注册本地仓库：${trimmedRepoPath}`);
-        const created = await registerRepository(trimmedRepoPath, undefined, undefined, trimmedAlias);
-        repoId = created.repo_id;
+        await processLocalRepository(trimmedRepoPath, trimmedAlias);
+        return;
       }
 
-      // 新仓库还没有 succeeded 快照；必须先建立索引，随后才能读取 files。
+      // GitHub 路径已由分析接口注册，这里继续完成首次 Snapshot 索引。
       setRegisterProgress("仓库已注册，正在启动索引任务");
       await ingestThenLoadRepository(repoId, {
         ingestRepository,
@@ -565,7 +627,6 @@ function App() {
         loadRepository,
         refreshRepositoryInsights: async (targetRepoId) => {
           await refreshRepoInsights(targetRepoId);
-          await refreshCodeGraph(targetRepoId);
           await loadRepositoryKnowledge(targetRepoId);
           setRegisterProgress("索引完成，可以开始浏览 Catalog、问答和代码图谱查询");
         },
@@ -646,6 +707,56 @@ function App() {
     } catch (err) {
       setError(extractErrorMessage(err));
     }
+  }
+
+  async function saveTextExport(suggestedName: string, content: string, kind: "markdown" | "json") {
+    const desktopBridge = (window as Window & {
+      repomind?: { export?: { saveText?: (request: { suggestedName: string; content: string; kind: "markdown" | "json" }) => Promise<{ saved: boolean; fileName?: string }> } };
+    }).repomind;
+    if (!desktopBridge?.export?.saveText) {
+      setError("当前环境不支持文件导出，请从 RepoMind 桌面端操作。");
+      return;
+    }
+    const result = await desktopBridge.export.saveText({ suggestedName, content, kind });
+    setExportStatus(result.saved ? `已导出：${result.fileName || "文件"}` : "已取消导出");
+  }
+
+  async function handleExportMarkdown() {
+    if (!workflowReport || !repo || !selectedSnapshotId) return;
+    const privatePath = workflowReport.repo.repo_path;
+    const markdown = workflowReport.markdown
+      .split(privatePath).join("[local repository]")
+      + `\n\n## Export metadata\n\n- Snapshot: ${selectedSnapshotId}\n- Generated: ${new Date().toISOString()}\n- Retrieval: lexical by default; optional embedding when configured\n- Limitations: ${workflowReport.limitations.join("; ") || "See project documentation."}\n`;
+    await saveTextExport(`${repo.alias}-workflow-report`, markdown, "markdown");
+  }
+
+  async function handleExportTrace() {
+    if (!repo || !answer?.trace_id) return;
+    const trace = selectedTrace?.id === answer.trace_id
+      ? selectedTrace
+      : await getRepositoryTrace(repo.repo_id, answer.trace_id);
+    const toolSteps = trace.steps.filter((step) => step.step_type === "tool");
+    const retrievalStep = trace.steps.find((step) => step.step_type === "retrieval");
+    const evidence = trace.steps.flatMap((step) => step.evidence_refs || []);
+    const uniqueEvidence = Array.from(new Map(evidence.map((item) => [
+      `${item.chunk_id}|${item.file_path}|${item.start_line}|${item.end_line}`,
+      item,
+    ])).values());
+    const payload = {
+      format: "repomind-trace-export-v1",
+      generated_at: new Date().toISOString(),
+      repository: { alias: repo.alias, commit: answer.commit || repo.commit, snapshot_id: answer.snapshot_id },
+      retrieval_mode: retrievalStep?.output_summary?.mode || "unknown",
+      generation_mode: trace.status === "fallback" ? "rule_fallback" : "llm",
+      tool_route: toolSteps.map((step) => ({ name: step.tool_name, status: step.status })),
+      limitations: trace.steps.flatMap((step) => {
+        const value = step.output_summary?.limitations ?? step.output_summary?.limitation;
+        return Array.isArray(value) ? value : value ? [String(value)] : [];
+      }),
+      evidence: uniqueEvidence,
+      trace,
+    };
+    await saveTextExport(`${repo.alias}-trace`, JSON.stringify(payload, null, 2) + "\n", "json");
   }
 
   async function handleWorkflowAnalysis() {
@@ -749,43 +860,88 @@ function App() {
     addLog(`[INFO] 设置已保存，模型：${nextSettings.llm_model}`);
   }
 
-  async function refreshCodeGraph(repoId = repo?.repo_id) {
+  async function refreshCodeGraph(repoId = repo?.repo_id, snapshotId = selectedSnapshotId) {
     if (!repoId) {
       return;
     }
+    const requestId = codeGraphRequestRef.current + 1;
+    codeGraphRequestRef.current = requestId;
     try {
       const [stats, important] = await Promise.all([
-        getCodeGraphStats(repoId),
-        getImportantFunctions(repoId, 20),
+        getCodeGraphStats(repoId, snapshotId ?? undefined),
+        getImportantFunctions(repoId, 20, snapshotId ?? undefined),
       ]);
+      if (requestId !== codeGraphRequestRef.current || repo?.repo_id !== repoId || selectedSnapshotId !== snapshotId) {
+        return;
+      }
       setCodeGraphStats(stats as Record<string, unknown>);
       setImportantFunctions(normalizeResultList(important));
       addLog("[INFO] 代码图谱已刷新");
     } catch (err) {
-      addLog(`[WARN] 代码图谱暂不可用：${extractErrorMessage(err)}`);
+      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+        addLog(`[WARN] 代码图谱暂不可用：${extractErrorMessage(err)}`);
+      }
     }
   }
 
   async function handleFunctionSearch() {
-    if (!repo || !functionQuery.trim()) {
+    if (!repo || !selectedSnapshotId || !functionQuery.trim()) {
       return;
     }
-    const response = await searchCodeFunctions(repo.repo_id, functionQuery.trim(), 20);
-    setFunctionResults(normalizeResultList(response));
+    const repoId = repo.repo_id;
+    const snapshotId = selectedSnapshotId;
+    const requestId = codeGraphRequestRef.current + 1;
+    codeGraphRequestRef.current = requestId;
+    try {
+      const response = await searchCodeFunctions(repoId, functionQuery.trim(), 20, snapshotId);
+      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+        setFunctionResults(normalizeResultList(response));
+      }
+    } catch (err) {
+      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+        setError(extractErrorMessage(err));
+      }
+    }
   }
 
   async function handleCallChain() {
-    if (!repo || !callFunctionName.trim()) {
+    if (!repo || !selectedSnapshotId || !callFunctionName.trim()) {
       return;
     }
-    setCallChain(await getCallChain(repo.repo_id, callFunctionName.trim(), "both", 3));
+    const repoId = repo.repo_id;
+    const snapshotId = selectedSnapshotId;
+    const requestId = codeGraphRequestRef.current + 1;
+    codeGraphRequestRef.current = requestId;
+    try {
+      const response = await getCallChain(repoId, callFunctionName.trim(), "both", 3, snapshotId);
+      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+        setCallChain(response);
+      }
+    } catch (err) {
+      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+        setError(extractErrorMessage(err));
+      }
+    }
   }
 
   async function handleClassHierarchy() {
-    if (!repo || !className.trim()) {
+    if (!repo || !selectedSnapshotId || !className.trim()) {
       return;
     }
-    setClassHierarchy(await getClassHierarchy(repo.repo_id, className.trim()));
+    const repoId = repo.repo_id;
+    const snapshotId = selectedSnapshotId;
+    const requestId = codeGraphRequestRef.current + 1;
+    codeGraphRequestRef.current = requestId;
+    try {
+      const response = await getClassHierarchy(repoId, className.trim(), snapshotId);
+      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+        setClassHierarchy(response);
+      }
+    } catch (err) {
+      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+        setError(extractErrorMessage(err));
+      }
+    }
   }
 
   return (
@@ -829,6 +985,7 @@ function App() {
               registerProgress={registerProgress}
               onAliasChange={setAlias}
               onGithubUrlChange={setGithubUrl}
+              onOpenDemo={handleOpenDemo}
               onRegister={handleRegisterRepository}
               onRepoPathChange={setRepoPath}
             />
@@ -862,7 +1019,8 @@ function App() {
         }
         centerPanel={
           <>
-          {error && <div className="af-error-box"><AlertCircle size={16} /> <span>{error}</span><button onClick={() => setError(null)}><X size={14} /></button></div>}
+            {error && <div className="af-error-box"><AlertCircle size={16} /> <span>{error}</span><button onClick={() => setError(null)}><X size={14} /></button></div>}
+            {exportStatus && <div className="af-export-status"><Save size={15} /><span>{exportStatus}</span></div>}
           <div className="af-tabs">
             <button className={`af-tab ${activeTab === "catalog" ? "active" : ""}`} onClick={() => setActiveTab("catalog")}><Database size={14} /> 知识目录</button>
             <button className={`af-tab ${activeTab === "qa" ? "active" : ""}`} onClick={() => setActiveTab("qa")}><Search size={14} /> 智能问答</button>
@@ -886,9 +1044,10 @@ function App() {
               searchQuery={searchQuery}
               onAsk={handleAsk}
               onQuestionChange={setQuestion}
-              onSearch={handleSearch}
-              onSearchQueryChange={setSearchQuery}
-              onOpenTrace={handleTraceOpen}
+                onSearch={handleSearch}
+                onSearchQueryChange={setSearchQuery}
+                onExportTrace={handleExportTrace}
+                onOpenTrace={handleTraceOpen}
               onRefresh={() => repo && refreshRepoInsights(repo.repo_id, selectedSnapshotId ?? undefined)}
             />
           )}
@@ -924,8 +1083,9 @@ function App() {
             <WorkflowPanel
               canUseRepo={canUseRepo}
               currentSection={currentWorkflowSection}
-              report={workflowReport}
-              onRun={handleWorkflowAnalysis}
+                report={workflowReport}
+                onExportMarkdown={handleExportMarkdown}
+                onRun={handleWorkflowAnalysis}
               onSectionChange={setActiveWorkflowSection}
             />
           )}
@@ -966,7 +1126,9 @@ function App() {
               <div className="af-summary-card">
                 <p>{repoSummary.summary}</p>
                 <strong>推荐阅读顺序</strong>
-                {repoSummary.recommended_reading_order.slice(0, 6).map((item) => <span key={item}>{item}</span>)}
+                <div className="af-reading-list">
+                  {repoSummary.recommended_reading_order.slice(0, 6).map((item) => <span className="af-reading-item" key={item}>{item}</span>)}
+                </div>
               </div>
             ) : <div className="af-empty small">暂无仓库摘要</div>}
           </section>
@@ -1002,8 +1164,9 @@ function QaPanel(props: {
   searchQuery: string;
   onAsk: () => void;
   onQuestionChange: (value: string) => void;
-  onSearch: () => void;
-  onSearchQueryChange: (value: string) => void;
+    onSearch: () => void;
+    onSearchQueryChange: (value: string) => void;
+    onExportTrace: () => void;
   onOpenTrace: () => void;
   onRefresh: () => void;
 }) {
@@ -1012,6 +1175,13 @@ function QaPanel(props: {
       <div className="af-qbox">
         <input value={props.question} onChange={(event) => props.onQuestionChange(event.target.value)} onKeyDown={(event) => event.key === "Enter" && props.onAsk()} placeholder="问这个仓库任何问题，例如：启动流程是什么？" />
         <button onClick={props.onAsk} disabled={!props.canUseRepo || props.isAsking}>{props.isAsking ? <Loader2 size={16} className="spin" /> : <Send size={16} />} 提问</button>
+      </div>
+      <div className="af-actions">
+        {DEMO_QUESTIONS.map((item) => (
+          <button key={item} className="af-btn secondary" onClick={() => props.onQuestionChange(item)} disabled={!props.canUseRepo}>
+            {item}
+          </button>
+        ))}
       </div>
       <div className="af-actions">
         <input className="af-inline-input" value={props.searchQuery} onChange={(event) => props.onSearchQueryChange(event.target.value)} placeholder="只搜索证据，不调用模型" />
@@ -1024,7 +1194,8 @@ function QaPanel(props: {
             <span>置信度：{props.answer.confidence}</span>
             <span>证据：{props.answer.used_context}</span>
             <span>Token：{props.answer.token_count || "未返回"}</span>
-            <button className="af-link-btn" onClick={props.onOpenTrace}>查看工具轨迹</button>
+              <button className="af-link-btn" onClick={props.onOpenTrace}>查看工具轨迹</button>
+              <button className="af-link-btn" onClick={props.onExportTrace}><Save size={12} /> 导出 Trace JSON</button>
           </div>
           <p>{props.answer.answer}</p>
         </div>
@@ -1083,6 +1254,7 @@ function WorkflowPanel(props: {
   canUseRepo: boolean;
   currentSection: WorkflowReportResponse["sections"][number] | null;
   report: WorkflowReportResponse | null;
+  onExportMarkdown: () => void;
   onRun: () => void;
   onSectionChange: (key: string) => void;
 }) {
@@ -1090,6 +1262,7 @@ function WorkflowPanel(props: {
     <div className="af-workflow">
       <div className="af-actions">
         <button className="af-btn primary" onClick={props.onRun} disabled={!props.canUseRepo}><Workflow size={16} /> 运行工作流分析</button>
+        <button className="af-btn secondary" onClick={props.onExportMarkdown} disabled={!props.report}><Save size={16} /> 导出 Markdown</button>
       </div>
       {props.report ? (
         <div className="af-report">

@@ -103,9 +103,14 @@ export function jobProgressPercent(progress: number | null | undefined): number 
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = apiBaseUrl + path;
+  // 只有真正发送 JSON 请求体时才声明 Content-Type，避免 GET 触发无意义的 CORS 预检。
+  const headers = new Headers(options.headers);
+  if (options.body !== undefined && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
   const response = await fetch(url, {
     ...options,
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers,
   });
   if (!response.ok) {
     const text = await response.text();
