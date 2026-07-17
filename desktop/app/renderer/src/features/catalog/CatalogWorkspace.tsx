@@ -17,7 +17,7 @@ export function CatalogWorkspace(props: {
   }
 
   return (
-    <div className="af-catalog-workspace">
+    <div className="af-catalog-workspace" data-testid="catalog-workspace">
       <div className="af-catalog-heading">
         <div>
           <span className="af-catalog-kind">{props.item.kind}</span>

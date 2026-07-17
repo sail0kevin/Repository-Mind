@@ -689,6 +689,8 @@ function App() {
     const snapshotId = evidenceSnapshotId;
     setError(null);
     try {
+      // Evidence 抽屉只展示当前选中的源码，避免上一次 Trace 状态让抽屉类型判断错误。
+      setSelectedTrace(null);
       setSelectedChunk(await getRepositoryChunkDetail(repoId, item.chunk_id, snapshotId));
       setIsEvidenceDrawerOpen(true);
     } catch (err) {
@@ -702,6 +704,8 @@ function App() {
     }
     setError(null);
     try {
+      // 打开 Trace 前清掉源码证据，确保抽屉稳定渲染为 Trace 类型。
+      setSelectedChunk(null);
       setSelectedTrace(await getRepositoryTrace(repo.repo_id, answer.trace_id));
       setIsEvidenceDrawerOpen(true);
     } catch (err) {
@@ -945,7 +949,7 @@ function App() {
   }
 
   return (
-    <div className="af-app">
+    <div className="af-app" data-testid="app-ready">
       <AppHeader
         isHealthy={!!health}
         onOpenGuide={() => setIsGuideOpen(true)}
@@ -1020,12 +1024,12 @@ function App() {
         centerPanel={
           <>
             {error && <div className="af-error-box"><AlertCircle size={16} /> <span>{error}</span><button onClick={() => setError(null)}><X size={14} /></button></div>}
-            {exportStatus && <div className="af-export-status"><Save size={15} /><span>{exportStatus}</span></div>}
+            {exportStatus && <div className="af-export-status" data-testid="export-status"><Save size={15} /><span>{exportStatus}</span></div>}
           <div className="af-tabs">
-            <button className={`af-tab ${activeTab === "catalog" ? "active" : ""}`} onClick={() => setActiveTab("catalog")}><Database size={14} /> 知识目录</button>
-            <button className={`af-tab ${activeTab === "qa" ? "active" : ""}`} onClick={() => setActiveTab("qa")}><Search size={14} /> 智能问答</button>
+            <button data-testid="workspace-tab-catalog" className={`af-tab ${activeTab === "catalog" ? "active" : ""}`} onClick={() => setActiveTab("catalog")}><Database size={14} /> 知识目录</button>
+            <button data-testid="workspace-tab-qa" className={`af-tab ${activeTab === "qa" ? "active" : ""}`} onClick={() => setActiveTab("qa")}><Search size={14} /> 智能问答</button>
             <button className={`af-tab ${activeTab === "legacy" ? "active" : ""}`} onClick={() => setActiveTab("legacy")}><MessageSquareText size={14} /> Legacy 多角色</button>
-            <button className={`af-tab ${activeTab === "workflow" ? "active" : ""}`} onClick={() => setActiveTab("workflow")}><Workflow size={14} /> 工作流分析</button>
+            <button data-testid="workspace-tab-workflow" className={`af-tab ${activeTab === "workflow" ? "active" : ""}`} onClick={() => setActiveTab("workflow")}><Workflow size={14} /> 工作流分析</button>
             <button className={`af-tab ${activeTab === "codegraph" ? "active" : ""}`} onClick={() => setActiveTab("codegraph")}><Code2 size={14} /> 代码图谱</button>
           </div>
 
@@ -1148,7 +1152,11 @@ function App() {
           chunk={selectedChunk}
           commit={snapshots.find((item) => item.snapshot_id === selectedChunk?.snapshot_id)?.commit ?? repo?.commit ?? null}
           trace={selectedTrace}
-          onClose={() => setIsEvidenceDrawerOpen(false)}
+          onClose={() => {
+            setIsEvidenceDrawerOpen(false);
+            setSelectedChunk(null);
+            setSelectedTrace(null);
+          }}
         />
       )}
       <UserGuide isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} />
@@ -1173,12 +1181,12 @@ function QaPanel(props: {
   return (
     <div className="af-qa">
       <div className="af-qbox">
-        <input value={props.question} onChange={(event) => props.onQuestionChange(event.target.value)} onKeyDown={(event) => event.key === "Enter" && props.onAsk()} placeholder="问这个仓库任何问题，例如：启动流程是什么？" />
-        <button onClick={props.onAsk} disabled={!props.canUseRepo || props.isAsking}>{props.isAsking ? <Loader2 size={16} className="spin" /> : <Send size={16} />} 提问</button>
+        <input data-testid="question-input" value={props.question} onChange={(event) => props.onQuestionChange(event.target.value)} onKeyDown={(event) => event.key === "Enter" && props.onAsk()} placeholder="问这个仓库任何问题，例如：启动流程是什么？" />
+        <button data-testid="ask-button" onClick={props.onAsk} disabled={!props.canUseRepo || props.isAsking}>{props.isAsking ? <Loader2 size={16} className="spin" /> : <Send size={16} />} 提问</button>
       </div>
       <div className="af-actions">
-        {DEMO_QUESTIONS.map((item) => (
-          <button key={item} className="af-btn secondary" onClick={() => props.onQuestionChange(item)} disabled={!props.canUseRepo}>
+        {DEMO_QUESTIONS.map((item, index) => (
+          <button data-testid={`demo-question-${index}`} key={item} className="af-btn secondary" onClick={() => props.onQuestionChange(item)} disabled={!props.canUseRepo}>
             {item}
           </button>
         ))}
@@ -1189,13 +1197,13 @@ function QaPanel(props: {
         <button className="af-btn secondary" onClick={props.onRefresh} disabled={!props.canUseRepo}><RefreshCcw size={16} /> 刷新地图</button>
       </div>
       {props.answer ? (
-        <div className="af-answer">
+        <div className="af-answer" data-testid="answer-panel">
           <div className="af-answer-meta">
             <span>置信度：{props.answer.confidence}</span>
             <span>证据：{props.answer.used_context}</span>
             <span>Token：{props.answer.token_count || "未返回"}</span>
-              <button className="af-link-btn" onClick={props.onOpenTrace}>查看工具轨迹</button>
-              <button className="af-link-btn" onClick={props.onExportTrace}><Save size={12} /> 导出 Trace JSON</button>
+              <button data-testid="open-trace" className="af-link-btn" onClick={props.onOpenTrace}>查看工具轨迹</button>
+              <button data-testid="export-trace-json" className="af-link-btn" onClick={props.onExportTrace}><Save size={12} /> 导出 Trace JSON</button>
           </div>
           <p>{props.answer.answer}</p>
         </div>
@@ -1261,11 +1269,11 @@ function WorkflowPanel(props: {
   return (
     <div className="af-workflow">
       <div className="af-actions">
-        <button className="af-btn primary" onClick={props.onRun} disabled={!props.canUseRepo}><Workflow size={16} /> 运行工作流分析</button>
-        <button className="af-btn secondary" onClick={props.onExportMarkdown} disabled={!props.report}><Save size={16} /> 导出 Markdown</button>
+        <button data-testid="run-workflow" className="af-btn primary" onClick={props.onRun} disabled={!props.canUseRepo}><Workflow size={16} /> 运行工作流分析</button>
+        <button data-testid="export-markdown" className="af-btn secondary" onClick={props.onExportMarkdown} disabled={!props.report}><Save size={16} /> 导出 Markdown</button>
       </div>
       {props.report ? (
-        <div className="af-report">
+        <div className="af-report" data-testid="workflow-report">
           <h2>{props.report.summary}</h2>
           <div className="af-report-tabs">
             {props.report.sections.map((section) => <button key={section.key} className={`af-rtab ${props.currentSection?.key === section.key ? "active" : ""}`} onClick={() => props.onSectionChange(section.key)}>{section.title}</button>)}
@@ -1404,7 +1412,7 @@ function EvidencePanel({ evidence, files, onEvidenceSelect }: { evidence: Eviden
         <div className="af-section-title"><FileCode2 size={15} /> 证据流</div>
         <div className="af-evidence">
           {evidence.map((item, index) => (
-            <button key={`${item.chunk_id}-${index}`} className="af-ev-item af-ev-button" onClick={() => onEvidenceSelect(item)}>
+            <button data-testid="evidence-item" key={`${item.chunk_id}-${index}`} className="af-ev-item af-ev-button" onClick={() => onEvidenceSelect(item)}>
               <strong>{item.file_path}</strong>
               <span>{item.start_line ?? "?"}-{item.end_line ?? "?"} · {item.reason}</span>
               <p>{item.snippet}</p>

@@ -43,7 +43,27 @@ jobs:
 
       - name: Run isolated Windows package chain
         shell: pwsh
+        env:
+          REPOMIND_SKIP_WINDOWS_EXE_METADATA: "1"
         run: ./scripts/package_windows.ps1 -PythonCommand python
+
+      - name: Run packaged Electron E2E
+        shell: pwsh
+        run: ./scripts/e2e_windows.ps1 -ExePath ./desktop/app/release/win-unpacked/RepoMind.exe
+
+      - name: Upload redacted E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repomind-e2e-diagnostics
+          path: |
+            e2e-artifacts/**/*.png
+            e2e-artifacts/**/*.zip
+            e2e-artifacts/**/*.webm
+            e2e-artifacts/**/*.txt
+            e2e-artifacts/**/*-redacted.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload unpacked package and hashes
         uses: actions/upload-artifact@v4

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from service.api.v1.repos import analysis_router, router as repos_router
@@ -51,6 +51,22 @@ def create_app() -> FastAPI:
             logger.warning("已恢复 %d 个中断任务。", recovered)
         if recovered_snapshots:
             logger.warning("已恢复 %d 个中断快照。", recovered_snapshots)
+
+    @app.post("/api/v1/runtime/shutdown", status_code=202)
+    def shutdown(x_repomind_shutdown_token: str | None = Header(default=None)) -> dict[str, str]:
+        """仅允许当前 Electron 会话请求后端优雅退出。"""
+        if not settings.shutdown_token or x_repomind_shutdown_token != settings.shutdown_token:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        import threading
+
+        def stop_server() -> None:
+            import os
+
+            os._exit(0)
+
+        threading.Timer(0.05, stop_server).start()
+        return {"status": "stopping"}
 
     @app.get("/api/v1/health", response_model=HealthResponse)
     def health() -> dict:

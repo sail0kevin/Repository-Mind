@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     backend_contract_version: str = "1"
     instance_id: str = "repomind-desktop-backend"
     session_id: str | None = None
+    # Electron 只在本机临时注入此令牌，用于请求后端优雅退出。
+    shutdown_token: str | None = None
     port: int = Field(default=8000, ge=1, le=65535)
     api_base_url: str = "http://127.0.0.1:8000/api/v1"
     # Electron 打包页使用 Origin: null；Vite 开发页必须匹配包含端口的完整 Origin。

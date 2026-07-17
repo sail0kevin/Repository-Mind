@@ -27,8 +27,10 @@ app.setAppUserModelId(APP_ID);
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: childProcess.ChildProcess | null = null;
+let backendProcessId: number | null = null;
 let backendPort: number | null = null;
 let backendSessionId: string | null = null;
+let backendShutdownToken: string | null = null;
 let stoppingBackend = false;
 const isDev = process.env.NODE_ENV === "development";
 
@@ -68,6 +70,30 @@ export function sanitizeExportFileName(value: string, extension: string): string
     .trim()
     .slice(0, 100) || "repomind-export";
   return stem.toLowerCase().endsWith(extension) ? stem : stem + extension;
+}
+
+export function isPathInside(parentPath: string, childPath: string): boolean {
+  const relative = path.relative(path.resolve(parentPath), path.resolve(childPath));
+  return relative !== "" && relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative);
+}
+
+function resolveE2eExportPath(fileName: string): string | null {
+  if (process.env.REPOMIND_E2E !== "1" || !process.env.REPOMIND_E2E_EXPORT_DIR) return null;
+  const userDataPath = fs.realpathSync(app.getPath("userData"));
+  const exportDir = path.resolve(process.env.REPOMIND_E2E_EXPORT_DIR);
+  if (!isPathInside(userDataPath, exportDir)) {
+    throw new Error("E2E 导出目录必须位于当前临时 userData 内。");
+  }
+  fs.mkdirSync(exportDir, { recursive: true });
+  const canonicalExportDir = fs.realpathSync(exportDir);
+  if (!isPathInside(userDataPath, canonicalExportDir)) {
+    throw new Error("E2E 导出目录不能通过链接离开当前临时 userData。");
+  }
+  const filePath = path.join(canonicalExportDir, fileName);
+  if (!isPathInside(canonicalExportDir, filePath)) {
+    throw new Error("E2E 导出文件路径无效。");
+  }
+  return filePath;
 }
 
 // 后端日志只写入当前 Electron userData，且调用方不会把密钥传入本函数。
@@ -138,6 +164,7 @@ function backendEnvironment(backendRoot: string, port: number, sessionId: string
     REPOMIND_PATHS__DATABASE_PATH: databasePath,
     REPOMIND_INSTANCE_ID: EXPECTED_INSTANCE_ID,
     REPOMIND_SESSION_ID: sessionId,
+    REPOMIND_SHUTDOWN_TOKEN: backendShutdownToken ?? "",
     REPOMIND_PORT: String(port),
   };
 }
@@ -192,6 +219,7 @@ async function startBackend(): Promise<BackendStartResult> {
   const backendRoot = path.join(repoRoot, "backend");
   const port = await reserveFreePort();
   const sessionId = randomUUID();
+  backendShutdownToken = randomUUID();
   const env = backendEnvironment(backendRoot, port, sessionId);
 
   if (app.isPackaged && fs.existsSync(bundledExe)) {
@@ -220,6 +248,7 @@ async function startBackend(): Promise<BackendStartResult> {
     });
   }
 
+  backendProcessId = backendProcess.pid ?? null;
   backendPort = port;
   backendSessionId = sessionId;
   backendProcess.stdout?.on("data", (data) => logBackend("[backend-out] " + data.toString().trim()));
@@ -227,6 +256,7 @@ async function startBackend(): Promise<BackendStartResult> {
   backendProcess.on("error", (error) => logBackend("backend spawn error: " + error.message));
   backendProcess.on("exit", (code) => {
     logBackend("backend exited with code=" + code);
+    // PyInstaller 启动器退出后可能仍有同 PID 的后端进程存活，PID 只由 stopBackend 最终清空。
     backendProcess = null;
     backendPort = null;
     backendSessionId = null;
@@ -257,37 +287,73 @@ function findPythonInterpreter(): PythonLauncher | null {
   return null;
 }
 
+function stopWindowsProcess(processId: number): void {
+  // 只终止 Electron 启动并记录的后端 PID，不递归处理任何父子进程。
+  try {
+    childProcess.execFileSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        `Stop-Process -Id ${processId} -Force -ErrorAction SilentlyContinue`,
+      ],
+      { stdio: "ignore", timeout: 15_000 },
+    );
+  } catch {
+    // 目标进程已经退出时无需继续处理。
+  }
+}
+
+function requestBackendShutdown(port: number, token: string): Promise<void> {
+  return new Promise((resolve) => {
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/api/v1/runtime/shutdown",
+        method: "POST",
+        timeout: 1000,
+        headers: { "X-RepoMind-Shutdown-Token": token },
+      },
+      (response) => {
+        response.resume();
+        response.once("end", resolve);
+      },
+    );
+    request.once("timeout", () => { request.destroy(); resolve(); });
+    request.once("error", () => resolve());
+    request.end();
+  });
+}
+
 async function stopBackend(): Promise<void> {
-  if (stoppingBackend || !backendProcess || backendProcess.pid == null) return;
+  if (stoppingBackend || (!backendProcess && backendProcessId == null)) return;
   stoppingBackend = true;
   const processToStop = backendProcess;
+  const processId = processToStop?.pid ?? backendProcessId;
   try {
-    // 先请求普通终止，给 SQLite 一次正常关闭机会；超时后才清理进程树。
-    processToStop.kill("SIGTERM");
+    if (backendProcess && backendPort && backendShutdownToken) {
+      await requestBackendShutdown(backendPort, backendShutdownToken);
+    }
     const deadline = Date.now() + 3000;
-    while (!processToStop.killed && processToStop.exitCode === null && Date.now() < deadline) {
+    while (processToStop && !processToStop.killed && processToStop.exitCode === null && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    if (process.platform === "win32" && processToStop.pid != null) {
-      // PyInstaller 单文件后端可能派生子进程；即使启动器已退出，也要尝试清理其原进程树。
-      try {
-        childProcess.execFileSync(
-          "taskkill",
-          ["/pid", String(processToStop.pid), "/t", "/f"],
-          { stdio: "ignore" },
-        );
-      } catch {
-        // taskkill 在进程已完全退出时会返回非零，此时无需继续处理。
-      }
-    } else if (processToStop.exitCode === null) {
+    if (process.platform === "win32" && processId != null) {
+      stopWindowsProcess(processId);
+    } else if (processToStop?.exitCode === null) {
       processToStop.kill("SIGKILL");
     }
   } catch {
     // 进程可能已经自行退出。
   } finally {
     if (backendProcess === processToStop) backendProcess = null;
+    backendProcessId = null;
     backendPort = null;
     backendSessionId = null;
+    backendShutdownToken = null;
     stoppingBackend = false;
   }
 }
@@ -371,6 +437,11 @@ app.whenReady().then(async () => {
     const kind = request.kind === "json" ? "json" : "markdown";
     const extension = kind === "json" ? ".json" : ".md";
     const defaultPath = sanitizeExportFileName(request.suggestedName, extension);
+    const e2eFilePath = resolveE2eExportPath(defaultPath);
+    if (e2eFilePath) {
+      fs.writeFileSync(e2eFilePath, request.content, { encoding: "utf8", flag: "w" });
+      return { saved: true, fileName: path.basename(e2eFilePath) };
+    }
     const result = await dialog.showSaveDialog(mainWindow ?? undefined, {
       title: kind === "json" ? "导出 Trace JSON" : "导出 Markdown 报告",
       defaultPath,
@@ -393,7 +464,13 @@ app.whenReady().then(async () => {
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on("before-quit", () => { void stopBackend(); });
+app.on("before-quit", (event) => {
+  if (stoppingBackend || backendProcessId == null) return;
+  event.preventDefault();
+  void stopBackend().finally(() => app.quit());
+});
 app.on("window-all-closed", () => {
-  void stopBackend().finally(() => { if (process.platform !== "darwin") app.quit(); });
+  if (process.platform !== "darwin") {
+    void stopBackend().finally(() => app.quit());
+  }
 });

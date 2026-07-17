@@ -40,13 +40,13 @@ export function RepositoryAccessPanel(props: {
           {props.isRegistering ? <Loader2 size={16} className="spin" /> : <FolderPlus size={16} />}
           {props.isRegistering ? "处理中" : "注册并索引"}
         </button>
-        <button className="af-btn" onClick={props.onOpenDemo} disabled={props.isRegistering}>
+        <button data-testid="open-demo" className="af-btn" onClick={props.onOpenDemo} disabled={props.isRegistering}>
           <PlayCircle size={16} />
           打开内置 Demo
         </button>
         <span className="af-help">无需网络、无需 API Key；使用本地合成仓库演示完整能力。</span>
       </div>
-      <div className="af-progress-box">
+      <div className="af-progress-box" data-testid="ingest-progress">
         {props.isRegistering ? <Loader2 size={16} className="spin" /> : <Activity size={16} />}
         <div>
           <strong>{props.registerProgress}</strong>
@@ -54,7 +54,7 @@ export function RepositoryAccessPanel(props: {
         </div>
       </div>
       {props.repo && (
-        <div className="af-repo-card">
+        <div className="af-repo-card" data-testid="current-repository">
           <div className="af-repo-title"><GitBranch size={15} /> {props.repo.alias}</div>
           <span>{props.repo.file_count} 个文件 · {props.repo.branch || "未知分支"}</span>
           <span>当前快照：{props.repo.snapshot_id ? props.repo.snapshot_id.slice(0, 18) : "尚未生成"}</span>

@@ -54,7 +54,7 @@ export function RepositoryKnowledgeNavigator(props: {
           <RefreshCcw size={15} className={props.isLoading ? "spin" : ""} /> 刷新仓库列表
         </button>
       </div>
-      <div className="af-catalog-tree">
+      <div className="af-catalog-tree" data-testid="catalog-tree">
         {props.catalogRoots.map((root) => (
           <CatalogTreeBranch
             key={root.id}

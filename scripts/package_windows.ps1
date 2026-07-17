@@ -55,7 +55,13 @@ try {
     npm run build
     if ($LASTEXITCODE -ne 0) { throw "Desktop build failed" }
     if (Test-Path $releaseRoot) { Remove-Item -Recurse -Force $releaseRoot }
-    npm run package:dir
+    if ($env:REPOMIND_SKIP_WINDOWS_EXE_METADATA -eq "1") {
+        # 网络受限的本地/CI 环境可跳过 PE 元数据编辑，避免下载 winCodeSign；正式 Release 不使用此开关。
+        npx electron-builder --config electron-builder.yml --win dir -c.win.signAndEditExecutable=false
+    }
+    else {
+        npm run package:dir
+    }
     if ($LASTEXITCODE -ne 0) { throw "Electron directory package failed" }
 
     $packagedBackend = Join-Path $releaseRoot "win-unpacked\resources\backend\repomind-backend.exe"

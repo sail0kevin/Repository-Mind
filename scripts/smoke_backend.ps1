@@ -96,33 +96,18 @@ print("schema=7 fts5=ok migrations=" + ",".join(map(str, versions)))
 finally {
     $cleanupFailure = $null
     if ($backendProcess) {
-        # PyInstaller one-file mode can create a child process, so always terminate the recorded process tree.
-        try { & taskkill /PID $backendProcess.Id /T /F 2>$null | Out-Null } catch { }
+        # 只终止记录到的后端 PID，不递归处理任何父子进程。
         try { Stop-Process -Id $backendProcess.Id -Force -ErrorAction SilentlyContinue } catch { }
 
-        # Wait until every frozen backend process using this exact executable path has exited.
+        # 只等待刚才记录的后端进程退出；不扫描或终止其他 PID。
         $cleanupDeadline = (Get-Date).AddSeconds(8)
-        $remainingProcesses = @()
-        do {
-            $remainingProcesses = @(
-                Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-                    Where-Object {
-                        $processPath = $_.ExecutablePath
-                        if (-not $processPath) { return $false }
-                        return (
-                            $_.Name -eq "repomind-backend.exe" -and
-                            [System.IO.Path]::GetFullPath($processPath) -eq $exePath
-                        )
-                    }
-            )
-            foreach ($remainingProcess in $remainingProcesses) {
-                try { & taskkill /PID $remainingProcess.ProcessId /T /F 2>$null | Out-Null } catch { }
-            }
-            if ($remainingProcesses.Count -gt 0) { Start-Sleep -Milliseconds 200 }
-        } while (($remainingProcesses.Count -gt 0) -and ((Get-Date) -lt $cleanupDeadline))
+        while (-not $backendProcess.HasExited -and (Get-Date) -lt $cleanupDeadline) {
+            Start-Sleep -Milliseconds 200
+            $backendProcess.Refresh()
+        }
 
-        if ($remainingProcesses.Count -gt 0) {
-            $cleanupFailure = "Backend process tree did not exit cleanly: $exePath"
+        if (-not $backendProcess.HasExited) {
+            $cleanupFailure = "Backend process did not exit cleanly: PID $($backendProcess.Id)"
         }
         else {
             # Open the executable exclusively to confirm that no process still holds a file lock.

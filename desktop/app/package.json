@@ -13,6 +13,7 @@
     "build": "npm run build:renderer && npm run build:electron",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e:packaged": "playwright test --config playwright.config.ts",
     "start": "electron .",
     "build:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/build_backend.ps1 -PythonCommand python",
     "smoke:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/smoke_backend.ps1 -ExePath ../../backend-dist/repomind-backend.exe",
@@ -31,6 +32,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/node": "^22.7.5",

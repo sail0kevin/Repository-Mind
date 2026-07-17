@@ -69,6 +69,9 @@ out/
 logs/
 tmp/
 *.log
+/desktop/app/test-results/
+/desktop/app/playwright-report/
+/e2e-artifacts/
 
 # Local historical documents
 # 这些文件保留在本机作为历史归档，不属于当前公开项目说明。

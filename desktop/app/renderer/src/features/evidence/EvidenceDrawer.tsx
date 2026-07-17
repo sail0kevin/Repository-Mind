@@ -17,7 +17,7 @@ export function EvidenceDrawer(props: {
   }
 
   return (
-    <div className="af-evidence-drawer">
+    <div className="af-evidence-drawer" data-testid={props.trace ? "trace-drawer" : "evidence-drawer"}>
       <div className="af-modal-header">
         <h2><FileCode2 size={18} /> 证据与工具轨迹</h2>
         <button className="af-icon-btn" onClick={props.onClose} title="关闭证据抽屉"><X size={18} /></button>
@@ -45,7 +45,7 @@ export function EvidenceDrawer(props: {
             </div>
             <div className="af-trace-list">
               {props.trace.steps.map((step) => (
-                <div className="af-trace-step" key={step.id}>
+                <div className="af-trace-step" data-testid="trace-step" data-step-type={step.step_type} key={step.id}>
                   <strong>{step.step_no}. {step.step_type}{step.tool_name ? ` · ${step.tool_name}` : ""}</strong>
                   <span>{step.status}{step.duration_ms !== null ? ` · ${Math.round(step.duration_ms)}ms` : ""}</span>
                   {step.error && <p>{step.error}</p>}
