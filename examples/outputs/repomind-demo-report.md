@@ -6,7 +6,7 @@ Workflow summary for RepoMind 内置 Demo: Code structure agent: 7 findings, Doc
 - ID: repo_0295349250f644118f23441e5e290095
 - Path: [local repository]
 - Branch: main
-- Commit: e718d4a31f9df9d74b8b74fe5f5e49b92625862b
+- Commit: 8c5ac33542fbed5e117bfee19af1457e60bd166c
 
 ## Code structure agent
 
@@ -87,7 +87,7 @@ Workflow summary for RepoMind 内置 Demo: Code structure agent: 7 findings, Doc
 
 ## Public verification metadata
 
-- Demo commit: `e718d4a31f9df9d74b8b74fe5f5e49b92625862b`
+- Demo commit: `8c5ac33542fbed5e117bfee19af1457e60bd166c`
 - Branch: `main`
 - Files: 10
 - Knowledge chunks: 150

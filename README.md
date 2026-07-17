@@ -34,7 +34,7 @@ flowchart LR
 
 ## 真实 Demo
 
-内置 Demo 固定在 commit `e718d4a31f9df9d74b8b74fe5f5e49b92625862b`。在无网络、无 Chat Key、无 Embedding Key 的临时环境中，结果为：`main`、10 个文件、150 个知识片段、Snapshot succeeded、Catalog 可读。
+内置 Demo 固定在 commit `8c5ac33542fbed5e117bfee19af1457e60bd166c`。在无网络、无 Chat Key、无 Embedding Key 的临时环境中，结果为：`main`、10 个文件、150 个知识片段、Snapshot succeeded、Catalog 可读。
 
 ![一键 Demo 入口](docs/assets/screenshots/01-demo-entry.png)
 

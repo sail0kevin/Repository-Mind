@@ -2,7 +2,7 @@ import { test, expect, _electron as electron, type ElectronApplication, type Pag
 import * as fs from "fs";
 import * as path from "path";
 
-const DEMO_COMMIT = "e718d4a31f9df9d74b8b74fe5f5e49b92625862b";
+const DEMO_COMMIT = "8c5ac33542fbed5e117bfee19af1457e60bd166c";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];

@@ -28,7 +28,7 @@ flowchart LR
 
 ## Real demo
 
-The bundled Demo is pinned to `e718d4a31f9df9d74b8b74fe5f5e49b92625862b`. A local run with no network, Chat key, or Embedding key produced a successful Snapshot for `main`, 10 files, and 150 knowledge chunks.
+The bundled Demo is pinned to `8c5ac33542fbed5e117bfee19af1457e60bd166c`. A local run with no network, Chat key, or Embedding key produced a successful Snapshot for `main`, 10 files, and 150 knowledge chunks.
 
 ![Demo entry](docs/assets/screenshots/01-demo-entry.png)
 ![Snapshot and Catalog](docs/assets/screenshots/02-snapshot-catalog.png)

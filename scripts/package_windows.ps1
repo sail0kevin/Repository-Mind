@@ -89,6 +89,27 @@ try {
     if ($sourceHash -ne $packagedHash) { throw "Packaged backend does not match the current build" }
     & (Join-Path $scriptRoot "smoke_backend.ps1") -ExePath $packagedBackend
 
+    $packagedDemo = Join-Path $releaseRoot "win-unpacked\resources\demo\repomind-demo"
+    if (-not (Test-Path $packagedDemo -PathType Container)) { throw "Packaged demo is missing" }
+
+    # 小白说明：-Force 能看见 .git 这类隐藏目录，-Recurse 会检查 Demo 的每一层子目录。
+    $packagedDemoEntries = @(Get-ChildItem -LiteralPath $packagedDemo -Force -Recurse)
+    $pollutedDemoEntries = @($packagedDemoEntries | Where-Object {
+        $_.Name -eq "__pycache__" -or
+        $_.Name -eq ".git" -or
+        (-not $_.PSIsContainer -and $_.Extension -in @(".pyc", ".pyo"))
+    })
+    if ($pollutedDemoEntries.Count -gt 0) {
+        $pollutedPaths = ($pollutedDemoEntries | ForEach-Object { $_.FullName }) -join "; "
+        throw "Packaged demo contains cache, bytecode, or Git pollution: $pollutedPaths"
+    }
+
+    # 小白说明：只统计文件，不把文件夹算进去；干净的内置 Demo 必须始终恰好是 10 个文件。
+    $packagedDemoFiles = @($packagedDemoEntries | Where-Object { -not $_.PSIsContainer })
+    if ($packagedDemoFiles.Count -ne 10) {
+        throw "Packaged demo must contain exactly 10 files, found $($packagedDemoFiles.Count)"
+    }
+
     if ($Release) {
         Invoke-NativeBuildStep { npm run package:release } "Windows release package failed"
     }

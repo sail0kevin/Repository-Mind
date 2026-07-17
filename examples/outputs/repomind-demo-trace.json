@@ -2,7 +2,7 @@
   "format": "repomind.trace.v1",
   "demo": {
     "alias": "RepoMind 内置 Demo",
-    "commit": "e718d4a31f9df9d74b8b74fe5f5e49b92625862b",
+    "commit": "8c5ac33542fbed5e117bfee19af1457e60bd166c",
     "branch": "main",
     "file_count": 10,
     "knowledge_chunks": 150

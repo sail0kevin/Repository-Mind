@@ -202,7 +202,7 @@ demo/repomind-demo/
 已真实验证的固定 commit：
 
 ```text
-e718d4a31f9df9d74b8b74fe5f5e49b92625862b
+8c5ac33542fbed5e117bfee19af1457e60bd166c
 ```
 
 真实结果：

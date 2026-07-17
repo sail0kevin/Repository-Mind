@@ -18,6 +18,15 @@ extraResources:
     to: backend/repomind-backend.exe
   - from: ../../demo/repomind-demo
     to: demo/repomind-demo
+    filter:
+      # Demo 运行时只需要源码和示例数据；缓存、字节码与 Git 元数据不能进入安装包。
+      - "**/*"
+      - "!**/__pycache__"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+      - "!**/*.pyo"
+      - "!**/.git"
+      - "!**/.git/**"
 win:
   target:
     - nsis
