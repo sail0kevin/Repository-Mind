@@ -95,7 +95,10 @@ def test_health_exposes_backend_identity():
         "backend_contract_version": "1",
         "instance_id": "repomind-desktop-backend",
     }
-    assert Path(body["database_path"]).resolve() == TEST_DIR.joinpath("test.sqlite3").resolve()
+    from service.core.database_identity import compute_database_identity
+    expected_identity = compute_database_identity(TEST_DIR / "test.sqlite3")
+    assert body["database_identity"] == expected_identity
+    assert "database_path" not in body
 
 
 def test_cors_preflight_allows_vite_renderer():

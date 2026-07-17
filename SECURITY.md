@@ -32,10 +32,18 @@ target repository.
   path. The settings API exposes configuration and masked hints, not full key
   material. A user who can read the Windows user profile can still access that
   user's secrets; use a separate Windows account for sensitive work.
-- Custom provider URLs are user-controlled configuration. Do not put secrets in
-  URLs, query strings, repository files, screenshots, or public traces. Only use
-  trusted HTTPS endpoints; RepoMind does not claim to be a network sandbox or an
-  SSRF boundary for arbitrary provider URLs.
+- Custom provider URLs are user-controlled configuration. When Chat or Embedding
+  is enabled, RepoMind sends the repository Evidence retrieved for that request
+  to the configured endpoint. That payload can include source code, file paths,
+  configuration excerpts, symbols, and the user's question. The corresponding
+  API key is also sent as required by the provider API.
+- An arbitrary custom endpoint is therefore a local-user trust boundary, not a
+  sandboxed or project-endorsed service. Do not put secrets in URLs, query
+  strings, repository files, screenshots, or public traces. Only use HTTPS
+  endpoints whose operator, data retention, logging, and access policies you
+  trust. Do not analyze a private repository with an untrusted endpoint.
+- RepoMind does not claim to provide a network sandbox, destination allowlist,
+  data-loss-prevention layer, or SSRF boundary for arbitrary provider URLs.
 - Public examples and screenshots must remove personal paths, temporary
   directories, user database locations, and secrets.
 

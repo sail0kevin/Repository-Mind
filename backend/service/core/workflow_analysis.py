@@ -116,9 +116,16 @@ def register_cloned_repository(repo_path: Path, remote_url: str, alias: str | No
     return repo_id
 
 
-def read_text_sample(path: Path, max_chars: int = 12000) -> str:
-    """读取分析所需的文本样本，避免把超大文件完整加载进内存。"""
+def read_text_sample(source: Path | dict, max_chars: int = 12000) -> str:
+    """优先读取快照固化的 chunk 文本，避免历史分析误读当前工作树。"""
 
+    if isinstance(source, dict):
+        snapshot_content = source.get("snapshot_content")
+        if isinstance(snapshot_content, str):
+            return snapshot_content[:max_chars]
+        path = Path(source["absolute_path"])
+    else:
+        path = source
     try:
         return path.read_text(encoding="utf-8", errors="ignore")[:max_chars]
     except OSError:
@@ -126,6 +133,12 @@ def read_text_sample(path: Path, max_chars: int = 12000) -> str:
 
 
 def evidence_for_file(file_record: dict, start_line: int | None = None, end_line: int | None = None, reason: str = "workflow analysis") -> dict:
+    source_exact = file_record.get("snapshot_source_exact", True)
+    if not source_exact:
+        # 配置解析器持久化的是规范化 JSON，而非原始 YAML/TOML 源码；不能沿用其近似行号。
+        start_line = None
+        end_line = None
+        reason = f"{reason}; normalized snapshot evidence (non-exact source)"
     return {
         "file_path": file_record["relative_path"],
         "chunk_id": "",
@@ -147,7 +160,7 @@ def analyze_python_symbols(files: list[dict], limit: int = 16) -> list[WorkflowF
     for file_record in files:
         if file_record.get("language") != "python" or file_record.get("ignored_reason"):
             continue
-        source = read_text_sample(Path(file_record["absolute_path"]))
+        source = read_text_sample(file_record)
         if not source.strip():
             continue
         try:
@@ -196,7 +209,7 @@ def document_agent(files: list[dict], limit: int = 8) -> list[WorkflowFinding]:
     docs = [item for item in files if classify_file(item) in {"readme", "docs"} and item.get("ignored_reason") is None]
     findings: list[WorkflowFinding] = []
     for file_record in docs[:limit]:
-        text = read_text_sample(Path(file_record["absolute_path"]), max_chars=8000)
+        text = read_text_sample(file_record, max_chars=8000)
         headings = [line.strip("# ").strip() for line in text.splitlines() if line.lstrip().startswith("#")][:8]
         mentions = []
         lower_text = text.lower()
@@ -221,6 +234,39 @@ def document_agent(files: list[dict], limit: int = 8) -> list[WorkflowFinding]:
     return findings
 
 
+def _normalized_config_detail(file_record: dict, name: str) -> str:
+    """结构化分析规范化配置 chunks，不把拼接片段误当成原始 JSON。"""
+    chunks = file_record.get("snapshot_chunks") or []
+    keys: list[str] = []
+    object_count = 0
+    value_count = 0
+    for chunk in chunks:
+        chunk_type = chunk.get("chunk_type") or chunk.get("source_type")
+        if chunk_type == "config_object":
+            object_count += 1
+        elif chunk_type == "config_value":
+            value_count += 1
+        for candidate in (chunk.get("symbol_name"), chunk.get("title")):
+            if isinstance(candidate, str) and candidate.strip() and candidate not in keys:
+                keys.append(candidate.strip())
+        metadata = chunk.get("metadata_json")
+        if isinstance(metadata, str) and metadata.strip():
+            try:
+                parsed = json.loads(metadata)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                for field in ("key", "path", "name"):
+                    candidate = parsed.get(field)
+                    if isinstance(candidate, str) and candidate.strip() and candidate not in keys:
+                        keys.append(candidate.strip())
+    key_text = f"，可识别键={keys[:8]}" if keys else ""
+    return (
+        f"{name} 来自规范化配置证据（非原始源码），结构化对象={object_count}，值={value_count}{key_text}；"
+        "无法据此精确验证原始文件格式。"
+    )
+
+
 def configuration_agent(files: list[dict]) -> list[WorkflowFinding]:
     """分析配置和依赖文件。"""
 
@@ -228,9 +274,12 @@ def configuration_agent(files: list[dict]) -> list[WorkflowFinding]:
     config_files = [item for item in files if classify_file(item) == "config" and item.get("ignored_reason") is None]
     for file_record in config_files[:14]:
         name = PurePosixPath(file_record["relative_path"].lower()).name
-        text = read_text_sample(Path(file_record["absolute_path"]), max_chars=10000)
+        text = read_text_sample(file_record, max_chars=10000)
+        source_exact = file_record.get("snapshot_source_exact", True)
         detail = "配置文件。"
-        if name == "package.json":
+        if not source_exact:
+            detail = _normalized_config_detail(file_record, name)
+        elif name == "package.json":
             try:
                 data = json.loads(text)
                 scripts = data.get("scripts") or {}
@@ -264,7 +313,7 @@ def security_agent(files: list[dict], limit: int = 20) -> list[WorkflowFinding]:
             continue
         if file_record.get("language") not in {"python", "javascript", "typescript", "yaml", "json", "toml", "text"}:
             continue
-        text = read_text_sample(Path(file_record["absolute_path"]), max_chars=30000)
+        text = read_text_sample(file_record, max_chars=30000)
         lines = text.splitlines()
         for index, line in enumerate(lines, start=1):
             for title, severity, pattern, detail in SECURITY_RULES:
@@ -369,7 +418,8 @@ def render_markdown_report(report: dict) -> str:
     repo_block = report.get("repo") or {}
     if repo_block:
         lines.append(f"- ID: {repo_block.get('repo_id', '')}")
-        lines.append(f"- Path: {repo_block.get('repo_path', '')}")
+        # Markdown 可能被直接保存或分享，只展示仓库别名，不写入本机绝对路径。
+        lines.append(f"- Repository: {repo_block.get('alias') or 'repo'}")
         lines.append(f"- Branch: {repo_block.get('branch') or 'unknown'}")
         lines.append(f"- Commit: {repo_block.get('current_commit') or 'unknown'}")
     lines.append("")
@@ -412,9 +462,39 @@ def render_markdown_report(report: dict) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def build_workflow_report(repo: dict, files: list[dict]) -> dict:
-    """Multi-agent workflow: each role reads its chapter, then editor-in-chief summarises."""
-    repo_map = build_repo_map(repo, files, chunk_count=count_chunks(repo["id"]))
+def safe_report_alias(alias: object) -> str:
+    """把可能被旧客户端填成绝对路径的别名收敛为安全展示名。"""
+    candidate = str(alias or "").strip()
+    if not candidate or re.match(r"^(?:[A-Za-z]:[\\/]|\\\\|/)", candidate):
+        return "local-repository"
+    return candidate
+
+
+def build_workflow_report(
+    repo: dict,
+    files: list[dict],
+    snapshot: dict | None = None,
+    *,
+    snapshot_id: str | None = None,
+    commit: str | None = None,
+) -> dict:
+    """运行工作流分析，并把报告固定到传入的不可变快照。"""
+    safe_alias = safe_report_alias(repo.get("alias"))
+    safe_repo = {**repo, "alias": safe_alias}
+    selected_snapshot_id = snapshot_id or (snapshot["id"] if snapshot else None)
+    selected_commit = commit or (snapshot["commit_hash"] if snapshot else repo["commit_hash"])
+    # API 入口只传 snapshot_id/commit；这里补查分支，保证报告元数据也属于同一快照。
+    selected_branch = snapshot["branch"] if snapshot else repo["branch"]
+    if snapshot is None and selected_snapshot_id:
+        from service.storage.snapshot_store import get_snapshot
+        stored_snapshot = get_snapshot(selected_snapshot_id)
+        if stored_snapshot is not None:
+            selected_branch = stored_snapshot["branch"]
+    repo_map = build_repo_map(
+        repo,
+        files,
+        chunk_count=count_chunks(repo["id"], selected_snapshot_id) if selected_snapshot_id else 0,
+    )
     build_repo_summary(repo_map)
     architecture = architecture_agent(repo, files, repo_map)
     documents = document_agent(files)
@@ -428,7 +508,7 @@ def build_workflow_report(repo: dict, files: list[dict]) -> dict:
         {"key": "security", "title": "Security risk agent", "findings": [item.to_dict() for item in security]},
     ]
 
-    chief = editor_in_chief(sections, repo)
+    chief = editor_in_chief(sections, safe_repo)
     reading_guide = build_reading_guide(sections)
 
     summary = chief["summary"]
@@ -438,16 +518,20 @@ def build_workflow_report(repo: dict, files: list[dict]) -> dict:
         summary += " Security scan found no high-priority risk lines."
 
     report = {
+        "response_type": "workflow_report",
         "analysis_id": f"analysis_{uuid4().hex}",
         "status": "succeeded",
         "repo": {
             "repo_id": repo["id"],
-            "alias": repo["alias"],
-            "repo_path": repo["repo_path"],
+            "alias": safe_alias,
+            # 保留旧字段兼容前端，但公开报告只放安全显示名，不返回本机绝对路径。
+            "repo_path": safe_alias,
             "remote_url": repo["remote_url"],
-            "branch": repo["branch"],
-            "current_commit": repo["commit_hash"],
+            "branch": selected_branch,
+            "current_commit": selected_commit,
         },
+        "snapshot_id": selected_snapshot_id,
+        "commit": selected_commit,
         "summary": summary,
         "sections": sections,
         "reading_guide": reading_guide,

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from service.core.workflow_analysis import register_cloned_repository
 from service.main import create_app
 from service.storage.repository_store import create_repo_record, list_repo_records
+from service.storage.snapshot_store import get_active_snapshot
 
 
 def _git_repo(path: Path) -> Path:
@@ -32,6 +33,73 @@ def test_local_path_repeated_registration_returns_one_repo(tmp_path: Path) -> No
     assert first.status_code == second.status_code == 200
     assert first.json()["repo_id"] == second.json()["repo_id"]
     assert len(list_repo_records()) == 1
+
+
+def test_github_registration_without_auto_ingest_returns_registered_repo(tmp_path: Path, monkeypatch) -> None:
+    """桌面端可先取得 repo_id，再自行启动首次 ingest，不要求预先存在 succeeded 快照。"""
+    repo = _git_repo(tmp_path / "github-no-ingest")
+    monkeypatch.setattr("service.api.v1.repos.clone_public_github_repo", lambda _url: repo)
+
+    with TestClient(create_app()) as client:
+        response = client.post("/api/v1/analysis/analyze", json={
+            "github_url": "https://github.com/owner/no-ingest",
+            "auto_ingest": False,
+        })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["response_type"] == "registration"
+    assert body["status"] == "registered"
+    assert body["repo_id"]
+    assert body["current_commit"]
+    assert body["file_count"] == 1
+    assert "analysis_id" not in body
+    assert "snapshot_id" not in body
+    assert get_active_snapshot(body["repo_id"]) is None
+
+
+def test_github_registration_without_auto_ingest_uses_existing_active_snapshot(tmp_path: Path, monkeypatch) -> None:
+    """重复登记已有 active 快照的仓库时，关闭自动索引仍返回完整分析报告。"""
+    repo = _git_repo(tmp_path / "github-existing-snapshot")
+    monkeypatch.setattr("service.api.v1.repos.clone_public_github_repo", lambda _url: repo)
+
+    with TestClient(create_app()) as client:
+        first = client.post("/api/v1/analysis/analyze", json={
+            "github_url": "https://github.com/owner/existing-snapshot",
+            "auto_ingest": True,
+        })
+        second = client.post("/api/v1/analysis/analyze", json={
+            "github_url": "https://github.com/owner/existing-snapshot",
+            "auto_ingest": False,
+        })
+
+    assert first.status_code == second.status_code == 200
+    first_body = first.json()
+    second_body = second.json()
+    assert second_body["response_type"] == "workflow_report"
+    assert second_body["repo"]["repo_id"] == first_body["repo"]["repo_id"]
+    assert second_body["snapshot_id"] == first_body["snapshot_id"]
+    assert second_body["commit"] == first_body["commit"]
+
+
+def test_github_registration_with_auto_ingest_returns_snapshot(tmp_path: Path, monkeypatch) -> None:
+    """保持旧默认：auto_ingest=true 完成索引并返回 succeeded active 快照。"""
+    repo = _git_repo(tmp_path / "github-auto-ingest")
+    monkeypatch.setattr("service.api.v1.repos.clone_public_github_repo", lambda _url: repo)
+
+    with TestClient(create_app()) as client:
+        response = client.post("/api/v1/analysis/analyze", json={
+            "github_url": "https://github.com/owner/auto-ingest",
+            "auto_ingest": True,
+        })
+
+    assert response.status_code == 200
+    body = response.json()
+    snapshot = get_active_snapshot(body["repo"]["repo_id"])
+    assert snapshot is not None
+    assert snapshot["status"] == "succeeded"
+    assert body["snapshot_id"] == snapshot["id"]
+    assert body["commit"] == snapshot["commit_hash"]
 
 
 def test_remote_url_variants_reuse_same_repo(tmp_path: Path) -> None:

@@ -5,7 +5,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 
@@ -23,7 +23,7 @@ class HealthResponse(BaseModel):
     backend_contract_version: str
     instance_id: str
     session_id: str | None = None
-    database_path: str
+    database_identity: str
 
 
 class CodeGraphStatsResponse(BaseModel):
@@ -160,21 +160,38 @@ class SecretUpdate(BaseModel):
 class SettingsUpdateRequest(BaseModel):
     """应用配置更新请求；llm_api_key 仅用于兼容旧客户端。"""
 
-    api_base_url: str | None = None
+    api_base_url: str | None = Field(default=None, min_length=8, max_length=2048)
     llm_api_key_update: SecretUpdate | None = None
-    llm_api_key: str | None = Field(default=None, exclude=True)
-    llm_base_url: str | None = None
-    llm_model: str | None = None
-    llm_temperature: float | None = None
-    llm_max_tokens: int | None = None
+    llm_api_key: str | None = Field(default=None, max_length=4096, exclude=True)
+    llm_base_url: str | None = Field(default=None, min_length=8, max_length=2048)
+    llm_model: str | None = Field(default=None, min_length=1, max_length=200)
+    llm_temperature: float | None = Field(default=None, ge=0, le=2)
+    llm_max_tokens: int | None = Field(default=None, ge=64, le=131072)
     embedding_provider: Literal['disabled', 'openai_compatible'] | None = None
     embedding_api_key_update: SecretUpdate | None = None
-    embedding_api_key: str | None = Field(default=None, exclude=True)
-    embedding_base_url: str | None = None
-    embedding_model: str | None = None
-    retrieval_limit: int | None = None
-    input_cost_per_1k_tokens: float | None = None
-    output_cost_per_1k_tokens: float | None = None
+    embedding_api_key: str | None = Field(default=None, max_length=4096, exclude=True)
+    embedding_base_url: str | None = Field(default=None, min_length=8, max_length=2048)
+    embedding_model: str | None = Field(default=None, min_length=1, max_length=200)
+    retrieval_limit: int | None = Field(default=None, ge=1, le=50)
+    input_cost_per_1k_tokens: float | None = Field(default=None, ge=0, le=1000)
+    output_cost_per_1k_tokens: float | None = Field(default=None, ge=0, le=1000)
+
+    @field_validator('api_base_url', 'llm_base_url', 'embedding_base_url')
+    @classmethod
+    def validate_provider_url(cls, value: str | None) -> str | None:
+        """允许 localhost，但拒绝 URL 内嵌账号和疑似凭据参数。"""
+        if value is None:
+            return None
+        from urllib.parse import parse_qsl, urlsplit
+        parsed = urlsplit(value.strip())
+        if parsed.scheme not in {'http', 'https'} or not parsed.hostname:
+            raise ValueError('Base URL 必须是有效的 HTTP(S) 地址。')
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError('Base URL 不能包含用户名或密码。')
+        sensitive = {'api_key', 'apikey', 'key', 'token', 'access_token', 'password', 'secret', 'credential'}
+        if parsed.fragment or any(name.lower() in sensitive for name, _ in parse_qsl(parsed.query, keep_blank_values=True)):
+            raise ValueError('Base URL 不能包含凭据查询参数或 fragment。')
+        return value.strip()
 
     def secret_update(self) -> SecretUpdate:
         """把新旧两种请求格式统一为明确的密钥动作。"""
@@ -503,12 +520,13 @@ class RepoSummaryResponse(BaseModel):
 
 
 class WorkflowAnalyzeRequest(BaseModel):
-    """首次工作流分析请求。"""
+    """首次工作流分析请求；不传 snapshot_id 时沿用当前 active 快照。"""
 
     repo_id: str | None = None
     github_url: str | None = None
     alias: str | None = None
     auto_ingest: bool = True
+    snapshot_id: str | None = None
 
 
 class WorkflowEvidenceItem(BaseModel):
@@ -554,9 +572,21 @@ class WorkflowRepoResponse(BaseModel):
     current_commit: str | None
 
 
-class WorkflowReportResponse(BaseModel):
-    """首次工作流分析报告响应。"""
+class WorkflowRegistrationResponse(BaseModel):
+    """GitHub 仓库已登记但尚无 succeeded 快照时的明确响应。"""
 
+    response_type: Literal["registration"] = "registration"
+    repo_id: str
+    status: Literal["registered"] = "registered"
+    current_commit: str | None
+    file_count: int
+    job_id: str | None = None
+
+
+class WorkflowReportResponse(BaseModel):
+    """绑定 succeeded 快照的完整工作流分析报告响应。"""
+
+    response_type: Literal["workflow_report"] = "workflow_report"
     analysis_id: str
     status: str
     repo: WorkflowRepoResponse
@@ -565,6 +595,24 @@ class WorkflowReportResponse(BaseModel):
     next_steps: list[str]
     limitations: list[str]
     markdown: str
+    snapshot_id: str
+    commit: str
+
+
+class LegacyWorkflowReportResponse(BaseModel):
+    """旧持久化报告读取契约；历史记录可能尚未保存快照字段。"""
+
+    response_type: Literal["workflow_report"] = "workflow_report"
+    analysis_id: str
+    status: str
+    repo: WorkflowRepoResponse
+    summary: str
+    sections: list[WorkflowSectionResponse]
+    next_steps: list[str]
+    limitations: list[str]
+    markdown: str
+    snapshot_id: str | None = None
+    commit: str | None = None
 
 
 class AnalysisReportSummaryResponse(BaseModel):

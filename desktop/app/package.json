@@ -1,7 +1,13 @@
 {
   "name": "repomind-desktop",
   "version": "0.1.0",
-  "description": "RepoMind desktop client (Electron + React).",
+  "description": "Local Windows-first Git repository knowledge assistant with snapshot-bound evidence and traceable analysis.",
+  "author": "sail0kevin",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sail0kevin/Repository-Mind.git"
+  },
+  "homepage": "https://github.com/sail0kevin/Repository-Mind",
   "main": "dist-electron/main.js",
   "private": true,
   "scripts": {

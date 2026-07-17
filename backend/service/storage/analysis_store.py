@@ -46,16 +46,26 @@ def save_analysis_report(report: dict, analysis_type: str = "workflow", snapshot
 
 
 def get_analysis_report(analysis_id: str) -> dict | None:
-    """读取单份完整分析报告。"""
+    """读取单份完整分析报告，并为旧 report_json 补齐快照元数据。"""
 
     with get_connection() as connection:
         row = connection.execute(
-            "SELECT report_json FROM analysis_reports WHERE id = ?",
+            """
+            SELECT report_json, snapshot_id,
+                   (SELECT commit_hash FROM repository_snapshots WHERE id = analysis_reports.snapshot_id) AS commit_hash
+            FROM analysis_reports WHERE id = ?
+            """,
             (analysis_id,),
         ).fetchone()
     if row is None:
         return None
-    return json.loads(row["report_json"])
+    report = json.loads(row["report_json"])
+    # schema 7 之前的持久化 JSON 没有这两个字段；读取时从报告行绑定的快照回填，
+    # 避免削弱新报告必须完整绑定快照的响应契约。
+    report.setdefault("snapshot_id", row["snapshot_id"])
+    report.setdefault("commit", row["commit_hash"])
+    report.setdefault("response_type", "workflow_report")
+    return report
 
 
 def list_analysis_report_summaries(repo_id: str, limit: int = 12) -> list[dict]:

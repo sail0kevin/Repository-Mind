@@ -5,6 +5,10 @@ import * as fs from "fs";
 import * as http from "http";
 import * as net from "net";
 import { randomUUID } from "crypto";
+import { computeDatabaseIdentity, createSingleFlight, ownsBackendSession, pythonLauncherCandidates, revalidateTrackedBackend } from "./backendLifecycle";
+import { validateSaveTextRequest } from "./exportContract";
+import type { PythonLauncher } from "./backendLifecycle";
+import type { BackendStartResult, DemoPrepareResult, SaveTextResult } from "./bridgeContract";
 
 const APP_ID = "com.repomind.app";
 const USER_DATA_BASENAME = "repomind-desktop";
@@ -27,11 +31,12 @@ app.setAppUserModelId(APP_ID);
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: childProcess.ChildProcess | null = null;
-let backendProcessId: number | null = null;
 let backendPort: number | null = null;
 let backendSessionId: string | null = null;
+let backendApiToken: string | null = null;
 let backendShutdownToken: string | null = null;
 let stoppingBackend = false;
+let quitCoordinationStarted = false;
 const isDev = process.env.NODE_ENV === "development";
 
 interface BackendHealth {
@@ -44,23 +49,7 @@ interface BackendHealth {
   backend_contract_version: string;
   instance_id: string;
   session_id: string | null;
-  database_path: string;
-}
-
-interface BackendStartResult {
-  started: boolean;
-  apiBaseUrl: string;
-}
-
-interface SaveTextRequest {
-  suggestedName: string;
-  content: string;
-  kind: "markdown" | "json";
-}
-
-interface SaveTextResult {
-  saved: boolean;
-  fileName?: string;
+  database_identity: string;
 }
 
 export function sanitizeExportFileName(value: string, extension: string): string {
@@ -109,14 +98,10 @@ function logBackend(message: string): void {
   console.log(message);
 }
 
-function normalizedPath(value: string): string {
-  return path.resolve(value).replace(/\//g, "\\").toLowerCase();
-}
-
 export function isCompatibleBackendHealth(
   statusCode: number | undefined,
   health: BackendHealth,
-  expectedDatabasePath?: string,
+  expectedDatabaseIdentity?: string,
   expectedSessionId?: string,
 ): boolean {
   const schemaVersion = Number.parseInt(health.database_schema_version || health.schema_version, 10);
@@ -127,7 +112,7 @@ export function isCompatibleBackendHealth(
     && health.backend_contract_version === EXPECTED_BACKEND_CONTRACT_VERSION
     && Number.isInteger(schemaVersion)
     && schemaVersion >= MIN_BACKEND_SCHEMA_VERSION
-    && (!expectedDatabasePath || normalizedPath(health.database_path) === normalizedPath(expectedDatabasePath))
+    && (!expectedDatabaseIdentity || health.database_identity === expectedDatabaseIdentity)
     && (!expectedSessionId || health.session_id === expectedSessionId);
 }
 
@@ -164,7 +149,10 @@ function backendEnvironment(backendRoot: string, port: number, sessionId: string
     REPOMIND_PATHS__DATABASE_PATH: databasePath,
     REPOMIND_INSTANCE_ID: EXPECTED_INSTANCE_ID,
     REPOMIND_SESSION_ID: sessionId,
+    REPOMIND_API_TOKEN: backendApiToken ?? "",
     REPOMIND_SHUTDOWN_TOKEN: backendShutdownToken ?? "",
+    // 后端会在启动时验证这是自己的直接父进程，再以 Windows HANDLE 等待其生命周期。
+    REPOMIND_ELECTRON_PARENT_PID: String(process.pid),
     REPOMIND_PORT: String(port),
   };
 }
@@ -191,23 +179,44 @@ function requestHealth(port: number, timeoutMs = 800): Promise<{ statusCode?: nu
   });
 }
 
-async function waitForBackendReady(port: number, sessionId: string, timeoutMs = 20000): Promise<boolean> {
+async function waitForBackendReady(
+  processToWaitFor: childProcess.ChildProcess,
+  port: number,
+  sessionId: string,
+  timeoutMs = 20000,
+): Promise<boolean> {
   const { databasePath } = backendPaths();
+  const expectedDatabaseIdentity = computeDatabaseIdentity(databasePath);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const probe = await requestHealth(port);
-    if (probe.health && isCompatibleBackendHealth(probe.statusCode, probe.health, databasePath, sessionId)) {
+    if (probe.health && isCompatibleBackendHealth(
+      probe.statusCode,
+      probe.health,
+      expectedDatabaseIdentity,
+      sessionId,
+    )) {
       return true;
     }
-    if (!backendProcess) return false;
+    if (!ownsBackendSession(backendProcess, backendSessionId, processToWaitFor, sessionId)) return false;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   return false;
 }
 
-async function startBackend(): Promise<BackendStartResult> {
-  if (backendProcess && backendPort) {
-    return { started: true, apiBaseUrl: `http://127.0.0.1:${backendPort}/api/v1` };
+async function startBackendImpl(): Promise<BackendStartResult> {
+  const { databasePath } = backendPaths();
+  const reusableBackend = await revalidateTrackedBackend({
+    hasTrackedProcess: backendProcess !== null,
+    port: backendPort,
+    apiToken: backendApiToken,
+    sessionId: backendSessionId,
+    expectedDatabaseIdentity: computeDatabaseIdentity(databasePath),
+    requestHealth,
+    isCompatibleHealth: isCompatibleBackendHealth,
+  });
+  if (reusableBackend) {
+    return { started: true, ...reusableBackend };
   }
 
   const repoRoot = app.isPackaged
@@ -219,12 +228,14 @@ async function startBackend(): Promise<BackendStartResult> {
   const backendRoot = path.join(repoRoot, "backend");
   const port = await reserveFreePort();
   const sessionId = randomUUID();
+  backendApiToken = randomUUID();
   backendShutdownToken = randomUUID();
   const env = backendEnvironment(backendRoot, port, sessionId);
 
+  let spawnedProcess: childProcess.ChildProcess;
   if (app.isPackaged && fs.existsSync(bundledExe)) {
     logBackend("Starting bundled backend: " + bundledExe + " port=" + port);
-    backendProcess = childProcess.spawn(bundledExe, [], {
+    spawnedProcess = childProcess.spawn(bundledExe, [], {
       env,
       shell: false,
       windowsHide: true,
@@ -239,7 +250,7 @@ async function startBackend(): Promise<BackendStartResult> {
       throw new Error("开发模式未找到 Python，请设置 REPOMIND_PYTHON 或把 Python 加入 PATH。");
     }
     logBackend("Starting development backend via Python: " + launcher.command + " port=" + port);
-    backendProcess = childProcess.spawn(launcher.command, [...launcher.args, "-m", "service.main"], {
+    spawnedProcess = childProcess.spawn(launcher.command, [...launcher.args, "-m", "service.main"], {
       cwd: backendRoot,
       env,
       shell: false,
@@ -248,35 +259,46 @@ async function startBackend(): Promise<BackendStartResult> {
     });
   }
 
-  backendProcessId = backendProcess.pid ?? null;
+  backendProcess = spawnedProcess;
   backendPort = port;
   backendSessionId = sessionId;
-  backendProcess.stdout?.on("data", (data) => logBackend("[backend-out] " + data.toString().trim()));
-  backendProcess.stderr?.on("data", (data) => logBackend("[backend-err] " + data.toString().trim()));
-  backendProcess.on("error", (error) => logBackend("backend spawn error: " + error.message));
-  backendProcess.on("exit", (code) => {
+  spawnedProcess.stdout?.on("data", (data) => logBackend("[backend-out] " + data.toString().trim()));
+  spawnedProcess.stderr?.on("data", (data) => logBackend("[backend-err] " + data.toString().trim()));
+  spawnedProcess.on("error", (error) => {
+    logBackend("backend spawn error: " + error.message);
+    if (ownsBackendSession(backendProcess, backendSessionId, spawnedProcess, sessionId)) {
+      backendProcess = null;
+      backendPort = null;
+      backendSessionId = null;
+      backendApiToken = null;
+      backendShutdownToken = null;
+    }
+  });
+  spawnedProcess.on("exit", (code) => {
     logBackend("backend exited with code=" + code);
-    // PyInstaller 启动器退出后可能仍有同 PID 的后端进程存活，PID 只由 stopBackend 最终清空。
-    backendProcess = null;
-    backendPort = null;
-    backendSessionId = null;
+    // 旧进程晚到的退出事件不能清理后来启动的新会话。
+    if (ownsBackendSession(backendProcess, backendSessionId, spawnedProcess, sessionId)) {
+      backendProcess = null;
+      backendPort = null;
+      backendSessionId = null;
+      backendApiToken = null;
+      backendShutdownToken = null;
+    }
   });
 
-  if (!await waitForBackendReady(port, sessionId)) {
+  if (!await waitForBackendReady(spawnedProcess, port, sessionId)) {
     await stopBackend();
-    throw new Error("后端没有通过 API、Schema、数据库路径和会话身份检查。");
+    throw new Error("后端没有通过 API、Schema、数据库身份和会话身份检查。");
   }
-  return { started: true, apiBaseUrl: `http://127.0.0.1:${port}/api/v1` };
+  return { started: true, apiBaseUrl: `http://127.0.0.1:${port}/api/v1`, apiToken: backendApiToken! };
 }
 
-interface PythonLauncher { command: string; args: string[]; }
+const startBackend = createSingleFlight(startBackendImpl);
 
 function findPythonInterpreter(): PythonLauncher | null {
   // Python fallback 只服务开发模式，不写入任何开发者个人绝对路径。
   if (process.env.REPOMIND_PYTHON) return { command: process.env.REPOMIND_PYTHON, args: [] };
-  const commands: PythonLauncher[] = process.platform === "win32"
-    ? [{ command: "py", args: ["-3"] }, { command: "python", args: [] }]
-    : [{ command: "python3", args: [] }, { command: "python", args: [] }];
+  const commands = pythonLauncherCandidates();
   for (const launcher of commands) {
     const result = childProcess.spawnSync(launcher.command, [...launcher.args, "--version"], {
       shell: false,
@@ -287,26 +309,7 @@ function findPythonInterpreter(): PythonLauncher | null {
   return null;
 }
 
-function stopWindowsProcess(processId: number): void {
-  // 只终止 Electron 启动并记录的后端 PID，不递归处理任何父子进程。
-  try {
-    childProcess.execFileSync(
-      "powershell",
-      [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        `Stop-Process -Id ${processId} -Force -ErrorAction SilentlyContinue`,
-      ],
-      { stdio: "ignore", timeout: 15_000 },
-    );
-  } catch {
-    // 目标进程已经退出时无需继续处理。
-  }
-}
-
-function requestBackendShutdown(port: number, token: string): Promise<void> {
+function requestBackendShutdown(port: number, token: string): Promise<boolean> {
   return new Promise((resolve) => {
     const request = http.request(
       {
@@ -318,49 +321,50 @@ function requestBackendShutdown(port: number, token: string): Promise<void> {
         headers: { "X-RepoMind-Shutdown-Token": token },
       },
       (response) => {
+        const accepted = response.statusCode === 202;
         response.resume();
-        response.once("end", resolve);
+        response.once("end", () => resolve(accepted));
       },
     );
-    request.once("timeout", () => { request.destroy(); resolve(); });
-    request.once("error", () => resolve());
+    request.once("timeout", () => { request.destroy(); resolve(false); });
+    request.once("error", () => resolve(false));
     request.end();
   });
 }
 
 async function stopBackend(): Promise<void> {
-  if (stoppingBackend || (!backendProcess && backendProcessId == null)) return;
+  if (stoppingBackend || (!backendProcess && backendPort == null)) return;
   stoppingBackend = true;
   const processToStop = backendProcess;
-  const processId = processToStop?.pid ?? backendProcessId;
   try {
-    if (backendProcess && backendPort && backendShutdownToken) {
-      await requestBackendShutdown(backendPort, backendShutdownToken);
+    // 只有会话端口和关闭令牌仍在内存中时，才发送可证明归属的优雅退出请求。
+    const shutdownAccepted = backendPort != null && backendShutdownToken
+      ? await requestBackendShutdown(backendPort, backendShutdownToken)
+      : false;
+    if (shutdownAccepted) {
+      const deadline = Date.now() + 5000;
+      while (processToStop?.exitCode === null && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
     }
-    const deadline = Date.now() + 3000;
-    while (processToStop && !processToStop.killed && processToStop.exitCode === null && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    if (process.platform === "win32" && processId != null) {
-      stopWindowsProcess(processId);
-    } else if (processToStop?.exitCode === null) {
-      processToStop.kill("SIGKILL");
+    if (processToStop?.exitCode === null) {
+      // 不能继续证明该 PID 仍属于本次会话时绝不强杀，也不扫描机器上的其他进程。
+      logBackend("Backend did not confirm a clean shutdown; leaving the unproven process untouched.");
     }
   } catch {
-    // 进程可能已经自行退出。
+    // 关闭请求失败时宁可留下待系统回收的进程，也不冒险终止未知 PID。
   } finally {
-    if (backendProcess === processToStop) backendProcess = null;
-    backendProcessId = null;
-    backendPort = null;
-    backendSessionId = null;
-    backendShutdownToken = null;
+    const processExited = !processToStop || processToStop.exitCode !== null;
+    // 只有观察到本次 ChildProcess 已退出后才清空会话句柄；关闭失败时保留句柄和令牌供后续重试。
+    if (processExited && backendProcess === processToStop) {
+      backendProcess = null;
+      backendPort = null;
+      backendSessionId = null;
+      backendApiToken = null;
+      backendShutdownToken = null;
+    }
     stoppingBackend = false;
   }
-}
-
-interface DemoPrepareResult {
-  repoPath: string;
-  created: boolean;
 }
 
 // 内置 Demo 只在用户数据目录生成运行副本；绝不修改打包资源或源码目录。
@@ -410,6 +414,22 @@ function prepareDemoRepository(): DemoPrepareResult {
   return { repoPath: targetPath, created: true };
 }
 
+export function isAllowedRendererNavigation(currentUrl: string, targetUrl: string): boolean {
+  try {
+    const current = new URL(currentUrl);
+    const target = new URL(targetUrl);
+    // 开发模式只允许留在同一个 Vite Origin；打包模式只允许同一个本地 HTML 文件内跳转。
+    if (current.protocol === "http:" || current.protocol === "https:") {
+      return target.origin === current.origin;
+    }
+    return current.protocol === "file:"
+      && target.protocol === "file:"
+      && path.normalize(decodeURIComponent(target.pathname)) === path.normalize(decodeURIComponent(current.pathname));
+  } catch {
+    return false;
+  }
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -423,6 +443,15 @@ function createWindow(): void {
   });
   if (isDev) mainWindow.loadURL("http://localhost:5173");
   else mainWindow.loadFile(path.join(__dirname, "..", "dist-renderer", "index.html"));
+
+  // RepoMind 不需要打开外部窗口；任何 window.open 或 target=_blank 都直接拒绝。
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
+    const currentUrl = mainWindow?.webContents.getURL();
+    if (!currentUrl || !isAllowedRendererNavigation(currentUrl, targetUrl)) {
+      event.preventDefault();
+    }
+  });
   mainWindow.on("closed", () => { mainWindow = null; });
 }
 
@@ -430,11 +459,9 @@ app.whenReady().then(async () => {
   ipcMain.handle("backend:start", () => startBackend());
   ipcMain.handle("backend:stop", async () => { await stopBackend(); return true; });
   ipcMain.handle("demo:prepare", () => prepareDemoRepository());
-  ipcMain.handle("export:save-text", async (_event, request: SaveTextRequest): Promise<SaveTextResult> => {
-    if (!request || typeof request.content !== "string" || request.content.length > 10 * 1024 * 1024) {
-      throw new Error("导出内容无效或超过 10 MB 限制。");
-    }
-    const kind = request.kind === "json" ? "json" : "markdown";
+  ipcMain.handle("export:save-text", async (_event, rawRequest: unknown): Promise<SaveTextResult> => {
+    const request = validateSaveTextRequest(rawRequest);
+    const kind = request.kind;
     const extension = kind === "json" ? ".json" : ".md";
     const defaultPath = sanitizeExportFileName(request.suggestedName, extension);
     const e2eFilePath = resolveE2eExportPath(defaultPath);
@@ -464,13 +491,23 @@ app.whenReady().then(async () => {
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
+async function coordinateQuitOnce(): Promise<void> {
+  if (quitCoordinationStarted) return;
+  quitCoordinationStarted = true;
+  await stopBackend();
+  if (backendProcess?.exitCode === null) {
+    logBackend("Backend remains after the authenticated shutdown attempt; Electron will close without force cleanup.");
+  }
+  app.quit();
+}
+
 app.on("before-quit", (event) => {
-  if (stoppingBackend || backendProcessId == null) return;
+  if (quitCoordinationStarted || (!backendProcess && backendPort == null)) return;
   event.preventDefault();
-  void stopBackend().finally(() => app.quit());
+  void coordinateQuitOnce();
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    void stopBackend().finally(() => app.quit());
+    void coordinateQuitOnce();
   }
 });

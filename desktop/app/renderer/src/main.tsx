@@ -55,6 +55,7 @@ import {
   searchCodeFunctions,
   searchRepository,
   setApiBaseUrl,
+  setApiToken,
   updateSettings,
 } from "../services/apiClient";
 import type {
@@ -84,7 +85,10 @@ import { EvidenceDrawer } from "./features/evidence/EvidenceDrawer";
 import { LegacyAgentPanel } from "./features/legacy/LegacyAgentPanel";
 import { RepositoryAccessPanel } from "./features/repositories/RepositoryAccessPanel";
 import { UserGuide } from "./UserGuide";
-import { ingestThenLoadRepository } from "./repositoryRegistration";
+import { ingestThenLoadRepository, loadWorkflowReportRepository } from "./repositoryRegistration";
+import { buildBoundedTraceExport, redactExportText, saveTextExport } from "./exportRedaction";
+import { beginRepositoryRegistration, createRepositoryContextGuard, resetRepositoryContextState, runRepositoryContextOperation } from "./repositoryContextReset";
+import type { RepositoryContextResetters } from "./repositoryContextReset";
 import "./styles.css";
 
 const DEFAULT_SETTINGS: SettingsResponse = {
@@ -221,6 +225,7 @@ function App() {
   const [selectedTrace, setSelectedTrace] = useState<AgentTraceResponse | null>(null);
   const [isEvidenceDrawerOpen, setIsEvidenceDrawerOpen] = useState(false);
   const [exportStatus, setExportStatus] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   const [totalTokens, setTotalTokens] = useState(0);
   const [totalCost, setTotalCost] = useState(0);
@@ -247,7 +252,10 @@ function App() {
   const logRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<HTMLDivElement | null>(null);
   const knowledgeRequestRef = useRef(0);
+  const repositoryContextGuardRef = useRef(createRepositoryContextGuard());
   const catalogRequestRef = useRef(0);
+  // React 状态要到下一次渲染才更新；同步锁可阻止用户快速双击触发两次保存对话框。
+  const exportLockRef = useRef(false);
   // 代码图谱与知识目录共用仓库/快照上下文；递增编号可丢弃切换前才返回的请求。
   const codeGraphRequestRef = useRef(0);
   const canUseRepo = !!repo
@@ -322,11 +330,13 @@ function App() {
     setError(null);
     try {
       const desktopBridge = (window as Window & {
-        repomind?: { backend?: { start?: () => Promise<{ started: boolean; apiBaseUrl: string }> } };
+        repomind?: { backend?: { start?: () => Promise<{ started: boolean; apiBaseUrl: string; apiToken: string }> } };
       }).repomind;
       const backendResult = await desktopBridge?.backend?.start?.();
       if (backendResult?.apiBaseUrl) {
         setApiBaseUrl(backendResult.apiBaseUrl);
+        // 后续所有业务请求都由统一 apiClient 自动携带本次 Electron 会话令牌。
+        setApiToken(backendResult.apiToken, backendResult.apiBaseUrl);
       }
 
       let healthResponse: HealthResponse | null = null;
@@ -389,6 +399,9 @@ function App() {
   }
 
   async function loadRepositoryKnowledge(repoId: string, requestedSnapshotId?: string) {
+    const contextGuard = repositoryContextGuardRef.current;
+    const contextToken = contextGuard.begin(repoId, requestedSnapshotId ?? null);
+    let completionToken = contextToken;
     const requestId = knowledgeRequestRef.current + 1;
     knowledgeRequestRef.current = requestId;
     catalogRequestRef.current += 1;
@@ -399,15 +412,29 @@ function App() {
     setFunctionResults([]);
     setCallChain(null);
     setClassHierarchy(null);
+    // 必须先同步清空所有绑定旧仓库/快照的交互结果，再开始任何异步加载。
+    const resetters: RepositoryContextResetters = {
+      setWorkflowReport,
+      setActiveWorkflowSection,
+      setAnswer,
+      setEvidence,
+      setEvidenceSnapshotId,
+      setSelectedChunk,
+      setSelectedTrace,
+      setIsEvidenceDrawerOpen,
+      setCollaborateResult,
+      setDebateMessages,
+      setIsAsking,
+      setIsDebating,
+      setExportStatus,
+      setAgentsIdle: () => setAgents((previous) => previous.map((agent) => ({ ...agent, status: "idle" }))),
+      setError,
+    };
+    resetRepositoryContextState(resetters);
     setIsKnowledgeLoading(true);
-    setError(null);
-    // 每次切换仓库时先清空旧卡片和证据，防止异步请求期间展示跨仓库内容。
+    // 每次切换仓库时先清空旧卡片，防止异步请求期间展示跨仓库内容。
     setCatalogRoots([]);
     setSelectedCatalogItem(null);
-    setSelectedChunk(null);
-    setSelectedTrace(null);
-    setEvidenceSnapshotId(null);
-    setIsEvidenceDrawerOpen(false);
     try {
       const [repoResponse, snapshotResponse] = await Promise.all([
         getRepository(repoId),
@@ -416,9 +443,15 @@ function App() {
       const selectedSnapshot = requestedSnapshotId
         ? snapshotResponse.snapshots.find((item) => item.snapshot_id === requestedSnapshotId && item.status === "succeeded")
         : snapshotResponse.snapshots.find((item) => item.snapshot_id === snapshotResponse.active_snapshot_id && item.status === "succeeded");
-      if (requestId !== knowledgeRequestRef.current) {
+      if (requestId !== knowledgeRequestRef.current || !contextGuard.isCurrent(contextToken)) {
         return;
       }
+      const selectedContextToken = contextGuard.selectSnapshot(
+        contextToken.generation,
+        repoId,
+        selectedSnapshot?.snapshot_id ?? null,
+      );
+      completionToken = selectedContextToken;
       setRepo(repoResponse);
       setSnapshots(snapshotResponse.snapshots);
       setSelectedSnapshotId(selectedSnapshot?.snapshot_id ?? null);
@@ -435,7 +468,7 @@ function App() {
         getRepositorySummary(repoId, selectedSnapshot.snapshot_id),
         getRepositoryCatalogTree(repoId, selectedSnapshot.snapshot_id),
       ]);
-      if (requestId !== knowledgeRequestRef.current) {
+      if (requestId !== knowledgeRequestRef.current || !contextGuard.isCurrent(selectedContextToken)) {
         return;
       }
       setFiles(fileResponse);
@@ -445,14 +478,14 @@ function App() {
       setActiveTab("catalog");
       addLog(`[INFO] 已切换知识快照：${selectedSnapshot.commit.slice(0, 12)}`);
     } catch (err) {
-      if (requestId !== knowledgeRequestRef.current) {
+      if (requestId !== knowledgeRequestRef.current || !contextGuard.isCurrent(completionToken)) {
         return;
       }
       const message = extractErrorMessage(err);
       setError(message);
       addLog(`[ERROR] 仓库知识载入失败：${message}`);
     } finally {
-      if (requestId === knowledgeRequestRef.current) {
+      if (requestId === knowledgeRequestRef.current && contextGuard.isCurrent(completionToken)) {
         setIsKnowledgeLoading(false);
       }
     }
@@ -464,30 +497,33 @@ function App() {
     }
     const repoId = repo.repo_id;
     const snapshotId = selectedSnapshotId;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId);
     const requestId = catalogRequestRef.current + 1;
     catalogRequestRef.current = requestId;
     setIsKnowledgeLoading(true);
     try {
       const detail = await getRepositoryCatalogItem(repoId, item.id, snapshotId);
-      if (requestId === catalogRequestRef.current && repo.repo_id === repoId && selectedSnapshotId === snapshotId) {
+      if (requestId === catalogRequestRef.current && repositoryContextGuardRef.current.isCurrent(contextToken)) {
         setSelectedCatalogItem(detail);
       }
     } catch (err) {
-      if (requestId === catalogRequestRef.current) {
+      if (requestId === catalogRequestRef.current && repositoryContextGuardRef.current.isCurrent(contextToken)) {
         setError(extractErrorMessage(err));
       }
     } finally {
-      if (requestId === catalogRequestRef.current) {
+      if (requestId === catalogRequestRef.current && repositoryContextGuardRef.current.isCurrent(contextToken)) {
         setIsKnowledgeLoading(false);
       }
     }
   }
 
   async function refreshRepoInsights(repoId: string, snapshotId?: string) {
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId ?? selectedSnapshotId);
     const [mapResponse, summaryResponse] = await Promise.all([
       getRepositoryMap(repoId, snapshotId),
       getRepositorySummary(repoId, snapshotId),
     ]);
+    if (!repositoryContextGuardRef.current.isCurrent(contextToken)) return;
     setRepoMap(mapResponse);
     setRepoSummary(summaryResponse);
     addLog(`[INFO] 仓库地图已生成：${mapResponse.chunk_count} 个知识片段`);
@@ -577,30 +613,42 @@ function App() {
 
     setError(null);
     setIsRegistering(true);
+    const resetters: RepositoryContextResetters = {
+      setWorkflowReport,
+      setActiveWorkflowSection,
+      setAnswer,
+      setEvidence,
+      setEvidenceSnapshotId,
+      setSelectedChunk,
+      setSelectedTrace,
+      setIsEvidenceDrawerOpen,
+      setCollaborateResult,
+      setDebateMessages,
+      setIsAsking,
+      setIsDebating,
+      setExportStatus,
+      setAgentsIdle: () => setAgents((previous) => previous.map((agent) => ({ ...agent, status: "idle" }))),
+      setError,
+    };
+    beginRepositoryRegistration({
+      guard: repositoryContextGuardRef.current,
+      resetters,
+      invalidateCodeGraph: () => { codeGraphRequestRef.current += 1; },
+      invalidateKnowledgeRequest: () => { knowledgeRequestRef.current += 1; },
+    });
     setRepo(null);
     setSnapshots([]);
     setSelectedSnapshotId(null);
     setCatalogRoots([]);
     setSelectedCatalogItem(null);
-    setSelectedChunk(null);
-    setSelectedTrace(null);
-    setEvidenceSnapshotId(null);
-    setIsEvidenceDrawerOpen(false);
     setFiles([]);
     setRepoMap(null);
     setRepoSummary(null);
-    setWorkflowReport(null);
-    setActiveWorkflowSection("");
-    codeGraphRequestRef.current += 1;
-    setAnswer(null);
-    setEvidence([]);
     setCodeGraphStats(null);
     setImportantFunctions([]);
     setFunctionResults([]);
     setCallChain(null);
     setClassHierarchy(null);
-    setCollaborateResult(null);
-    setDebateMessages([]);
     setActiveJob(null);
 
     try {
@@ -608,10 +656,19 @@ function App() {
       if (trimmedGithubUrl) {
         setRegisterProgress("正在克隆 GitHub 仓库并生成首次工作流报告");
         addLog(`[INFO] 开始分析 GitHub 仓库：${trimmedGithubUrl}`);
-        const report = await analyzeGithubRepository(trimmedGithubUrl, trimmedAlias, false);
-        setWorkflowReport(report);
-        setActiveWorkflowSection(report.sections[0]?.key || "");
-        repoId = report.repo.repo_id;
+        const response = await analyzeGithubRepository(trimmedGithubUrl, trimmedAlias, false);
+        if (response.response_type === "workflow_report") {
+          await loadWorkflowReportRepository(response, {
+            setWorkflowReport,
+            setActiveWorkflowSection,
+            loadRepository: async (targetRepoId, snapshotId) => loadRepository(targetRepoId, snapshotId),
+            refreshRepositoryInsights: async (targetRepoId, snapshotId) => refreshRepoInsights(targetRepoId, snapshotId),
+            loadRepositoryKnowledge: async (targetRepoId, snapshotId) => loadRepositoryKnowledge(targetRepoId, snapshotId),
+            setRegisterProgress,
+          });
+          return;
+        }
+        repoId = response.repo_id;
       } else {
         setRegisterProgress("正在注册本地仓库并扫描文件");
         addLog(`[INFO] 注册本地仓库：${trimmedRepoPath}`);
@@ -645,40 +702,58 @@ function App() {
     if (!repo || !question.trim()) {
       return;
     }
+    const repoId = repo.repo_id;
+    const snapshotId = selectedSnapshotId;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId);
+    const submittedQuestion = question.trim();
     setIsAsking(true);
     setError(null);
-    addLog(`[INFO] 提问：${question.trim()}`);
-    try {
-      const response = await askRepository(repo.repo_id, question.trim(), selectedSnapshotId ?? undefined);
-      setAnswer(response);
-      setEvidence(response.evidence || []);
-      setEvidenceSnapshotId(response.snapshot_id ?? selectedSnapshotId);
-      const tokens = response.token_count || 0;
-      setTotalTokens((previous) => previous + tokens);
-      setTotalCost((previous) => previous + estimateCost(tokens, settings));
-      addLog(`[INFO] 回答完成，使用 ${tokens || "未知"} tokens`);
-    } catch (err) {
-      const message = extractErrorMessage(err);
-      setError(message);
-      addLog(`[ERROR] 问答失败：${message}`);
-    } finally {
-      setIsAsking(false);
-    }
+    addLog(`[INFO] 提问：${submittedQuestion}`);
+    await runRepositoryContextOperation(
+      repositoryContextGuardRef.current,
+      contextToken,
+      () => askRepository(repoId, submittedQuestion, snapshotId ?? undefined),
+      {
+        onSuccess: (response) => {
+          setAnswer(response);
+          setEvidence(response.evidence || []);
+          setEvidenceSnapshotId(response.snapshot_id ?? snapshotId);
+          const tokens = response.token_count || 0;
+          setTotalTokens((previous) => previous + tokens);
+          setTotalCost((previous) => previous + estimateCost(tokens, settings));
+          addLog(`[INFO] 回答完成，使用 ${tokens || "未知"} tokens`);
+        },
+        onError: (err) => {
+          const message = extractErrorMessage(err);
+          setError(message);
+          addLog(`[ERROR] 问答失败：${message}`);
+        },
+        onFinally: () => setIsAsking(false),
+      },
+    );
   }
 
   async function handleSearch() {
     if (!repo || !searchQuery.trim()) {
       return;
     }
+    const repoId = repo.repo_id;
+    const snapshotId = selectedSnapshotId;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId);
     setError(null);
-    try {
-      const response = await searchRepository(repo.repo_id, searchQuery.trim(), selectedSnapshotId ?? undefined);
-      setEvidence(response.evidence || []);
-      setEvidenceSnapshotId(response.snapshot_id ?? selectedSnapshotId);
-      addLog(`[INFO] 找到 ${response.evidence.length} 条证据`);
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    }
+    await runRepositoryContextOperation(
+      repositoryContextGuardRef.current,
+      contextToken,
+      () => searchRepository(repoId, searchQuery.trim(), snapshotId ?? undefined),
+      {
+        onSuccess: (response) => {
+          setEvidence(response.evidence || []);
+          setEvidenceSnapshotId(response.snapshot_id ?? snapshotId);
+          addLog(`[INFO] 找到 ${response.evidence.length} 条证据`);
+        },
+        onError: (err) => setError(extractErrorMessage(err)),
+      },
+    );
   }
 
   async function handleEvidenceSelect(item: EvidenceItem) {
@@ -687,51 +762,81 @@ function App() {
     }
     const repoId = repo.repo_id;
     const snapshotId = evidenceSnapshotId;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, selectedSnapshotId);
     setError(null);
-    try {
-      // Evidence 抽屉只展示当前选中的源码，避免上一次 Trace 状态让抽屉类型判断错误。
-      setSelectedTrace(null);
-      setSelectedChunk(await getRepositoryChunkDetail(repoId, item.chunk_id, snapshotId));
-      setIsEvidenceDrawerOpen(true);
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    }
+    await runRepositoryContextOperation(
+      repositoryContextGuardRef.current,
+      contextToken,
+      () => getRepositoryChunkDetail(repoId, item.chunk_id, snapshotId),
+      {
+        onSuccess: (detail) => {
+          setSelectedTrace(null);
+          setSelectedChunk(detail);
+          setIsEvidenceDrawerOpen(true);
+        },
+        onError: (err) => setError(extractErrorMessage(err)),
+      },
+    );
   }
 
   async function handleTraceOpen() {
     if (!repo || !answer?.trace_id) {
       return;
     }
+    const repoId = repo.repo_id;
+    const snapshotId = selectedSnapshotId;
+    const traceId = answer.trace_id;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId);
     setError(null);
-    try {
-      // 打开 Trace 前清掉源码证据，确保抽屉稳定渲染为 Trace 类型。
-      setSelectedChunk(null);
-      setSelectedTrace(await getRepositoryTrace(repo.repo_id, answer.trace_id));
-      setIsEvidenceDrawerOpen(true);
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    }
+    await runRepositoryContextOperation(
+      repositoryContextGuardRef.current,
+      contextToken,
+      () => getRepositoryTrace(repoId, traceId),
+      {
+        onSuccess: (trace) => {
+          setSelectedChunk(null);
+          setSelectedTrace(trace);
+          setIsEvidenceDrawerOpen(true);
+        },
+        onError: (err) => setError(extractErrorMessage(err)),
+      },
+    );
   }
 
-  async function saveTextExport(suggestedName: string, content: string, kind: "markdown" | "json") {
+  async function saveTextExportToDesktop(suggestedName: string, content: string, kind: "markdown" | "json") {
+    if (exportLockRef.current) {
+      return;
+    }
+    exportLockRef.current = true;
     const desktopBridge = (window as Window & {
       repomind?: { export?: { saveText?: (request: { suggestedName: string; content: string; kind: "markdown" | "json" }) => Promise<{ saved: boolean; fileName?: string }> } };
     }).repomind;
-    if (!desktopBridge?.export?.saveText) {
-      setError("当前环境不支持文件导出，请从 RepoMind 桌面端操作。");
-      return;
+    // 每次尝试都先清掉旧成功状态，避免失败或取消后仍显示上一次文件名。
+    setExportStatus("");
+    setError(null);
+    setIsExporting(true);
+    try {
+      const outcome = await saveTextExport(desktopBridge?.export?.saveText, { suggestedName, content, kind });
+      if (outcome.status === "saved") {
+        setExportStatus(`已导出：${outcome.fileName || "文件"}`);
+      } else if (outcome.status === "cancelled") {
+        setExportStatus("已取消导出");
+      } else {
+        setError(`导出失败：${outcome.error}`);
+      }
+    } finally {
+      exportLockRef.current = false;
+      setIsExporting(false);
     }
-    const result = await desktopBridge.export.saveText({ suggestedName, content, kind });
-    setExportStatus(result.saved ? `已导出：${result.fileName || "文件"}` : "已取消导出");
   }
 
   async function handleExportMarkdown() {
     if (!workflowReport || !repo || !selectedSnapshotId) return;
-    const privatePath = workflowReport.repo.repo_path;
-    const markdown = workflowReport.markdown
-      .split(privatePath).join("[local repository]")
-      + `\n\n## Export metadata\n\n- Snapshot: ${selectedSnapshotId}\n- Generated: ${new Date().toISOString()}\n- Retrieval: lexical by default; optional embedding when configured\n- Limitations: ${workflowReport.limitations.join("; ") || "See project documentation."}\n`;
-    await saveTextExport(`${repo.alias}-workflow-report`, markdown, "markdown");
+    const markdown = redactExportText(
+      workflowReport.markdown
+        + `\n\n## Export metadata\n\n- Snapshot: ${workflowReport.snapshot_id}\n- Commit: ${workflowReport.commit}\n- Generated: ${new Date().toISOString()}\n- Retrieval: lexical by default; optional embedding when configured\n- Limitations: ${workflowReport.limitations.join("; ") || "See project documentation."}\n`,
+    );
+    await saveTextExportToDesktop(`${repo.alias}-workflow-report`, markdown, "markdown");
   }
 
   async function handleExportTrace() {
@@ -739,97 +844,95 @@ function App() {
     const trace = selectedTrace?.id === answer.trace_id
       ? selectedTrace
       : await getRepositoryTrace(repo.repo_id, answer.trace_id);
-    const toolSteps = trace.steps.filter((step) => step.step_type === "tool");
-    const retrievalStep = trace.steps.find((step) => step.step_type === "retrieval");
-    const evidence = trace.steps.flatMap((step) => step.evidence_refs || []);
-    const uniqueEvidence = Array.from(new Map(evidence.map((item) => [
-      `${item.chunk_id}|${item.file_path}|${item.start_line}|${item.end_line}`,
-      item,
-    ])).values());
-    const payload = {
-      format: "repomind-trace-export-v1",
-      generated_at: new Date().toISOString(),
-      repository: { alias: repo.alias, commit: answer.commit || repo.commit, snapshot_id: answer.snapshot_id },
-      retrieval_mode: retrievalStep?.output_summary?.mode || "unknown",
-      generation_mode: trace.status === "fallback" ? "rule_fallback" : "llm",
-      tool_route: toolSteps.map((step) => ({ name: step.tool_name, status: step.status })),
-      limitations: trace.steps.flatMap((step) => {
-        const value = step.output_summary?.limitations ?? step.output_summary?.limitation;
-        return Array.isArray(value) ? value : value ? [String(value)] : [];
-      }),
-      evidence: uniqueEvidence,
-      trace,
-    };
-    await saveTextExport(`${repo.alias}-trace`, JSON.stringify(payload, null, 2) + "\n", "json");
+    const payload = buildBoundedTraceExport(trace, {
+      alias: repo.alias,
+      commit: answer.commit || repo.commit,
+      snapshot_id: answer.snapshot_id,
+    });
+    await saveTextExportToDesktop(`${repo.alias}-trace`, JSON.stringify(payload, null, 2) + "\n", "json");
   }
 
   async function handleWorkflowAnalysis() {
     if (!repo) {
       return;
     }
+    const repoId = repo.repo_id;
+    const snapshotId = selectedSnapshotId;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId);
     setError(null);
-    try {
-      const report = await analyzeRepositoryWorkflow(repo.repo_id);
-      setWorkflowReport(report);
-      setActiveWorkflowSection(report.sections[0]?.key || "");
-      addLog(`[INFO] 工作流分析完成：${report.analysis_id}`);
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    }
+    await runRepositoryContextOperation(
+      repositoryContextGuardRef.current,
+      contextToken,
+      () => analyzeRepositoryWorkflow(repoId, snapshotId ?? undefined),
+      {
+        onSuccess: (report) => {
+          setWorkflowReport(report);
+          setActiveWorkflowSection(report.sections[0]?.key || "");
+          addLog(`[INFO] 工作流分析完成：${report.analysis_id}`);
+        },
+        onError: (err) => setError(extractErrorMessage(err)),
+      },
+    );
   }
 
   async function handleCollaborate() {
     if (!repo || !debateTopic.trim()) {
       return;
     }
+    const repoId = repo.repo_id;
+    const snapshotId = selectedSnapshotId;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId);
+    const submittedTopic = debateTopic.trim();
+    const submittedAgents = agents.map((agent) => {
+      const model = agent.model.trim();
+      const baseUrl = agent.baseUrl.trim();
+      const apiKey = agent.apiKey.trim();
+      const llmOverride = {
+        ...(model ? { model } : {}),
+        ...(baseUrl ? { base_url: baseUrl } : {}),
+        ...(apiKey ? { api_key: apiKey } : {}),
+      };
+      return {
+        name: agent.name,
+        role: agent.role,
+        ...(Object.keys(llmOverride).length ? { llm_override: llmOverride } : {}),
+      };
+    });
     setIsDebating(true);
     setCollaborateResult(null);
     setDebateMessages([]);
     setAgents((previous) => previous.map((agent) => ({ ...agent, status: "thinking" })));
     setError(null);
-    try {
-      const response = await runCollaboration(
-        repo.repo_id,
-        debateTopic.trim(),
-        agents.map((agent) => {
-          const model = agent.model.trim();
-          const baseUrl = agent.baseUrl.trim();
-          const apiKey = agent.apiKey.trim();
-          const llmOverride = {
-            ...(model ? { model } : {}),
-            ...(baseUrl ? { base_url: baseUrl } : {}),
-            ...(apiKey ? { api_key: apiKey } : {}),
-          };
-          return {
-            name: agent.name,
-            role: agent.role,
-            ...(Object.keys(llmOverride).length ? { llm_override: llmOverride } : {}),
-          };
-        }),
-        selectedSnapshotId ?? undefined,
-      );
-      setCollaborateResult(response);
-      const tokens = response.total_tokens_used || 0;
-      setTotalTokens((previous) => previous + tokens);
-      setTotalCost((previous) => previous + estimateCost(tokens, settings));
-      setDebateMessages(response.contributions.map((item, index) => ({
-        id: `${Date.now()}-${index}`,
-        sender: item.agent_name,
-        role: item.role,
-        content: item.content,
-        isUser: false,
-        timestamp: nowTime(),
-      })));
-      setAgents((previous) => previous.map((agent) => ({ ...agent, status: "done" })));
-      addLog(`[INFO] 协作完成，${response.agents_used_llm} 个智能体成功调用模型，使用 ${tokens || "未知"} tokens`);
-    } catch (err) {
-      setError(extractErrorMessage(err));
-      setAgents((previous) => previous.map((agent) => ({ ...agent, status: "idle" })));
-    } finally {
-      // 专属 Key 只用于本次请求，完成后立即从前端内存状态中清除。
-      setAgents((previous) => previous.map((agent) => ({ ...agent, apiKey: "" })));
-      setIsDebating(false);
-    }
+    await runRepositoryContextOperation(
+      repositoryContextGuardRef.current,
+      contextToken,
+      () => runCollaboration(repoId, submittedTopic, submittedAgents, snapshotId ?? undefined),
+      {
+        onSuccess: (response) => {
+          setCollaborateResult(response);
+          const tokens = response.total_tokens_used || 0;
+          setTotalTokens((previous) => previous + tokens);
+          setTotalCost((previous) => previous + estimateCost(tokens, settings));
+          setDebateMessages(response.contributions.map((item, index) => ({
+            id: `${Date.now()}-${index}`,
+            sender: item.agent_name,
+            role: item.role,
+            content: item.content,
+            isUser: false,
+            timestamp: nowTime(),
+          })));
+          setAgents((previous) => previous.map((agent) => ({ ...agent, status: "done" })));
+          addLog(`[INFO] Legacy 固定角色请求完成：${response.agents_used_llm} 个角色返回模型结果，使用 ${tokens || "未知"} tokens`);
+        },
+        onError: (err) => {
+          setError(extractErrorMessage(err));
+          setAgents((previous) => previous.map((agent) => ({ ...agent, status: "idle" })));
+        },
+        onFinally: () => setIsDebating(false),
+      },
+    );
+    // 专属 Key 不属于仓库显示状态，无论上下文是否切换都必须立即从内存清除。
+    setAgents((previous) => previous.map((agent) => ({ ...agent, apiKey: "" })));
   }
 
   function addAgent() {
@@ -870,19 +973,20 @@ function App() {
     }
     const requestId = codeGraphRequestRef.current + 1;
     codeGraphRequestRef.current = requestId;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId);
     try {
       const [stats, important] = await Promise.all([
         getCodeGraphStats(repoId, snapshotId ?? undefined),
         getImportantFunctions(repoId, 20, snapshotId ?? undefined),
       ]);
-      if (requestId !== codeGraphRequestRef.current || repo?.repo_id !== repoId || selectedSnapshotId !== snapshotId) {
+      if (requestId !== codeGraphRequestRef.current || !repositoryContextGuardRef.current.isCurrent(contextToken)) {
         return;
       }
       setCodeGraphStats(stats as Record<string, unknown>);
       setImportantFunctions(normalizeResultList(important));
       addLog("[INFO] 代码图谱已刷新");
     } catch (err) {
-      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+      if (requestId === codeGraphRequestRef.current && repositoryContextGuardRef.current.isCurrent(contextToken)) {
         addLog(`[WARN] 代码图谱暂不可用：${extractErrorMessage(err)}`);
       }
     }
@@ -896,13 +1000,14 @@ function App() {
     const snapshotId = selectedSnapshotId;
     const requestId = codeGraphRequestRef.current + 1;
     codeGraphRequestRef.current = requestId;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId);
     try {
       const response = await searchCodeFunctions(repoId, functionQuery.trim(), 20, snapshotId);
-      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+      if (requestId === codeGraphRequestRef.current && repositoryContextGuardRef.current.isCurrent(contextToken)) {
         setFunctionResults(normalizeResultList(response));
       }
     } catch (err) {
-      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+      if (requestId === codeGraphRequestRef.current && repositoryContextGuardRef.current.isCurrent(contextToken)) {
         setError(extractErrorMessage(err));
       }
     }
@@ -916,13 +1021,14 @@ function App() {
     const snapshotId = selectedSnapshotId;
     const requestId = codeGraphRequestRef.current + 1;
     codeGraphRequestRef.current = requestId;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId);
     try {
       const response = await getCallChain(repoId, callFunctionName.trim(), "both", 3, snapshotId);
-      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+      if (requestId === codeGraphRequestRef.current && repositoryContextGuardRef.current.isCurrent(contextToken)) {
         setCallChain(response);
       }
     } catch (err) {
-      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+      if (requestId === codeGraphRequestRef.current && repositoryContextGuardRef.current.isCurrent(contextToken)) {
         setError(extractErrorMessage(err));
       }
     }
@@ -936,13 +1042,14 @@ function App() {
     const snapshotId = selectedSnapshotId;
     const requestId = codeGraphRequestRef.current + 1;
     codeGraphRequestRef.current = requestId;
+    const contextToken = repositoryContextGuardRef.current.capture(repoId, snapshotId);
     try {
       const response = await getClassHierarchy(repoId, className.trim(), snapshotId);
-      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+      if (requestId === codeGraphRequestRef.current && repositoryContextGuardRef.current.isCurrent(contextToken)) {
         setClassHierarchy(response);
       }
     } catch (err) {
-      if (requestId === codeGraphRequestRef.current && repo?.repo_id === repoId && selectedSnapshotId === snapshotId) {
+      if (requestId === codeGraphRequestRef.current && repositoryContextGuardRef.current.isCurrent(contextToken)) {
         setError(extractErrorMessage(err));
       }
     }
@@ -1087,9 +1194,10 @@ function App() {
             <WorkflowPanel
               canUseRepo={canUseRepo}
               currentSection={currentWorkflowSection}
-                report={workflowReport}
-                onExportMarkdown={handleExportMarkdown}
-                onRun={handleWorkflowAnalysis}
+              isExporting={isExporting}
+              report={workflowReport}
+              onExportMarkdown={handleExportMarkdown}
+              onRun={handleWorkflowAnalysis}
               onSectionChange={setActiveWorkflowSection}
             />
           )}
@@ -1231,7 +1339,7 @@ function DebatePanel(props: {
     <div className="af-debate">
       <div className="af-stream" ref={props.streamRef}>
         {props.debateMessages.length === 0 ? (
-          <div className="af-empty"><MessageSquareText size={42} /><p>Waiting for agents to start discussion...</p></div>
+          <div className="af-empty"><MessageSquareText size={42} /><p>Legacy 兼容入口：运行后会显示固定角色请求结果，不代表真实的自由多 Agent 讨论。</p></div>
         ) : props.debateMessages.map((message) => (
           <div key={message.id} className={`af-msg ${message.isUser ? "user" : "agent"}`}>
             <div className={`af-msg-avatar ${message.isUser ? "user" : ""}`}>{message.sender.slice(0, 1)}</div>
@@ -1244,14 +1352,14 @@ function DebatePanel(props: {
       </div>
       {props.collaborateResult && <div className="af-debate-summary"><strong>综合摘要</strong><p>{props.collaborateResult.summary}</p></div>}
       <div className="af-controls">
-        <div className="af-topic-input"><input value={props.debateTopic} onChange={(event) => props.onDebateTopicChange(event.target.value)} placeholder="输入协作讨论主题" /></div>
+        <div className="af-topic-input"><input value={props.debateTopic} onChange={(event) => props.onDebateTopicChange(event.target.value)} placeholder="输入固定角色分析主题" /></div>
         <div className="af-control-btns">
-          <button className="af-btn primary" onClick={props.onRun} disabled={!props.canUseRepo || props.isDebating}>{props.isDebating ? <Loader2 size={16} className="spin" /> : <Play size={16} />} Start Simulation</button>
-          <button className="af-btn secondary" disabled={!props.isDebating}><Pause size={16} /> Pause</button>
+          <button className="af-btn primary" onClick={props.onRun} disabled={!props.canUseRepo || props.isDebating}>{props.isDebating ? <Loader2 size={16} className="spin" /> : <Play size={16} />} 运行 Legacy 请求</button>
+          <button className="af-btn secondary" disabled title="当前兼容接口不支持暂停"><Pause size={16} /> 暂停（不支持）</button>
         </div>
         <div className="af-intervention">
-          <input value={props.userIntervention} onChange={(event) => props.onUserInterventionChange(event.target.value)} onKeyDown={(event) => event.key === "Enter" && props.onUserInterventionSend()} placeholder="输入指令打断或引导讨论..." />
-          <button className="af-btn secondary" onClick={props.onUserInterventionSend}>Send Command</button>
+          <input disabled value={props.userIntervention} onChange={(event) => props.onUserInterventionChange(event.target.value)} placeholder="当前兼容接口不支持运行中打断或追加指令" />
+          <button className="af-btn secondary" disabled>发送指令（不支持）</button>
         </div>
       </div>
     </div>
@@ -1261,6 +1369,7 @@ function DebatePanel(props: {
 function WorkflowPanel(props: {
   canUseRepo: boolean;
   currentSection: WorkflowReportResponse["sections"][number] | null;
+  isExporting: boolean;
   report: WorkflowReportResponse | null;
   onExportMarkdown: () => void;
   onRun: () => void;
@@ -1270,7 +1379,7 @@ function WorkflowPanel(props: {
     <div className="af-workflow">
       <div className="af-actions">
         <button data-testid="run-workflow" className="af-btn primary" onClick={props.onRun} disabled={!props.canUseRepo}><Workflow size={16} /> 运行工作流分析</button>
-        <button data-testid="export-markdown" className="af-btn secondary" onClick={props.onExportMarkdown} disabled={!props.report}><Save size={16} /> 导出 Markdown</button>
+        <button data-testid="export-markdown" className="af-btn secondary" onClick={props.onExportMarkdown} disabled={!props.report || props.isExporting}>{props.isExporting ? <Loader2 size={16} className="spin" /> : <Save size={16} />} 导出 Markdown</button>
       </div>
       {props.report ? (
         <div className="af-report" data-testid="workflow-report">
@@ -1430,7 +1539,6 @@ function MetricCard({ title, value, note, onNoteClick }: { title: string; value:
     <div className="af-metric">
       <div className="af-metric-h"><Activity size={14} /> {title}</div>
       <div className="af-metric-v">{value}</div>
-      <div className="af-progress"><span style={{ width: "18%" }} /></div>
       <div className="af-metric-footer">
         <span>{note}</span>
         {onNoteClick && <button className="af-link-btn" onClick={onNoteClick}>配置单价</button>}

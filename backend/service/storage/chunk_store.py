@@ -102,13 +102,15 @@ def replace_repo_chunks(repo_id: str, chunks_by_file: dict[str, list[dict]], sna
     return total
 
 
-def list_chunk_records(repo_id: str, limit: int = 100, snapshot_id: str | None = None) -> list[dict]:
-    """列出指定快照片段；未指定时读取 active。"""
+def list_chunk_records(repo_id: str, limit: int = 100, snapshot_id: str | None = None,
+                       offset: int = 0) -> list[dict]:
+    """分页列出指定快照片段；未指定时读取 active。"""
     with get_connection() as connection:
         selected = snapshot_id if snapshot_id is not None else _active_snapshot_id(connection, repo_id)
         rows = connection.execute(
-            "SELECT * FROM chunks WHERE repo_id = ? AND snapshot_id IS ? ORDER BY file_path, start_line LIMIT ?",
-            (repo_id, selected, limit),
+            "SELECT * FROM chunks WHERE repo_id = ? AND snapshot_id IS ? "
+            "ORDER BY file_path, start_line, id LIMIT ? OFFSET ?",
+            (repo_id, selected, limit, offset),
         ).fetchall()
     return [dict(row) for row in rows]
 

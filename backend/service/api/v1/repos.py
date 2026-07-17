@@ -7,7 +7,7 @@ from pathlib import Path
 import hashlib
 import re
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from service.core.ingest_service import ingest_repository_snapshot
 from service.core.agent import AgentContext, run_main_agent
@@ -25,7 +25,7 @@ from service.core.repo_scanner import (
 from service.core.repo_map import build_repo_map, build_repo_summary
 from service.core.vector_store import search_vectors  # 兼容旧测试/扩展注入；M1 lexical-only 不调用
 from service.core.workflow_analysis import build_workflow_report, clone_public_github_repo, register_cloned_repository
-from service.storage.chunk_store import count_chunks, get_chunk_record, search_chunks
+from service.storage.chunk_store import count_chunks, get_chunk_record, list_chunk_records, search_chunks
 from service.storage.evidence_store import (
     list_evidence_units,
     list_parser_diagnostics,
@@ -61,9 +61,11 @@ from service.storage.models import (
     SnapshotRefreshResponse,
     SnapshotResponse,
     WorkflowAnalyzeRequest,
+    WorkflowRegistrationResponse,
     WorkflowReportResponse,
     JobRecordResponse,
     JobListResponse,
+    LegacyWorkflowReportResponse,
 )
 from service.storage.repository_store import create_repo_record, find_repo_by_source, get_file_record, get_repo_record, list_file_records, list_repo_records, replace_file_records
 from service.storage.snapshot_store import get_active_snapshot, get_snapshot, list_snapshots, stable_snapshot_id
@@ -169,7 +171,7 @@ def create_repository(request: RepoCreateRequest) -> RepoCreateResponse:
 
 
 @router.get("", response_model=list[RepoResponse])
-def list_repositories(limit: int = 100) -> list[RepoResponse]:
+def list_repositories(limit: int = Query(default=100, ge=1, le=500)) -> list[RepoResponse]:
     """列出已注册仓库；旧的 POST /repos 注册契约保持不变。"""
     return [build_repo_response(record) for record in list_repo_records(limit=limit)]
 
@@ -184,7 +186,7 @@ def get_repository(repo_id: str) -> RepoResponse:
 
 
 @router.get("/{repo_id}/snapshots", response_model=SnapshotListResponse)
-def list_repository_snapshots(repo_id: str, limit: int = 100) -> SnapshotListResponse:
+def list_repository_snapshots(repo_id: str, limit: int = Query(default=100, ge=1, le=500)) -> SnapshotListResponse:
     """列出仓库的历史快照，并标记当前 active 快照。"""
     record = get_required_repo_record(repo_id)
     active_snapshot_id = record.get("active_snapshot_id")
@@ -234,7 +236,7 @@ def refresh_repository(repo_id: str) -> SnapshotRefreshResponse:
 
 
 @router.get("/{repo_id}/files", response_model=list[FileRecordResponse])
-def get_repository_files(repo_id: str, limit: int = 100, snapshot_id: str | None = None) -> list[FileRecordResponse]:
+def get_repository_files(repo_id: str, limit: int = Query(default=100, ge=1, le=1000), snapshot_id: str | None = None) -> list[FileRecordResponse]:
     """查询指定 succeeded 快照的文件记录。"""
     snapshot = resolve_product_snapshot(repo_id, snapshot_id)
     rows = list_file_records(repo_id, limit=limit, snapshot_id=snapshot["id"])
@@ -338,7 +340,7 @@ def get_repository_chunk_detail(repo_id: str, chunk_id: str, snapshot_id: str | 
 
 @router.get("/{repo_id}/evidence", response_model=ParserFactListResponse)
 def get_repository_evidence(repo_id: str, snapshot_id: str | None = None, file_id: str | None = None,
-                            query: str | None = None, limit: int = 100) -> ParserFactListResponse:
+                            query: str | None = None, limit: int = Query(default=100, ge=1, le=1000)) -> ParserFactListResponse:
     """查询规范 Evidence 事实。"""
     snapshot = resolve_product_snapshot(repo_id, snapshot_id)
     return ParserFactListResponse(repo_id=repo_id, snapshot_id=snapshot["id"], items=list_evidence_units(
@@ -348,7 +350,7 @@ def get_repository_evidence(repo_id: str, snapshot_id: str | None = None, file_i
 
 @router.get("/{repo_id}/symbols", response_model=ParserFactListResponse)
 def get_repository_symbols(repo_id: str, snapshot_id: str | None = None, query: str | None = None,
-                           limit: int = 100) -> ParserFactListResponse:
+                           limit: int = Query(default=100, ge=1, le=1000)) -> ParserFactListResponse:
     """查询规范 Symbol 事实。"""
     snapshot = resolve_product_snapshot(repo_id, snapshot_id)
     return ParserFactListResponse(repo_id=repo_id, snapshot_id=snapshot["id"], items=list_symbols(
@@ -358,7 +360,7 @@ def get_repository_symbols(repo_id: str, snapshot_id: str | None = None, query: 
 
 @router.get("/{repo_id}/relations", response_model=ParserFactListResponse)
 def get_repository_relations(repo_id: str, snapshot_id: str | None = None,
-                             limit: int = 1000) -> ParserFactListResponse:
+                             limit: int = Query(default=1000, ge=1, le=5000)) -> ParserFactListResponse:
     """查询规范 Relation 事实，包括未解析关系。"""
     snapshot = resolve_product_snapshot(repo_id, snapshot_id)
     return ParserFactListResponse(repo_id=repo_id, snapshot_id=snapshot["id"], items=list_relations(
@@ -368,7 +370,7 @@ def get_repository_relations(repo_id: str, snapshot_id: str | None = None,
 
 @router.get("/{repo_id}/parser-diagnostics", response_model=ParserFactListResponse)
 def get_repository_parser_diagnostics(repo_id: str, snapshot_id: str | None = None,
-                                      file_id: str | None = None, limit: int = 1000) -> ParserFactListResponse:
+                                      file_id: str | None = None, limit: int = Query(default=1000, ge=1, le=5000)) -> ParserFactListResponse:
     """查询解析 fallback、语法错误和 linker 诊断。"""
     snapshot = resolve_product_snapshot(repo_id, snapshot_id)
     return ParserFactListResponse(repo_id=repo_id, snapshot_id=snapshot["id"], items=list_parser_diagnostics(
@@ -623,18 +625,87 @@ def get_repository_agent_trace(repo_id: str, trace_id: str) -> dict:
     return trace
 
 
+def _reconstruct_snapshot_file(chunks: list[dict]) -> tuple[str, bool]:
+    """只在 chunks 保存的是原始源码切片时重建；结构化配置证据不得冒充精确源码。"""
+    if not chunks:
+        return "", False
+    transformed_types = {"config_object", "config_value"}
+    if any((item.get("chunk_type") or item.get("source_type")) in transformed_types for item in chunks):
+        return "\n".join(item.get("content") or "" for item in chunks), False
+
+    positioned = [item for item in chunks if isinstance(item.get("start_line"), int) and item["start_line"] > 0]
+    if len(positioned) != len(chunks):
+        return "\n".join(item.get("content") or "" for item in chunks), False
+
+    lines: list[str] = []
+    for chunk in sorted(positioned, key=lambda item: item["start_line"]):
+        start_index = chunk["start_line"] - 1
+        content_lines = (chunk.get("content") or "").splitlines()
+        if len(lines) < start_index:
+            lines.extend([""] * (start_index - len(lines)))
+        for offset, line in enumerate(content_lines):
+            target_index = start_index + offset
+            if target_index < len(lines):
+                # 重叠 chunk 可能重复同一源码行；保留先写入的内容，空占位才由后续 chunk 补齐。
+                if not lines[target_index]:
+                    lines[target_index] = line
+            else:
+                lines.append(line)
+    return "\n".join(lines), True
+
+
+def _workflow_snapshot_files(repo_id: str, snapshot_id: str) -> list[dict]:
+    """分页组合快照文件与全部持久化 chunk，避免大快照被固定上限静默截断。"""
+    page_size = 5000
+    files: list[dict] = []
+    file_offset = 0
+    while True:
+        page = list_file_records(
+            repo_id,
+            limit=page_size,
+            snapshot_id=snapshot_id,
+            offset=file_offset,
+        )
+        files.extend(page)
+        if len(page) < page_size:
+            break
+        file_offset += len(page)
+
+    chunks_by_path: dict[str, list[dict]] = {}
+    offset = 0
+    while True:
+        page = list_chunk_records(repo_id, limit=page_size, snapshot_id=snapshot_id, offset=offset)
+        for chunk in page:
+            chunks_by_path.setdefault(chunk.get("file_path") or "", []).append(chunk)
+        if len(page) < page_size:
+            break
+        offset += len(page)
+    for file_record in files:
+        chunks = sorted(chunks_by_path.get(file_record["relative_path"], []), key=lambda item: item.get("start_line") or 0)
+        snapshot_content, source_exact = _reconstruct_snapshot_file(chunks)
+        file_record["snapshot_content"] = snapshot_content
+        file_record["snapshot_source_exact"] = source_exact
+        file_record["snapshot_chunks"] = chunks
+    return files
+
+
 @router.post("/{repo_id}/analysis/workflow", response_model=WorkflowReportResponse)
-def analyze_existing_repository(repo_id: str, auto_ingest: bool = True) -> WorkflowReportResponse:
-    """对已注册的仓库运行首次工作流分析。"""
+def analyze_existing_repository(repo_id: str, auto_ingest: bool = True, snapshot_id: str | None = None) -> WorkflowReportResponse:
+    """对已注册仓库的指定 succeeded 快照运行工作流分析。"""
     job_id = create_job_record("workflow_analysis", repo_id=repo_id, message="运行仓库工作流分析")
     try:
         start_job_record(job_id, "正在运行仓库工作流分析")
         record = get_required_repo_record(repo_id)
-        if auto_ingest:
+        # 旧客户端不传 snapshot_id 时仍可自动索引；显式历史快照不能被自动索引替换。
+        if auto_ingest and snapshot_id is None:
             ensure_repo_ingested(repo_id)
             record = get_required_repo_record(repo_id)
-        files = list_file_records(repo_id, limit=10000)
-        report = save_analysis_report(build_workflow_report(record, files))
+        snapshot = resolve_product_snapshot(repo_id, snapshot_id)
+        files = _workflow_snapshot_files(repo_id, snapshot["id"])
+        report = save_analysis_report(
+            build_workflow_report(record, files, snapshot_id=snapshot["id"], commit=snapshot["commit_hash"]),
+            snapshot_id=snapshot["id"],
+        )
         finish_job_record(job_id, "succeeded", message=f"生成工作流报告 {report['analysis_id']}")
         return WorkflowReportResponse(**report)
     except Exception as exc:
@@ -643,7 +714,7 @@ def analyze_existing_repository(repo_id: str, auto_ingest: bool = True) -> Workf
 
 
 @router.get("/{repo_id}/analysis/reports", response_model=AnalysisReportListResponse)
-def list_repository_analysis_reports(repo_id: str, limit: int = 12) -> AnalysisReportListResponse:
+def list_repository_analysis_reports(repo_id: str, limit: int = Query(default=12, ge=1, le=50)) -> AnalysisReportListResponse:
     """列出仓库最近的工作流分析报告。"""
     get_required_repo_record(repo_id)
     reports = list_analysis_report_summaries(repo_id, limit=max(1, min(limit, 50)))
@@ -653,9 +724,9 @@ def list_repository_analysis_reports(repo_id: str, limit: int = 12) -> AnalysisR
     )
 
 
-@analysis_router.post("/analysis/analyze", response_model=WorkflowReportResponse)
-@analysis_router.post("/analyze", response_model=WorkflowReportResponse, include_in_schema=False)
-def analyze_repository(request: WorkflowAnalyzeRequest) -> WorkflowReportResponse:
+@analysis_router.post("/analysis/analyze", response_model=WorkflowReportResponse | WorkflowRegistrationResponse)
+@analysis_router.post("/analyze", response_model=WorkflowReportResponse | WorkflowRegistrationResponse, include_in_schema=False)
+def analyze_repository(request: WorkflowAnalyzeRequest) -> WorkflowReportResponse | WorkflowRegistrationResponse:
     """从本地 repo_id 或公开 GitHub URL 启动工作流分析。"""
     if bool(request.repo_id) == bool(request.github_url):
         raise HTTPException(status_code=400, detail="请提供 repo_id 或 github_url，且只能提供其中一个。")
@@ -674,11 +745,25 @@ def analyze_repository(request: WorkflowAnalyzeRequest) -> WorkflowReportRespons
         assert repo_id is not None
         update_job_repo(job_id, repo_id)
         record = get_required_repo_record(repo_id)
-        if request.auto_ingest:
+        # 关闭自动索引时，已有 active succeeded 快照仍应被分析；只有首次登记且无快照才返回登记契约。
+        active_snapshot = get_active_snapshot(repo_id) if request.snapshot_id is None else None
+        if not request.auto_ingest and request.snapshot_id is None and active_snapshot is None:
+            finish_job_record(job_id, "succeeded", message=f"仓库已登记 {repo_id}")
+            return WorkflowRegistrationResponse(
+                repo_id=repo_id,
+                current_commit=record["commit_hash"],
+                file_count=len(list_file_records(repo_id, limit=10000)),
+            )
+        # GitHub 首次登记没有历史快照，只在未指定快照时自动建立 active。
+        if request.auto_ingest and request.snapshot_id is None:
             ensure_repo_ingested(repo_id)
             record = get_required_repo_record(repo_id)
-        files = list_file_records(repo_id, limit=10000)
-        report = save_analysis_report(build_workflow_report(record, files))
+        snapshot = resolve_product_snapshot(repo_id, request.snapshot_id)
+        files = _workflow_snapshot_files(repo_id, snapshot["id"])
+        report = save_analysis_report(
+            build_workflow_report(record, files, snapshot_id=snapshot["id"], commit=snapshot["commit_hash"]),
+            snapshot_id=snapshot["id"],
+        )
         finish_job_record(job_id, "succeeded", message=f"生成工作流报告 {report['analysis_id']}")
         return WorkflowReportResponse(**report)
     except Exception as exc:
@@ -686,10 +771,10 @@ def analyze_repository(request: WorkflowAnalyzeRequest) -> WorkflowReportRespons
         raise
 
 
-@analysis_router.get("/analysis/{analysis_id}", response_model=WorkflowReportResponse)
-def get_saved_analysis_report(analysis_id: str) -> WorkflowReportResponse:
+@analysis_router.get("/analysis/{analysis_id}", response_model=LegacyWorkflowReportResponse)
+def get_saved_analysis_report(analysis_id: str) -> LegacyWorkflowReportResponse:
     """读取已经保存的完整工作流分析报告。"""
     report = get_analysis_report(analysis_id)
     if report is None:
         raise HTTPException(status_code=404, detail="没有找到指定分析报告。")
-    return WorkflowReportResponse(**report)
+    return LegacyWorkflowReportResponse(**report)

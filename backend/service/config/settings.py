@@ -29,8 +29,12 @@ class Settings(BaseSettings):
     backend_contract_version: str = "1"
     instance_id: str = "repomind-desktop-backend"
     session_id: str | None = None
+    # Electron 每次启动都会生成新的业务令牌；未配置时保持命令行开发和后端测试兼容。
+    api_token: str | None = None
     # Electron 只在本机临时注入此令牌，用于请求后端优雅退出。
     shutdown_token: str | None = None
+    # 桌面版注入启动后端的 Electron 主进程 PID；后端仅监视经直接父子关系验证的 PID。
+    electron_parent_pid: int | None = Field(default=None, ge=1)
     port: int = Field(default=8000, ge=1, le=65535)
     api_base_url: str = "http://127.0.0.1:8000/api/v1"
     # Electron 打包页使用 Origin: null；Vite 开发页必须匹配包含端口的完整 Origin。

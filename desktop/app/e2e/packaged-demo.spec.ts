@@ -122,11 +122,14 @@ test("打包版内置 Demo 完成问答、证据、Trace 和导出", async () =>
     expect(markdownName).toBeTruthy();
 
     const tracePayload = JSON.parse(fs.readFileSync(path.join(exportDir, jsonName!), "utf8"));
-    expect(tracePayload.format).toBe("repomind-trace-export-v1");
+    expect(tracePayload.format).toBe("repomind-trace-export-v2");
     expect(tracePayload.repository.commit).toBe(DEMO_COMMIT);
     expect(tracePayload.repository.snapshot_id).toBeTruthy();
-    expect(tracePayload.generation_mode).toBe("rule_fallback");
-    expect(tracePayload.tool_route).toEqual([{ name: "dependency_impact", status: "succeeded" }]);
+    expect(tracePayload.trace.mode).toBe("dependency_impact");
+    const exportedTools = tracePayload.trace.steps
+      .filter((step: { step_type?: string }) => step.step_type === "tool")
+      .map((step: { tool_name?: string; status?: string }) => ({ name: step.tool_name, status: step.status }));
+    expect(exportedTools).toEqual([{ name: "dependency_impact", status: "succeeded" }]);
     expect(tracePayload.evidence.some((item: { file_path?: string; start_line?: number }) => item.file_path && item.start_line)).toBeTruthy();
 
     const markdown = fs.readFileSync(path.join(exportDir, markdownName!), "utf8");

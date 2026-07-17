@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  analyzeRepositoryWorkflow,
   getCallChain,
   getClassHierarchy,
   getCodeGraphStats,
@@ -27,6 +28,7 @@ import {
   searchCodeFunctions,
   searchRepository,
   setApiBaseUrl,
+  setApiToken,
   updateSettings,
 } from "./apiClient";
 
@@ -40,6 +42,7 @@ function mockSuccessfulFetch(payload: unknown = {}) {
 
 afterEach(() => {
   setApiBaseUrl("http://127.0.0.1:8000/api/v1");
+  setApiToken(null);
 });
 
 describe("HTTP 请求头契约", () => {
@@ -51,6 +54,30 @@ describe("HTTP 请求头契约", () => {
     const options = fetchMock.mock.calls[0][1] as RequestInit;
     const headers = new Headers(options.headers);
     expect(headers.has("Content-Type")).toBe(false);
+  });
+
+  it("Electron 会话令牌只附加到它提供的 loopback 后端 origin", async () => {
+    const fetchMock = mockSuccessfulFetch([]);
+    setApiToken("session-api-token", "http://127.0.0.1:43123/api/v1");
+    setApiBaseUrl("http://127.0.0.1:43123/api/v1");
+
+    await listRepositories();
+
+    const options = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = new Headers(options.headers);
+    expect(headers.get("X-RepoMind-API-Token")).toBe("session-api-token");
+  });
+
+  it("用户配置的外部 API 地址永不接收 Electron 会话令牌", async () => {
+    const fetchMock = mockSuccessfulFetch([]);
+    setApiToken("session-api-token", "http://127.0.0.1:43123/api/v1");
+    setApiBaseUrl("https://external.example/api/v1");
+
+    await listRepositories();
+
+    const options = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = new Headers(options.headers);
+    expect(headers.has("X-RepoMind-API-Token")).toBe(false);
   });
 
   it("携带 JSON 请求体时发送 Content-Type", async () => {
@@ -220,6 +247,19 @@ describe("Snapshot API 请求契约", () => {
       3,
       "http://127.0.0.1:8000/api/v1/repos/repo-1/search",
       expect.objectContaining({ body: JSON.stringify({ query: "入口", snapshot_id: "snapshot-1" }) }),
+    );
+  });
+});
+
+describe("工作流 API 请求契约", () => {
+  it("显式快照工作流分析发送 POST 与 snapshot_id 查询参数", async () => {
+    const fetchMock = mockSuccessfulFetch({});
+
+    await analyzeRepositoryWorkflow("repo/a", "snapshot/一");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8000/api/v1/repos/repo%2Fa/analysis/workflow?snapshot_id=snapshot%2F%E4%B8%80",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 });

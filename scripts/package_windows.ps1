@@ -46,23 +46,41 @@ finally {
 & (Join-Path $scriptRoot "build_backend.ps1") -PythonCommand $PythonCommand
 & (Join-Path $scriptRoot "smoke_backend.ps1") -ExePath $backendExe
 
+function Invoke-NativeBuildStep {
+    param(
+        [scriptblock] $Command,
+        [string] $FailureMessage
+    )
+
+    # Windows PowerShell 5.1 会把 npm/electron-builder 写入 stderr 的 warning 包装成
+    # NativeCommandError。仅在原生命令执行期间放宽错误策略，最后仍严格检查退出码。
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $Command 2>&1 | ForEach-Object { Write-Host $_ }
+        $nativeExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($nativeExitCode -ne 0) { throw "$FailureMessage (exit code $nativeExitCode)" }
+}
+
 Push-Location $desktopRoot
 try {
-    npm ci
-    if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
-    npm test
-    if ($LASTEXITCODE -ne 0) { throw "Desktop tests failed" }
-    npm run build
-    if ($LASTEXITCODE -ne 0) { throw "Desktop build failed" }
+    Invoke-NativeBuildStep { npm ci } "npm ci failed"
+    Invoke-NativeBuildStep { npm test } "Desktop tests failed"
+    Invoke-NativeBuildStep { npm run build } "Desktop build failed"
     if (Test-Path $releaseRoot) { Remove-Item -Recurse -Force $releaseRoot }
     if ($env:REPOMIND_SKIP_WINDOWS_EXE_METADATA -eq "1") {
         # 网络受限的本地/CI 环境可跳过 PE 元数据编辑，避免下载 winCodeSign；正式 Release 不使用此开关。
-        npx electron-builder --config electron-builder.yml --win dir -c.win.signAndEditExecutable=false
+        Invoke-NativeBuildStep {
+            npx electron-builder --config electron-builder.yml --win dir --config.win.signAndEditExecutable=false
+        } "Electron directory package failed"
     }
     else {
-        npm run package:dir
+        Invoke-NativeBuildStep { npm run package:dir } "Electron directory package failed"
     }
-    if ($LASTEXITCODE -ne 0) { throw "Electron directory package failed" }
 
     $packagedBackend = Join-Path $releaseRoot "win-unpacked\resources\backend\repomind-backend.exe"
     if (-not (Test-Path $packagedBackend -PathType Leaf)) { throw "Packaged backend is missing" }
@@ -72,8 +90,7 @@ try {
     & (Join-Path $scriptRoot "smoke_backend.ps1") -ExePath $packagedBackend
 
     if ($Release) {
-        npm run package:release
-        if ($LASTEXITCODE -ne 0) { throw "Windows release package failed" }
+        Invoke-NativeBuildStep { npm run package:release } "Windows release package failed"
     }
 }
 finally {

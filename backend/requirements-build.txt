@@ -1,2 +1,3 @@
--r requirements.txt
+# 构建环境复用开发/测试依赖，因为 Windows 打包链会先运行完整后端测试。
+-r requirements-dev.txt
 pyinstaller==6.14.2

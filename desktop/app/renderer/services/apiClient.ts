@@ -2,7 +2,7 @@
  * RepoMind 前端 API 客户端。
  * 这里集中处理请求地址、FastAPI 错误格式和任务进度，避免各个页面重复拼装。
  */
-export interface HealthResponse { status: "ok"; app_name: string; app_version: string; api_version: string; schema_version: string; instance_id: string; database_path: string; }
+export interface HealthResponse { status: "ok"; app_name: string; app_version: string; api_version: string; schema_version: string; instance_id: string; database_identity: string; }
 export interface CodeGraphStatsResponse { repo_id: string; snapshot_id: string; total_nodes: number; total_edges: number; functions: number; classes: number; files_analyzed: number; diagnostics: Record<string, unknown> | unknown[]; }
 export interface CodeGraphNodeResponse { id: string; name: string; node_type: string; file_path: string; start_line: number | null; end_line: number | null; signature: string | null; importance: number; }
 export interface CodeGraphSearchResponse { repo_id: string; snapshot_id: string; query: string; matches: CodeGraphNodeResponse[]; }
@@ -29,7 +29,9 @@ export interface RepoSummaryResponse { repo_id: string; alias: string; summary: 
 export interface EvidenceItem { file_path: string; chunk_id: string; start_line: number | null; end_line: number | null; source_type: string; score: number; reason: string; snippet: string; title: string | null; symbol_name: string | null; }
 export interface QAResponse { answer: string; evidence: EvidenceItem[]; suggestions: string[]; confidence: string; used_context: number; trace_id: string; next_steps: string[]; token_count: number; snapshot_id?: string | null; commit?: string | null; }
 export interface SearchResponse { repo_id: string; query: string; evidence: EvidenceItem[]; snapshot_id?: string | null; commit?: string | null; }
-export interface WorkflowReportResponse { analysis_id: string; status: string; repo: { repo_id: string; alias: string; repo_path: string; remote_url: string | null; branch: string | null; current_commit: string | null; }; summary: string; sections: Array<{ key: string; title: string; findings: Array<{ title: string; detail: string; severity: string; evidence: EvidenceItem[]; }>; }>; next_steps: string[]; limitations: string[]; markdown: string; }
+export interface WorkflowReportResponse { response_type: "workflow_report"; analysis_id: string; status: string; repo: { repo_id: string; alias: string; repo_path: string; remote_url: string | null; branch: string | null; current_commit: string | null; }; summary: string; sections: Array<{ key: string; title: string; findings: Array<{ title: string; detail: string; severity: string; evidence: EvidenceItem[]; }>; }>; next_steps: string[]; limitations: string[]; markdown: string; snapshot_id: string; commit: string; }
+export interface WorkflowRegistrationResponse { response_type: "registration"; repo_id: string; status: "registered"; current_commit: string | null; file_count: number; job_id: string | null; }
+export type WorkflowAnalyzeResponse = WorkflowReportResponse | WorkflowRegistrationResponse;
 export interface AgentLLMOverride { model?: string; base_url?: string; api_key?: string; }
 export interface CollaborateAgentRequest { name: string; role: string; llm_override?: AgentLLMOverride; }
 export interface CollaborateResponse { topic: string; repo_id: string; contributions: Array<{ agent_name: string; role: string; content: string; used_llm: boolean; error: string | null; }>; summary: string; agents_used_llm: number; total_tokens_used: number; snapshot_id: string | null; commit: string | null; trace_id: string | null; mode: "legacy_multi_role"; }
@@ -60,9 +62,16 @@ interface FastApiErrorBody {
 
 export let DEFAULT_API_BASE_URL = "http://127.0.0.1:8000/api/v1";
 let apiBaseUrl = DEFAULT_API_BASE_URL;
+let apiToken: string | null = null;
+let trustedBackendOrigin: string | null = null;
 
 export function setApiBaseUrl(url: string): void { apiBaseUrl = url.replace(/\/$/, ""); }
 export function getApiBaseUrl(): string { return apiBaseUrl; }
+// Electron 只把令牌绑定到它实际启动并返回的 loopback 后端 origin；用户设置的外部地址永不携带该令牌。
+export function setApiToken(token: string | null | undefined, backendBaseUrl?: string): void {
+  apiToken = token || null;
+  trustedBackendOrigin = apiToken && backendBaseUrl ? new URL(backendBaseUrl).origin : null;
+}
 
 // FastAPI 既可能返回标准 detail，也可能返回项目自定义的 error.message。
 export function parseApiError(status: number, body: string): string {
@@ -105,6 +114,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = apiBaseUrl + path;
   // 只有真正发送 JSON 请求体时才声明 Content-Type，避免 GET 触发无意义的 CORS 预检。
   const headers = new Headers(options.headers);
+  if (apiToken && trustedBackendOrigin && new URL(url).origin === trustedBackendOrigin) {
+    headers.set("X-RepoMind-API-Token", apiToken);
+  }
   if (options.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
@@ -169,8 +181,8 @@ export async function getRepositoryMap(repoId: string, snapshotId?: string): Pro
 export async function getRepositorySummary(repoId: string, snapshotId?: string): Promise<RepoSummaryResponse> { return request<RepoSummaryResponse>("/repos/" + repoPath(repoId) + "/summary" + snapshotQuery(snapshotId)); }
 export async function askRepository(repoId: string, question: string, snapshotId?: string): Promise<QAResponse> { return request<QAResponse>("/repos/" + repoPath(repoId) + "/ask", { method: "POST", body: JSON.stringify({ question, ...(snapshotId ? { snapshot_id: snapshotId } : {}) }) }); }
 export async function searchRepository(repoId: string, query: string, snapshotId?: string): Promise<SearchResponse> { return request<SearchResponse>("/repos/" + repoPath(repoId) + "/search", { method: "POST", body: JSON.stringify({ query, ...(snapshotId ? { snapshot_id: snapshotId } : {}) }) }); }
-export async function analyzeRepositoryWorkflow(repoId: string): Promise<WorkflowReportResponse> { return request<WorkflowReportResponse>("/repos/" + repoPath(repoId) + "/analysis/workflow", { method: "POST" }); }
-export async function analyzeGithubRepository(githubUrl: string, alias?: string, autoIngest = true): Promise<WorkflowReportResponse> { return request<WorkflowReportResponse>("/analysis/analyze", { method: "POST", body: JSON.stringify({ github_url: githubUrl, alias, auto_ingest: autoIngest }) }); }
+export async function analyzeRepositoryWorkflow(repoId: string, snapshotId?: string): Promise<WorkflowReportResponse> { return request<WorkflowReportResponse>("/repos/" + repoPath(repoId) + "/analysis/workflow" + snapshotQuery(snapshotId), { method: "POST" }); }
+export async function analyzeGithubRepository(githubUrl: string, alias?: string, autoIngest = true): Promise<WorkflowAnalyzeResponse> { return request<WorkflowAnalyzeResponse>("/analysis/analyze", { method: "POST", body: JSON.stringify({ github_url: githubUrl, alias, auto_ingest: autoIngest }) }); }
 export async function runCollaboration(repoId: string, topic: string, agents?: CollaborateAgentRequest[], snapshotId?: string): Promise<CollaborateResponse> { return request<CollaborateResponse>("/collaborate", { method: "POST", body: JSON.stringify({ repo_id: repoId, topic, agents, ...(snapshotId ? { snapshot_id: snapshotId } : {}) }) }); }
 export async function listRepositoryCatalog(repoId: string, options: { snapshotId?: string; kind?: string } = {}): Promise<CatalogListResponse> { const params = new URLSearchParams(); if (options.snapshotId) params.set("snapshot_id", options.snapshotId); if (options.kind) params.set("kind", options.kind); return request<CatalogListResponse>("/repos/" + repoPath(repoId) + "/catalog" + (params.size ? "?" + params : "")); }
 export async function getRepositoryCatalogTree(repoId: string, snapshotId?: string): Promise<CatalogTreeResponse> { return request<CatalogTreeResponse>("/repos/" + repoPath(repoId) + "/catalog/tree" + snapshotQuery(snapshotId)); }

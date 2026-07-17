@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
+from urllib.parse import parse_qsl, urlsplit
 
 from service.core.debate import MultiAgentDebateService
 from service.core.evidence import EvidenceAssembler
@@ -21,7 +22,7 @@ router = APIRouter(tags=["collaborate"])
 class AgentLLMOverride(BaseModel):
     """单个智能体本次运行使用的临时模型覆盖。"""
 
-    model: str | None = Field(default=None, max_length=200)
+    model: str | None = Field(default=None, min_length=1, max_length=200)
     base_url: str | None = Field(default=None, max_length=2048)
     api_key: str | None = Field(default=None, max_length=4096)
 
@@ -36,26 +37,33 @@ class AgentLLMOverride(BaseModel):
     @model_validator(mode="after")
     def validate_endpoint_key_pair(self):
         """实际是否跨接口由模型调用层结合全局地址判断。"""
-        if self.base_url and not self.base_url.startswith(("http://", "https://")):
-            raise ValueError("专属 Base URL 必须是 HTTP(S) 地址。")
+        if self.base_url:
+            parsed = urlsplit(self.base_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("专属 Base URL 必须是有效的 HTTP(S) 地址。")
+            if parsed.username is not None or parsed.password is not None:
+                raise ValueError("专属 Base URL 不能包含用户名或密码。")
+            sensitive = {"api_key", "apikey", "key", "token", "access_token", "password", "secret", "credential"}
+            if parsed.fragment or any(name.lower() in sensitive for name, _ in parse_qsl(parsed.query, keep_blank_values=True)):
+                raise ValueError("专属 Base URL 不能包含凭据查询参数或 fragment。")
         return self
 
 
 class CollaborateAgentPayload(BaseModel):
     """单个智能体的配置。"""
 
-    name: str = Field(default="Agent", max_length=100)
-    role: str = Field(default="developer", max_length=100)
+    name: str = Field(default="Agent", min_length=1, max_length=100)
+    role: str = Field(default="developer", min_length=1, max_length=100)
     llm_override: AgentLLMOverride | None = None
 
 
 class CollaborateRequest(BaseModel):
     """多智能体辩论请求。"""
 
-    repo_id: str
-    topic: str
-    snapshot_id: str | None = None
-    agents: list[CollaborateAgentPayload] | None = None
+    repo_id: str = Field(min_length=1, max_length=200)
+    topic: str = Field(min_length=1, max_length=4000)
+    snapshot_id: str | None = Field(default=None, max_length=200)
+    agents: list[CollaborateAgentPayload] | None = Field(default=None, max_length=12)
 
 
 class AgentContributionResponse(BaseModel):

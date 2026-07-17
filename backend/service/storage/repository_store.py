@@ -104,16 +104,23 @@ def _stable_file_id(repo_id: str, snapshot_id: str, relative_path: str) -> str:
     return f"file_{digest}"
 
 
-def list_file_records(repo_id: str, limit: int = 1000, snapshot_id: str | None = None) -> list[dict]:
-    """列出指定快照文件；未指定时兼容地读取 active 快照。"""
+def list_file_records(
+    repo_id: str,
+    limit: int = 1000,
+    snapshot_id: str | None = None,
+    offset: int = 0,
+) -> list[dict]:
+    """分页列出指定快照文件；未指定时兼容地读取 active 快照。"""
+    if limit < 1 or offset < 0:
+        raise ValueError("文件记录分页参数无效。")
     with get_connection() as connection:
         selected_snapshot = snapshot_id
         if selected_snapshot is None:
             row = connection.execute("SELECT active_snapshot_id FROM repos WHERE id = ?", (repo_id,)).fetchone()
             selected_snapshot = row["active_snapshot_id"] if row else None
         rows = connection.execute(
-            "SELECT * FROM files WHERE repo_id = ? AND snapshot_id IS ? ORDER BY relative_path LIMIT ?",
-            (repo_id, selected_snapshot, limit),
+            "SELECT * FROM files WHERE repo_id = ? AND snapshot_id IS ? ORDER BY relative_path LIMIT ? OFFSET ?",
+            (repo_id, selected_snapshot, limit, offset),
         ).fetchall()
     return [dict(row) for row in rows]
 

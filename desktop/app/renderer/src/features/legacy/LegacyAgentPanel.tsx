@@ -31,7 +31,7 @@ export function LegacyAgentPanel(props: {
   return (
     <section className="af-section">
       <div className="af-section-title"><Users size={15} /> 高级功能 · Legacy 多角色</div>
-      <p className="af-hint">普通问题请使用 Main Agent。这里保留固定多角色协作，便于兼容旧工作流。</p>
+      <p className="af-hint">这是兼容旧版的固定角色请求入口，不是默认 Main Agent 流程，也不代表真实的自由多 Agent 运行时或完整调用链。普通问题请使用 Main Agent。</p>
       <div className="af-agent-form">
         <input value={props.newAgentName} onChange={(event) => props.onNewAgentNameChange(event.target.value)} placeholder="Agent 名称" />
         <select value={props.newAgentRole} onChange={(event) => props.onNewAgentRoleChange(event.target.value)}>

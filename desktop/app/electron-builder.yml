@@ -1,5 +1,12 @@
 appId: com.repomind.app
 productName: RepoMind
+extraMetadata:
+  description: Local Windows-first Git repository knowledge assistant with snapshot-bound evidence and traceable analysis.
+  author: sail0kevin
+  repository:
+    type: git
+    url: https://github.com/sail0kevin/Repository-Mind.git
+  homepage: https://github.com/sail0kevin/Repository-Mind
 directories:
   output: release
 files:

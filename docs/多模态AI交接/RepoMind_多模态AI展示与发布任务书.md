@@ -21,7 +21,7 @@
 项目根目录：
 
 ```text
-G:\projects\agent-learning\projects\Repository-Mind\repo-knowledge-assistant
+<repository-root>
 ```
 
 RepoMind 是一个面向 Windows 的本地 Git 仓库知识助手。它将指定 Git commit 构建为不可变 Repository Snapshot，再通过结构化解析、本地检索、Evidence Bundle 和受约束的 Main Agent，帮助用户理解陌生仓库。
@@ -512,26 +512,26 @@ launch → open demo → ingest → catalog → ask 3 questions → evidence →
 
 ## 8. 推荐验证命令
 
-以下均从项目对应目录执行，注意不要从 `C:\Users\32799` 根目录运行 pytest。
+以下均从项目对应目录执行，注意不要从用户主目录运行 pytest。
 
 ### 后端
 
 ```bash
-cd G:/projects/agent-learning/projects/Repository-Mind/repo-knowledge-assistant/backend
+cd backend
 python -m pytest -q
 ```
 
 ### 桌面端
 
 ```bash
-npm --prefix "G:/projects/agent-learning/projects/Repository-Mind/repo-knowledge-assistant/desktop/app" test
-npm --prefix "G:/projects/agent-learning/projects/Repository-Mind/repo-knowledge-assistant/desktop/app" run build
+npm --prefix desktop/app test
+npm --prefix desktop/app run build
 ```
 
 ### Demo 自身
 
 ```bash
-cd G:/projects/agent-learning/projects/Repository-Mind/repo-knowledge-assistant/demo/repomind-demo
+cd demo/repomind-demo
 python -m unittest discover -s tests -v
 ```
 
@@ -590,7 +590,7 @@ REPOMIND_EMBEDDING__API_KEY=
 你现在负责继续完善 RepoMind 求职展示和公开发布准备。
 
 项目路径：
-G:\projects\agent-learning\projects\Repository-Mind\repo-knowledge-assistant
+<repository-root>
 
 首先完整阅读：
 1. docs/多模态AI交接/RepoMind_多模态AI展示与发布任务书.md

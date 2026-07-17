@@ -1,19 +1,19 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { DesktopBridge } from "./bridgeContract";
 
-const desktopBridge = {
+const desktopBridge: DesktopBridge = {
   backend: {
-    start: () => ipcRenderer.invoke("backend:start") as Promise<{ started: boolean; apiBaseUrl: string }>,
+    start: () => ipcRenderer.invoke("backend:start"),
     stop: () => ipcRenderer.invoke("backend:stop"),
   },
   demo: {
-    prepare: () => ipcRenderer.invoke("demo:prepare") as Promise<{ repoPath: string; created: boolean }>,
+    prepare: () => ipcRenderer.invoke("demo:prepare"),
   },
   export: {
-    saveText: (request: { suggestedName: string; content: string; kind: "markdown" | "json" }) =>
-      ipcRenderer.invoke("export:save-text", request) as Promise<{ saved: boolean; fileName?: string }>,
+    saveText: (request) => ipcRenderer.invoke("export:save-text", request),
   },
 };
 
 contextBridge.exposeInMainWorld("repomind", desktopBridge);
 
-export type DesktopBridge = typeof desktopBridge;
+export type { DesktopBridge } from "./bridgeContract";

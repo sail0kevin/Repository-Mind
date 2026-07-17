@@ -27,8 +27,19 @@ $buildStartedAt = Get-Date
 
 Push-Location $backendRoot
 try {
-    & $PythonCommand -m PyInstaller --clean --noconfirm --workpath $WorkDirectory --distpath $DistributionDirectory $specPath
-    if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }
+    # Windows PowerShell 5.1 会把 PyInstaller 写入 stderr 的普通 INFO 日志包装成
+    # NativeCommandError。仅在执行原生命令期间临时允许该非终止错误，最终仍以真实退出码判断。
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $PythonCommand -m PyInstaller --clean --noconfirm --workpath $WorkDirectory --distpath $DistributionDirectory $specPath 2>&1 |
+            ForEach-Object { Write-Host $_ }
+        $pyInstallerExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($pyInstallerExitCode -ne 0) { throw "PyInstaller failed with exit code $pyInstallerExitCode" }
 }
 finally {
     Pop-Location

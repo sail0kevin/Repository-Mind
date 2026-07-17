@@ -64,13 +64,14 @@ flowchart LR
 
 ## 快速运行
 
-开发环境需要 Windows、Python 3.11+、Node.js 20+。
+开发环境需要 Windows、Python 3.11+、Node.js 20+。`backend/requirements.txt` 是运行应用所需依赖；只有开发或执行测试时，才另外安装 `backend/requirements-dev.txt`。
 
 ```powershell
 cd repo-knowledge-assistant
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r backend/requirements.txt
+# 运行后端测试时再执行：pip install -r backend/requirements-dev.txt
 
 cd desktop/app
 npm ci
@@ -81,17 +82,40 @@ npm run dev
 
 ## 当前验证结果
 
-- Backend：`pytest -q backend/tests` → **92 passed**。
-- Desktop：`npm test -- --run` → **24 passed**。
+以下是当前工作区的**本地验证**，不是 GitHub Actions 远端运行记录：
+
+- Backend：`python -m pytest -q backend/tests` → **122 passed**（60 warnings）。
+- Desktop：`npm test -- --run` → **53 passed**（6 个测试文件）。
 - Desktop build：`npm run build`（Vite renderer + Electron TypeScript）通过。
 - 冻结后端 smoke：schema、FTS5、无 Key 降级、进程退出和文件锁检查通过。
 - Demo 验收：局部问题 0 工具；安全问题仅 `security_review`；影响问题仅 `dependency_impact`；不存在的 Trace 返回 404；重复打开 Demo 幂等。
 
-这些数字是本地真实运行结果，不代表远端 CI、签名安装包或正式 Release 已完成。
+Windows CI 已配置为在 `public-main`、`main`、`master` push、pull request 和手动触发时运行；是否通过必须以 GitHub Actions 页面中的实际远端记录为准。当前不宣称远端 CI 全绿、安装包已签名或 GitHub Release 已发布。
+
+## 下载、安装与卸载
+
+当前仓库已经提供 Windows Release workflow，但**不代表 GitHub Releases 中已经存在可下载版本**。发布者创建 Release 后，请从仓库的 **Releases** 页面下载与版本对应的文件：
+
+- `RepoMind-<version>-x64-setup.exe`：Setup 安装包，按向导安装，可选择安装目录；
+- `RepoMind-<version>-x64-portable.exe`：Portable 单文件版本，无需安装，直接运行；
+- `SHA256SUMS.txt`：同一批发布文件的 SHA-256 校验清单。
+
+下载后可在 PowerShell 中校验文件，输出应与 `SHA256SUMS.txt` 中同名文件完全一致：
+
+```powershell
+Get-FileHash .\RepoMind-<version>-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\RepoMind-<version>-x64-portable.exe -Algorithm SHA256
+```
+
+当前构建没有代码签名证书。Windows SmartScreen 可能显示“未知发布者”或阻止首次运行；请先确认下载来源是本仓库的 Releases 页面并核对 SHA-256。无法确认来源或哈希不一致时不要运行。确认无误后，可在 SmartScreen 中选择“更多信息”再决定是否“仍要运行”。这只是处理未签名提示，不等于验证了程序安全。
+
+Setup 版可通过 Windows“设置 → 应用 → 已安装的应用 → RepoMind → 卸载”移除。Portable 版退出程序后删除下载的 EXE 即可。两种版本的用户数据默认独立保存在 `%APPDATA%\repomind-desktop`；卸载或删除 Portable EXE 不一定清除此目录。需要彻底删除历史 Snapshot、索引、设置和已保存凭据时，请先备份所需数据、退出 RepoMind，再手动删除该目录。
 
 ## 安全与数据边界
 
-RepoMind 默认只读目标仓库，不执行其中的代码。开发/截图/测试应使用临时 `REPOMIND_USER_DATA_PATH` 和临时数据库；不要提交数据库、日志、密钥或构建产物。安全报告与披露方式见 [`SECURITY.md`](SECURITY.md)。
+RepoMind 默认只读目标仓库，不执行其中的代码。开发/截图/测试应使用临时 `REPOMIND_USER_DATA_PATH` 和临时数据库；不要提交数据库、日志、密钥或构建产物。
+
+如果启用 Chat 或 Embedding Provider，RepoMind 会把为当前请求检索出的仓库 Evidence（可能包含源码、路径、配置片段和问题文本）发送到用户配置的 Base URL，并按该接口要求发送对应 API Key。任意自定义 Endpoint 都是本地用户主动选择的信任边界：只应配置你信任的 HTTPS 服务，不要把私有仓库证据或密钥发送给不受信任的地址。详细边界与披露方式见 [`SECURITY.md`](SECURITY.md)。
 
 ## 文档入口
 
@@ -105,4 +129,4 @@ RepoMind 默认只读目标仓库，不执行其中的代码。开发/截图/测
 
 欢迎通过 Issue/PR 讨论解析器、检索质量、Evidence 可解释性和 Windows 体验。请先阅读 [`SECURITY.md`](SECURITY.md) 与任务书的公开边界；不要上传真实私有仓库、凭据或未经脱敏的运行数据。
 
-下一步按优先级推进：Markdown/Trace 导出体验 → 双语文档与公开示例 → Windows Electron E2E 与远端 CI → NSIS/Portable/SHA-256 与 v0.1.0 Release。不会为了展示而增加无边界的新 Agent 或模型 Provider。
+下一步按优先级推进：观察首次远端 Windows CI → 经明确批准后创建版本 Tag 和 GitHub Release → 增加正式图标与 Windows 代码签名。不会为了展示而增加无边界的新 Agent 或模型 Provider。

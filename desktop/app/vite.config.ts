@@ -20,7 +20,7 @@ export default defineConfig({
     // jsdom 让组件测试拥有浏览器 DOM；setupFiles 统一加载 RTL 断言。
     environment: "jsdom",
     setupFiles: ["./test/setup.ts"],
-    include: ["**/*.{test,spec}.{ts,tsx}"],
+    include: ["**/*.{test,spec}.{ts,tsx}", "../electron/**/*.{test,spec}.ts"],
     restoreMocks: true,
   },
 });

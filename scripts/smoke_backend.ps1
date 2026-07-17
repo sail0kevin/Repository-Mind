@@ -14,6 +14,8 @@ $databasePath = Join-Path $dataDir "repomind.sqlite3"
 $stdoutPath = Join-Path $tempRoot "backend.stdout.log"
 $stderrPath = Join-Path $tempRoot "backend.stderr.log"
 $sessionId = [guid]::NewGuid().ToString("N")
+$apiToken = [guid]::NewGuid().ToString("N")
+$shutdownToken = [guid]::NewGuid().ToString("N")
 $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
 $listener.Start()
 $port = ([System.Net.IPEndPoint] $listener.LocalEndpoint).Port
@@ -28,6 +30,8 @@ try {
         REPOMIND_PATHS__DATABASE_PATH = $databasePath
         REPOMIND_INSTANCE_ID = "repomind-desktop-backend"
         REPOMIND_SESSION_ID = $sessionId
+        REPOMIND_API_TOKEN = $apiToken
+        REPOMIND_SHUTDOWN_TOKEN = $shutdownToken
         REPOMIND_PORT = [string] $port
         REPOMIND_LLM_API_KEY = ""
         REPOMIND_EMBEDDING_API_KEY = ""
@@ -60,11 +64,21 @@ try {
     if ($health.api_version -ne "v1") { throw "Backend API version mismatch" }
     if ([int] $health.database_schema_version -ne 7) { throw "Database schema is not version 7" }
     if ($health.session_id -ne $sessionId) { throw "Backend session identity mismatch" }
-    if ([System.IO.Path]::GetFullPath([string] $health.database_path) -ne [System.IO.Path]::GetFullPath($databasePath)) {
-        throw "Backend used an unexpected database path"
+    $pythonCommand = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } elseif (Get-Command py -ErrorAction SilentlyContinue) { "py" } else { throw "Python is required for smoke verification" }
+    $backendSourceRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\backend"))
+    $identityHelperPath = Join-Path $tempRoot "database_identity.py"
+    $identityHelper = @'
+import sys
+sys.path.insert(0, sys.argv[1])
+from service.core.database_identity import compute_database_identity
+print(compute_database_identity(sys.argv[2]))
+'@
+    [System.IO.File]::WriteAllText($identityHelperPath, $identityHelper, [System.Text.UTF8Encoding]::new($false))
+    $expectedDatabaseIdentity = (& $pythonCommand $identityHelperPath $backendSourceRoot $databasePath).Trim()
+    if ([string] $health.database_identity -ne $expectedDatabaseIdentity) {
+        throw "Backend used an unexpected database identity"
     }
 
-    $pythonCommand = if (Get-Command py -ErrorAction SilentlyContinue) { "py" } else { "python" }
     $databaseCheckPath = Join-Path $tempRoot "verify_database.py"
     $databaseCheck = @'
 import sqlite3
@@ -87,7 +101,8 @@ print("schema=7 fts5=ok migrations=" + ",".join(map(str, versions)))
     & $pythonCommand $databaseCheckPath $databasePath
     if ($LASTEXITCODE -ne 0) { throw "Database migration or FTS5 verification failed" }
 
-    $publicSettings = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/v1/settings" -TimeoutSec 5
+    $businessHeaders = @{ "X-RepoMind-API-Token" = $apiToken }
+    $publicSettings = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/v1/settings" -Headers $businessHeaders -TimeoutSec 5
     if ($publicSettings.llm_api_key_configured -or $publicSettings.embedding_api_key_configured) {
         throw "No-key smoke unexpectedly found a configured API key"
     }
@@ -95,11 +110,15 @@ print("schema=7 fts5=ok migrations=" + ",".join(map(str, versions)))
 }
 finally {
     $cleanupFailure = $null
-    if ($backendProcess) {
-        # 只终止记录到的后端 PID，不递归处理任何父子进程。
-        try { Stop-Process -Id $backendProcess.Id -Force -ErrorAction SilentlyContinue } catch { }
+    if ($backendProcess -and -not $backendProcess.HasExited) {
+        # 先用当前会话的独立关闭令牌请求优雅退出；不按 PID 强杀，也不扫描其他进程。
+        try {
+            Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/api/v1/runtime/shutdown" -Headers @{ "X-RepoMind-Shutdown-Token" = $shutdownToken } -TimeoutSec 3 | Out-Null
+        }
+        catch {
+            $cleanupFailure = "Authenticated backend shutdown request failed: $($_.Exception.Message)"
+        }
 
-        # 只等待刚才记录的后端进程退出；不扫描或终止其他 PID。
         $cleanupDeadline = (Get-Date).AddSeconds(8)
         while (-not $backendProcess.HasExited -and (Get-Date) -lt $cleanupDeadline) {
             Start-Sleep -Milliseconds 200
@@ -107,7 +126,7 @@ finally {
         }
 
         if (-not $backendProcess.HasExited) {
-            $cleanupFailure = "Backend process did not exit cleanly: PID $($backendProcess.Id)"
+            $cleanupFailure = "Backend did not exit after authenticated shutdown; process ownership is no longer proven, so it was not force-killed."
         }
         else {
             # Open the executable exclusively to confirm that no process still holds a file lock.
@@ -125,7 +144,7 @@ finally {
             }
         }
     }
-    foreach ($environmentKey in @("APPDATA", "REPOMIND_PATHS__DATA_DIR", "REPOMIND_PATHS__DATABASE_PATH", "REPOMIND_INSTANCE_ID", "REPOMIND_SESSION_ID", "REPOMIND_PORT", "REPOMIND_LLM_API_KEY", "REPOMIND_EMBEDDING_API_KEY", "OPENAI_API_KEY")) {
+    foreach ($environmentKey in @("APPDATA", "REPOMIND_PATHS__DATA_DIR", "REPOMIND_PATHS__DATABASE_PATH", "REPOMIND_INSTANCE_ID", "REPOMIND_SESSION_ID", "REPOMIND_API_TOKEN", "REPOMIND_SHUTDOWN_TOKEN", "REPOMIND_PORT", "REPOMIND_LLM_API_KEY", "REPOMIND_EMBEDDING_API_KEY", "OPENAI_API_KEY")) {
         [System.Environment]::SetEnvironmentVariable($environmentKey, $null, "Process")
     }
     if (Test-Path $tempRoot) { Remove-Item -Recurse -Force $tempRoot -ErrorAction SilentlyContinue }

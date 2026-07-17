@@ -4,9 +4,12 @@
 """
 from __future__ import annotations
 
+from service.core.database_identity import compute_database_identity
 import logging
+import secrets
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from service.api.v1.repos import analysis_router, router as repos_router
@@ -15,6 +18,7 @@ from service.api.v1.code_graph import router as code_graph_router
 from service.api.v1.jobs import router as jobs_router
 from service.api.v1.settings import router as settings_router
 from service.config.settings import get_settings
+from service.core.parent_watchdog import start_parent_lifetime_watchdog
 from service.storage.job_store import recover_interrupted_jobs
 from service.storage.models import HealthResponse
 from service.storage.snapshot_store import recover_building_snapshots
@@ -39,6 +43,21 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def verify_desktop_api_token(request: Request, call_next):
+        """Electron 模式下保护业务接口；健康检查和优雅退出保留各自的独立契约。"""
+        public_paths = {"/api/v1/health", "/api/v1/runtime/shutdown"}
+        # CORS 预检不携带业务令牌，必须交给外层 CORSMiddleware 生成允许头；
+        # 实际 GET/POST 等业务方法仍在下面执行令牌校验。
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        if settings.api_token and request.url.path not in public_paths:
+            supplied_token = request.headers.get("X-RepoMind-API-Token")
+            if not supplied_token or not secrets.compare_digest(supplied_token, settings.api_token):
+                # 使用 404 减少向本机其他网页暴露服务身份和认证细节。
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
+        return await call_next(request)
 
     @app.on_event("startup")
     def initialize_runtime() -> None:
@@ -74,6 +93,7 @@ def create_app() -> FastAPI:
         with get_connection() as connection:
             database_schema_version = get_database_schema_version(connection)
         supported_schema_version = get_latest_schema_version()
+        database_identity = compute_database_identity(settings.paths.database_path)
         return {
             "status": "ok",
             "app_name": settings.app_name,
@@ -86,7 +106,8 @@ def create_app() -> FastAPI:
             "backend_contract_version": settings.backend_contract_version,
             "instance_id": settings.instance_id,
             "session_id": settings.session_id,
-            "database_path": str(settings.paths.database_path.resolve()),
+            # 公共健康检查只返回稳定指纹，避免向同机未认证网页暴露绝对路径。
+            "database_identity": database_identity,
         }
 
     app.include_router(repos_router, prefix="/api/v1")
@@ -102,10 +123,11 @@ app = create_app()
 
 
 def main() -> None:
-    """启动后端服务。"""
+    """启动后端服务，并在 Windows 桌面模式监视已验证的 Electron 父进程。"""
     import uvicorn
 
     settings = get_settings()
+    start_parent_lifetime_watchdog(settings.electron_parent_pid)
     uvicorn.run(app, host="127.0.0.1", port=settings.port)
 
 
