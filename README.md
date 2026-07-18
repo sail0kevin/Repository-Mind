@@ -36,23 +36,63 @@ flowchart LR
 
 内置 Demo 固定在 commit `8c5ac33542fbed5e117bfee19af1457e60bd166c`。在无网络、无 Chat Key、无 Embedding Key 的临时环境中，结果为：`main`、10 个文件、150 个知识片段、Snapshot succeeded、Catalog 可读。
 
-![一键 Demo 入口](docs/assets/screenshots/01-demo-entry.png)
+![RepoMind Repository Intelligence Workbench](docs/assets/screenshots/workbench-overview.png)
 
-![Snapshot 与 Catalog](docs/assets/screenshots/02-snapshot-catalog.png)
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/snapshot-catalog-tree.png" alt="Snapshot 绑定的 Catalog Tree 与目录详情" />
+      <p align="center"><strong>Snapshot 与知识目录</strong></p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/qa-evidence-inspector.png" alt="带 Evidence Inspector 的仓库问答" />
+      <p align="center"><strong>带源码证据的仓库问答</strong></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/source-evidence-drawer.png" alt="显示 Snapshot、Commit、路径和行号的源码 Evidence Drawer" />
+      <p align="center"><strong>Snapshot 绑定的源码证据</strong></p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/main-agent-trace.png" alt="显示 route、retrieval、security_review 和 synthesis 的 Main Agent Trace" />
+      <p align="center"><strong>可复核的 Main Agent Trace</strong></p>
+    </td>
+  </tr>
+</table>
 
-![局部解释问答](docs/assets/screenshots/03-local-answer.png)
-
-![Evidence 与源码行](docs/assets/screenshots/04-evidence-drawer.png)
-
-![安全问题与 Main Agent Trace](docs/assets/screenshots/05-security-trace.png)
-
-![Workflow 分析与 Markdown 导出](docs/assets/screenshots/06-workflow-export.png)
-
-真实运行状态序列（约 45 秒）：
+真实运行状态序列（约 32 秒）：
 
 ![RepoMind showcase](docs/assets/repomind-showcase.gif)
 
 公开示例产物：[`examples/outputs/repomind-demo-report.md`](examples/outputs/repomind-demo-report.md) · [`examples/outputs/repomind-demo-trace.json`](examples/outputs/repomind-demo-trace.json)
+
+## 桌面体验
+
+仓库接入、工作台、工作流和命令面板均来自同一次内置 Demo 运行；响应式截图展示中窄窗口下的“仓库与目录”和“Evidence 与状态”入口。
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/repository-access-demo.png" alt="内置 Demo、GitHub URL、本地路径和索引状态的仓库接入面板" />
+      <p align="center"><strong>内置 Demo 与仓库接入</strong></p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/workflow-export.png" alt="显示结构化 Finding、Snapshot 上下文和 Markdown 导出状态的工作流报告" />
+      <p align="center"><strong>工作流分析与导出</strong></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/command-palette.png" alt="包含知识目录、智能问答、工作流分析、代码图谱和设置的 Ctrl+K 命令面板" />
+      <p align="center"><strong>Ctrl+K 命令面板</strong></p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/responsive-workbench.png" alt="中窄窗口下带仓库目录和 Evidence 状态抽屉入口的工作台" />
+      <p align="center"><strong>响应式 Workbench</strong></p>
+    </td>
+  </tr>
+</table>
 
 ## 三个最能说明边界的问题
 

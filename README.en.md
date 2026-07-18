@@ -30,16 +30,63 @@ flowchart LR
 
 The bundled Demo is pinned to `8c5ac33542fbed5e117bfee19af1457e60bd166c`. A local run with no network, Chat key, or Embedding key produced a successful Snapshot for `main`, 10 files, and 150 knowledge chunks.
 
-![Demo entry](docs/assets/screenshots/01-demo-entry.png)
-![Snapshot and Catalog](docs/assets/screenshots/02-snapshot-catalog.png)
-![Local explanation](docs/assets/screenshots/03-local-answer.png)
-![Evidence drawer](docs/assets/screenshots/04-evidence-drawer.png)
-![Security Trace](docs/assets/screenshots/05-security-trace.png)
-![Workflow and Markdown export](docs/assets/screenshots/06-workflow-export.png)
+![RepoMind Repository Intelligence Workbench](docs/assets/screenshots/workbench-overview.png)
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/snapshot-catalog-tree.png" alt="Snapshot-bound Catalog Tree and catalog details" />
+      <p align="center"><strong>Snapshot-bound Catalog Tree</strong></p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/qa-evidence-inspector.png" alt="Repository Q&amp;A with the Evidence Inspector" />
+      <p align="center"><strong>Repository Q&amp;A with Evidence</strong></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/source-evidence-drawer.png" alt="Source Evidence Drawer with Snapshot, commit, path, and line range" />
+      <p align="center"><strong>Snapshot-bound source evidence</strong></p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/main-agent-trace.png" alt="Main Agent Trace showing route, retrieval, security review, and synthesis" />
+      <p align="center"><strong>Auditable Main Agent Trace</strong></p>
+    </td>
+  </tr>
+</table>
+
+Real runtime sequence (about 32 seconds):
 
 ![RepoMind showcase](docs/assets/repomind-showcase.gif)
 
 Public artifacts: [`examples/outputs/repomind-demo-report.md`](examples/outputs/repomind-demo-report.md) and [`examples/outputs/repomind-demo-trace.json`](examples/outputs/repomind-demo-trace.json).
+
+## Desktop experience
+
+Repository access, Workbench, workflow analysis, and the command palette were captured from the same bundled Demo run. The responsive view shows the “仓库与目录” and “Evidence 与状态” drawer entry points at a medium-narrow window width.
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/repository-access-demo.png" alt="Repository access panel with bundled Demo, GitHub URL, local path, and indexing status" />
+      <p align="center"><strong>Repository access and bundled Demo</strong></p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/workflow-export.png" alt="Workflow report with structured Finding, Snapshot context, and Markdown export status" />
+      <p align="center"><strong>Workflow analysis and export</strong></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/command-palette.png" alt="Ctrl+K command palette with catalog, Q&amp;A, workflow, code graph, and settings commands" />
+      <p align="center"><strong>Ctrl+K command palette</strong></p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/responsive-workbench.png" alt="Responsive Workbench with repository navigation and Evidence status drawer entry points" />
+      <p align="center"><strong>Responsive Workbench</strong></p>
+    </td>
+  </tr>
+</table>
 
 ## Quick start
 
