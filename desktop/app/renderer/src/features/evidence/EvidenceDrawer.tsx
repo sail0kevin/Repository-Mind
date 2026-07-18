@@ -1,6 +1,8 @@
 import { FileCode2, GitCommitHorizontal, X } from "lucide-react";
 
 import type { AgentTraceResponse, ChunkDetailResponse } from "../../../services/apiClient";
+import { Drawer } from "../../components/ui/Drawer";
+import { IconButton } from "../../components/ui/IconButton";
 
 /**
  * 证据抽屉始终展示快照中持久化的 chunk 内容。
@@ -12,20 +14,25 @@ export function EvidenceDrawer(props: {
   trace: AgentTraceResponse | null;
   onClose: () => void;
 }) {
-  if (!props.chunk && !props.trace) {
-    return null;
-  }
+  const isOpen = Boolean(props.chunk || props.trace);
+  const title = props.trace ? "Main Agent Trace" : "源码证据";
 
   return (
-    <div className="af-evidence-drawer" data-testid={props.trace ? "trace-drawer" : "evidence-drawer"}>
-      <div className="af-modal-header">
-        <h2><FileCode2 size={18} /> 证据与工具轨迹</h2>
-        <button className="af-icon-btn" onClick={props.onClose} title="关闭证据抽屉"><X size={18} /></button>
+    <Drawer
+      isOpen={isOpen}
+      onClose={props.onClose}
+      title={title}
+      testId={props.trace ? "trace-drawer" : "evidence-drawer"}
+      className="af-evidence-drawer"
+    >
+      <div className="af-modal-header rm-evidence-drawer-header">
+        <strong><FileCode2 size={18} /> {title}</strong>
+        <IconButton label="关闭证据抽屉" onClick={props.onClose} title="关闭证据抽屉"><X size={18} /></IconButton>
       </div>
       <div className="af-evidence-drawer-body">
         {props.chunk && (
           <section className="af-section">
-            <div className="af-section-title">源码证据</div>
+            <div className="af-section-title">Snapshot 源码证据</div>
             <div className="af-source-meta">
               <strong>{props.chunk.file_path}</strong>
               <span><GitCommitHorizontal size={13} /> {props.commit?.slice(0, 12) || "未知 commit"}</span>
@@ -37,7 +44,7 @@ export function EvidenceDrawer(props: {
         )}
         {props.trace && (
           <section className="af-section">
-            <div className="af-section-title">Main Agent Trace</div>
+            <div className="af-section-title">受约束执行轨迹</div>
             <div className="af-answer-meta">
               <span>模式：{props.trace.mode}</span>
               <span>状态：{props.trace.status}</span>
@@ -55,7 +62,7 @@ export function EvidenceDrawer(props: {
           </section>
         )}
       </div>
-    </div>
+    </Drawer>
   );
 }
 

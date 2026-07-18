@@ -78,6 +78,11 @@ import type {
 } from "../services/apiClient";
 import { AppHeader } from "./app/AppHeader";
 import { AppShell } from "./app/AppShell";
+import { CommandBar } from "./app/CommandBar";
+import { Inspector } from "./app/Inspector";
+import { Dialog } from "./components/ui/Dialog";
+import { IconButton } from "./components/ui/IconButton";
+import { Tabs } from "./components/ui/Tabs";
 import type { AgentConfig, CodeGraphMode, DebateMessage, WorkspaceTab } from "./app/types";
 import { CatalogWorkspace } from "./features/catalog/CatalogWorkspace";
 import { RepositoryKnowledgeNavigator } from "./features/catalog/RepositoryKnowledgeNavigator";
@@ -233,11 +238,14 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPricingOpen, setIsPricingOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [isCommandBarOpen, setIsCommandBarOpen] = useState(false);
+  const [isShellOverlayOpen, setIsShellOverlayOpen] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
     const savedWidth = Number(window.localStorage.getItem("repomind:left-panel-width"));
-    return Number.isFinite(savedWidth) && savedWidth >= 240 && savedWidth <= 520 ? savedWidth : 280;
+    return Number.isFinite(savedWidth) && savedWidth >= 240 && savedWidth <= 480 ? savedWidth : 280;
   });
   const [isResizingLeftPanel, setIsResizingLeftPanel] = useState(false);
+  const resizeStartRef = useRef({ pointerX: 0, panelWidth: 280 });
 
   const [codeGraphMode, setCodeGraphMode] = useState<CodeGraphMode>("overview");
   const [codeGraphStats, setCodeGraphStats] = useState<Record<string, unknown> | null>(null);
@@ -263,6 +271,12 @@ function App() {
     && snapshots.some((snapshot) => snapshot.snapshot_id === selectedSnapshotId && snapshot.status === "succeeded")
     && !isRegistering;
   const indexedPercent = activeJob ? jobProgressPercent(activeJob.progress) : repoMap ? 100 : 0;
+  const selectedSnapshot = snapshots.find((snapshot) => snapshot.snapshot_id === selectedSnapshotId) ?? null;
+  const hasActiveOverlay = isSettingsOpen
+    || isPricingOpen
+    || isGuideOpen
+    || isEvidenceDrawerOpen
+    || isShellOverlayOpen;
 
   const currentWorkflowSection = useMemo(() => {
     if (!workflowReport) {
@@ -276,6 +290,17 @@ function App() {
   useEffect(() => {
     void initializeApp();
   }, []);
+
+  useEffect(() => {
+    function openCommandBar(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
+        event.preventDefault();
+        if (!hasActiveOverlay) setIsCommandBarOpen(true);
+      }
+    }
+    window.addEventListener("keydown", openCommandBar);
+    return () => window.removeEventListener("keydown", openCommandBar);
+  }, [hasActiveOverlay]);
 
   useEffect(() => {
     if (logRef.current) {
@@ -295,8 +320,8 @@ function App() {
     }
 
     function resizeLeftPanel(event: PointerEvent) {
-      const workspacePadding = 16;
-      const nextWidth = Math.max(240, Math.min(520, event.clientX - workspacePadding));
+      const delta = event.clientX - resizeStartRef.current.pointerX;
+      const nextWidth = Math.max(240, Math.min(480, resizeStartRef.current.panelWidth + delta));
       setLeftPanelWidth(nextWidth);
     }
 
@@ -1059,6 +1084,11 @@ function App() {
     <div className="af-app" data-testid="app-ready">
       <AppHeader
         isHealthy={!!health}
+        repositoryLabel={repo?.alias ?? null}
+        snapshotLabel={selectedSnapshot ? `Snapshot ${selectedSnapshot.snapshot_id.slice(0, 12)} · ${selectedSnapshot.commit.slice(0, 12)}` : null}
+        onOpenCommandBar={() => {
+          if (!hasActiveOverlay) setIsCommandBarOpen(true);
+        }}
         onOpenGuide={() => setIsGuideOpen(true)}
         onOpenPricing={() => setIsPricingOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -1067,21 +1097,25 @@ function App() {
       <AppShell
         leftPanelWidth={leftPanelWidth}
         onResizeStart={(event) => {
+          if (event.pointerType === "mouse" && event.button !== 0) return;
           event.preventDefault();
+          resizeStartRef.current = { pointerX: event.clientX, panelWidth: leftPanelWidth };
+          event.currentTarget.setPointerCapture?.(event.pointerId);
           setIsResizingLeftPanel(true);
         }}
         onResizeReset={() => setLeftPanelWidth(280)}
+        onOverlayOpenChange={setIsShellOverlayOpen}
         onResizeKeyDown={(event) => {
           if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
             event.preventDefault();
             const direction = event.key === "ArrowLeft" ? -1 : 1;
-            setLeftPanelWidth((current) => Math.max(240, Math.min(520, current + direction * (event.shiftKey ? 40 : 10))));
+            setLeftPanelWidth((current) => Math.max(240, Math.min(480, current + direction * (event.shiftKey ? 40 : 10))));
           } else if (event.key === "Home") {
             event.preventDefault();
             setLeftPanelWidth(240);
           } else if (event.key === "End") {
             event.preventDefault();
-            setLeftPanelWidth(520);
+            setLeftPanelWidth(480);
           }
         }}
         leftPanel={
@@ -1130,16 +1164,30 @@ function App() {
         }
         centerPanel={
           <>
-            {error && <div className="af-error-box"><AlertCircle size={16} /> <span>{error}</span><button onClick={() => setError(null)}><X size={14} /></button></div>}
-            {exportStatus && <div className="af-export-status" data-testid="export-status"><Save size={15} /><span>{exportStatus}</span></div>}
-          <div className="af-tabs">
-            <button data-testid="workspace-tab-catalog" className={`af-tab ${activeTab === "catalog" ? "active" : ""}`} onClick={() => setActiveTab("catalog")}><Database size={14} /> 知识目录</button>
-            <button data-testid="workspace-tab-qa" className={`af-tab ${activeTab === "qa" ? "active" : ""}`} onClick={() => setActiveTab("qa")}><Search size={14} /> 智能问答</button>
-            <button className={`af-tab ${activeTab === "legacy" ? "active" : ""}`} onClick={() => setActiveTab("legacy")}><MessageSquareText size={14} /> Legacy 多角色</button>
-            <button data-testid="workspace-tab-workflow" className={`af-tab ${activeTab === "workflow" ? "active" : ""}`} onClick={() => setActiveTab("workflow")}><Workflow size={14} /> 工作流分析</button>
-            <button className={`af-tab ${activeTab === "codegraph" ? "active" : ""}`} onClick={() => setActiveTab("codegraph")}><Code2 size={14} /> 代码图谱</button>
-          </div>
+            {error && <div className="af-error-box" role="alert"><AlertCircle size={16} /> <span>{error}</span><button aria-label="关闭错误提示" onClick={() => setError(null)}><X size={14} /></button></div>}
+            {exportStatus && <div className="af-export-status" data-testid="export-status" role="status" aria-live="polite"><Save size={15} /><span>{exportStatus}</span></div>}
+            <Tabs
+              idBase="workspace"
+              ariaLabel="RepoMind 工作区"
+              className="af-tabs"
+              tabClassName="af-tab"
+              value={activeTab}
+              onChange={setActiveTab}
+              items={[
+                { value: "catalog", label: <><Database size={14} /> 知识目录</>, testId: "workspace-tab-catalog" },
+                { value: "qa", label: <><Search size={14} /> 智能问答</>, testId: "workspace-tab-qa" },
+                { value: "workflow", label: <><Workflow size={14} /> 工作流分析</>, testId: "workspace-tab-workflow" },
+                { value: "codegraph", label: <><Code2 size={14} /> 代码图谱</> },
+                { value: "legacy", label: <><MessageSquareText size={14} /> 多角色</>, badge: "Legacy" },
+              ]}
+            />
 
+          <div
+            className="rm-workspace-panel"
+            id={`workspace-panel-${activeTab}`}
+            role="tabpanel"
+            aria-labelledby={`workspace-tab-${activeTab}`}
+          >
           {activeTab === "catalog" && (
             <CatalogWorkspace
               item={selectedCatalogItem}
@@ -1223,36 +1271,61 @@ function App() {
               onSearchFunctions={handleFunctionSearch}
             />
           )}
+          </div>
           </>
         }
         rightPanel={
-          <>
-            <section className="af-section">
-            <div className="af-section-title"><BarChart3 size={15} /> 会话指标</div>
-            <MetricCard title="Token Usage" value={totalTokens.toLocaleString()} note="只统计本应用真实问答返回或估算的 token。" />
-            <MetricCard title="Cost Estimate" value={`$${totalCost.toFixed(totalCost >= 1 ? 2 : 5)}`} note="按设置页单价估算，不代表官方账单。" onNoteClick={() => setIsPricingOpen(true)} />
-          </section>
-          <section className="af-section">
-            <div className="af-section-title"><Database size={15} /> 仓库概览</div>
-            {repoSummary ? (
-              <div className="af-summary-card">
-                <p>{repoSummary.summary}</p>
-                <strong>推荐阅读顺序</strong>
-                <div className="af-reading-list">
-                  {repoSummary.recommended_reading_order.slice(0, 6).map((item) => <span className="af-reading-item" key={item}>{item}</span>)}
-                </div>
-              </div>
-            ) : <div className="af-empty small">暂无仓库摘要</div>}
-          </section>
-          <EvidencePanel evidence={evidence} files={files} onEvidenceSelect={handleEvidenceSelect} />
-          <section className="af-section">
-            <div className="af-section-title"><Terminal size={15} /> System Logs</div>
-            <div className="af-logs" ref={logRef}>{logs.map((line, index) => <div key={`${line}-${index}`} className="af-log-line">{line}</div>)}</div>
-          </section>
-          </>
+          <Inspector
+            evidenceCount={evidence.length}
+            onTabChange={(tab) => {
+              if (tab === "activity") window.requestAnimationFrame(() => {
+                if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+              });
+            }}
+            evidence={<EvidencePanel evidence={evidence} files={files} onEvidenceSelect={handleEvidenceSelect} />}
+            context={
+              <section className="af-section">
+                <div className="af-section-title"><Database size={15} /> 仓库概览</div>
+                {repoSummary ? (
+                  <div className="af-summary-card">
+                    <p>{repoSummary.summary}</p>
+                    <strong>推荐阅读顺序</strong>
+                    <div className="af-reading-list">
+                      {repoSummary.recommended_reading_order.slice(0, 6).map((item) => <span className="af-reading-item" key={item}>{item}</span>)}
+                    </div>
+                  </div>
+                ) : <div className="af-empty small">暂无仓库摘要</div>}
+              </section>
+            }
+            activity={
+              <>
+                <section className="af-section">
+                  <div className="af-section-title"><BarChart3 size={15} /> 会话指标</div>
+                  <MetricCard title="Token Usage" value={totalTokens.toLocaleString()} note="只统计本应用真实问答返回或估算的 token。" />
+                  <MetricCard title="Cost Estimate" value={`$${totalCost.toFixed(totalCost >= 1 ? 2 : 5)}`} note="按设置页单价估算，不代表官方账单。" onNoteClick={() => setIsPricingOpen(true)} />
+                </section>
+                <section className="af-section">
+                  <div className="af-section-title"><Terminal size={15} /> System Logs</div>
+                  <div className="af-logs" ref={logRef}>{logs.map((line, index) => <div key={`${line}-${index}`} className="af-log-line">{line}</div>)}</div>
+                </section>
+              </>
+            }
+          />
         }
       />
 
+      <CommandBar
+        isOpen={isCommandBarOpen}
+        onClose={() => setIsCommandBarOpen(false)}
+        commands={[
+          { id: "catalog", label: "打开知识目录", description: "浏览 Snapshot 绑定的仓库、文件与符号卡片", icon: <Database size={16} />, run: () => setActiveTab("catalog") },
+          { id: "qa", label: "打开智能问答", description: "向当前仓库提问并查看 Evidence 与 Trace", icon: <Search size={16} />, run: () => setActiveTab("qa") },
+          { id: "workflow", label: "打开工作流分析", description: "生成结构化仓库理解报告", icon: <Workflow size={16} />, run: () => setActiveTab("workflow") },
+          { id: "codegraph", label: "打开代码图谱", description: "查询函数、调用链与类关系", icon: <Code2 size={16} />, run: () => setActiveTab("codegraph") },
+          { id: "settings", label: "系统设置", description: "配置 Chat、Embedding 与检索参数", icon: <Settings size={16} />, run: () => setIsSettingsOpen(true) },
+          { id: "pricing", label: "费用估算设置", description: "设置本地 token 单价估算", icon: <CircleDollarSign size={16} />, run: () => setIsPricingOpen(true) },
+        ]}
+      />
       {isSettingsOpen && <SettingsModal initialSettings={settings} onClose={() => setIsSettingsOpen(false)} onSaved={handleSettingsSaved} />}
       {isPricingOpen && <PricingModal settings={settings} onClose={() => setIsPricingOpen(false)} onSaved={handleSettingsSaved} />}
       {isEvidenceDrawerOpen && (
@@ -1289,7 +1362,19 @@ function QaPanel(props: {
   return (
     <div className="af-qa">
       <div className="af-qbox">
-        <input data-testid="question-input" value={props.question} onChange={(event) => props.onQuestionChange(event.target.value)} onKeyDown={(event) => event.key === "Enter" && props.onAsk()} placeholder="问这个仓库任何问题，例如：启动流程是什么？" />
+        <input
+          data-testid="question-input"
+          aria-label="向当前仓库提问"
+          value={props.question}
+          onChange={(event) => props.onQuestionChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.nativeEvent.isComposing && props.canUseRepo && !props.isAsking) {
+              event.preventDefault();
+              props.onAsk();
+            }
+          }}
+          placeholder="问这个仓库任何问题，例如：启动流程是什么？"
+        />
         <button data-testid="ask-button" onClick={props.onAsk} disabled={!props.canUseRepo || props.isAsking}>{props.isAsking ? <Loader2 size={16} className="spin" /> : <Send size={16} />} 提问</button>
       </div>
       <div className="af-actions">
@@ -1384,15 +1469,27 @@ function WorkflowPanel(props: {
       {props.report ? (
         <div className="af-report" data-testid="workflow-report">
           <h2>{props.report.summary}</h2>
-          <div className="af-report-tabs">
-            {props.report.sections.map((section) => <button key={section.key} className={`af-rtab ${props.currentSection?.key === section.key ? "active" : ""}`} onClick={() => props.onSectionChange(section.key)}>{section.title}</button>)}
+          <Tabs
+            idBase="workflow-report"
+            ariaLabel="工作流报告章节"
+            className="af-report-tabs"
+            tabClassName="af-rtab"
+            value={props.currentSection?.key ?? props.report.sections[0]?.key ?? ""}
+            onChange={props.onSectionChange}
+            items={props.report.sections.map((section) => ({ value: section.key, label: section.title }))}
+          />
+          <div
+            id={`workflow-report-panel-${props.currentSection?.key ?? props.report.sections[0]?.key ?? ""}`}
+            role="tabpanel"
+            aria-labelledby={`workflow-report-tab-${props.currentSection?.key ?? props.report.sections[0]?.key ?? ""}`}
+          >
+            {props.currentSection?.findings.map((finding, index) => (
+              <div key={`${finding.title}-${index}`} className="af-finding">
+                <div><strong>{finding.title}</strong><span className={`af-sev sev-${finding.severity}`}>{finding.severity}</span></div>
+                <p>{finding.detail}</p>
+              </div>
+            ))}
           </div>
-          {props.currentSection?.findings.map((finding, index) => (
-            <div key={`${finding.title}-${index}`} className="af-finding">
-              <div><strong>{finding.title}</strong><span className={`af-sev sev-${finding.severity}`}>{finding.severity}</span></div>
-              <p>{finding.detail}</p>
-            </div>
-          ))}
         </div>
       ) : (
         <div className="af-empty"><Workflow size={42} /><p>首次分析会把代码、文档、配置等部分分给不同视角处理。</p></div>
@@ -1424,19 +1521,32 @@ function CodeGraphPanel(props: {
   return (
     <div className="af-workflow">
       <div className="af-cg-toolbar">
-        <div className="af-cg-tabs">
-          {(["overview", "search", "calls", "class"] as const).map((mode) => (
-            <button key={mode} className={`af-cg-tab ${props.codeGraphMode === mode ? "active" : ""}`} onClick={() => props.onModeChange(mode)}>
-              {mode === "overview" ? "概览" : mode === "search" ? "函数搜索" : mode === "calls" ? "调用链" : "类关系"}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          idBase="code-graph"
+          ariaLabel="代码图谱视图"
+          className="af-cg-tabs"
+          tabClassName="af-cg-tab"
+          value={props.codeGraphMode}
+          onChange={props.onModeChange}
+          items={([
+            ["overview", "概览"],
+            ["search", "函数搜索"],
+            ["calls", "调用链"],
+            ["class", "类关系"],
+          ] as Array<[CodeGraphMode, string]>).map(([value, label]) => ({ value, label }))}
+        />
         <button className="af-btn secondary" onClick={props.onRefresh} disabled={!props.canUseRepo}><RefreshCcw size={16} /> 刷新</button>
       </div>
-      {props.codeGraphMode === "overview" && <CodeGraphOverview stats={props.stats} importantFunctions={props.importantFunctions} />}
-      {props.codeGraphMode === "search" && <CodeGraphSearch query={props.functionQuery} setQuery={props.onFunctionQueryChange} onSearch={props.onSearchFunctions} results={props.functionResults} />}
-      {props.codeGraphMode === "calls" && <JsonLookup value={props.callFunctionName} setValue={props.onCallFunctionNameChange} onSearch={props.onSearchCalls} placeholder="输入函数名查看调用链" buttonLabel="查询调用链" result={props.callChain} />}
-      {props.codeGraphMode === "class" && <JsonLookup value={props.className} setValue={props.onClassNameChange} onSearch={props.onSearchClass} placeholder="输入类名查看继承/方法关系" buttonLabel="查询类关系" result={props.classHierarchy} />}
+      <div
+        id={`code-graph-panel-${props.codeGraphMode}`}
+        role="tabpanel"
+        aria-labelledby={`code-graph-tab-${props.codeGraphMode}`}
+      >
+        {props.codeGraphMode === "overview" && <CodeGraphOverview stats={props.stats} importantFunctions={props.importantFunctions} />}
+        {props.codeGraphMode === "search" && <CodeGraphSearch query={props.functionQuery} setQuery={props.onFunctionQueryChange} onSearch={props.onSearchFunctions} results={props.functionResults} />}
+        {props.codeGraphMode === "calls" && <JsonLookup value={props.callFunctionName} setValue={props.onCallFunctionNameChange} onSearch={props.onSearchCalls} placeholder="输入函数名查看调用链" buttonLabel="查询调用链" result={props.callChain} />}
+        {props.codeGraphMode === "class" && <JsonLookup value={props.className} setValue={props.onClassNameChange} onSearch={props.onSearchClass} placeholder="输入类名查看继承/方法关系" buttonLabel="查询类关系" result={props.classHierarchy} />}
+      </div>
     </div>
   );
 }
@@ -1625,34 +1735,38 @@ function SettingsModal({ initialSettings, onClose, onSaved }: { initialSettings:
   }
 
   return (
-    <div className="af-modal-overlay" onClick={onClose}>
-      <div className="af-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="af-modal-header"><h2><Settings size={18} /> 系统设置</h2><button className="af-icon-btn" onClick={onClose}><X size={18} /></button></div>
-        <div className="af-settings">
+    <Dialog
+      isOpen
+      onClose={onClose}
+      className="af-modal"
+      title={<><Settings size={18} /> 系统设置</>}
+      description="Chat 与 Embedding 分开配置；密钥保存在当前 Windows 用户的 DPAPI 中。"
+    >
+      <div className="af-modal-header rm-modal-action-row"><IconButton label="关闭系统设置" onClick={onClose}><X size={18} /></IconButton></div>
+      <div className="af-settings">
           <div className="af-actions"><button className="af-btn secondary" onClick={useLongCatPreset}>使用 LongCat-2.0 预设</button></div>
           <div className="af-settings-form">
             <label className="af-field"><span>后端 API 地址</span><input value={form.api_base_url} onChange={(event) => setField("api_base_url", event.target.value)} /></label>
             <label className="af-field"><span>LLM Base URL</span><input value={form.llm_base_url} onChange={(event) => setField("llm_base_url", event.target.value)} placeholder="https://api.longcat.chat/openai/v1" /></label>
             <label className="af-field"><span>模型名</span><input value={form.llm_model} onChange={(event) => setField("llm_model", event.target.value)} placeholder="LongCat-2.0" /></label>
-            <label className="af-field"><span>API Key {form.llm_api_key_configured ? `(已配置 ${form.llm_api_key_hint ?? ""})` : "(未配置)"}</span><div className="af-password-wrapper"><input disabled={clearApiKey} type={showKey ? "text" : "password"} value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="留空保持不变；输入新值会覆盖" /><button type="button" className="af-toggle-pwd" onClick={() => setShowKey((previous) => !previous)}>{showKey ? <EyeOff size={14} /> : <Eye size={14} />}</button></div></label>
+            <label className="af-field"><span>API Key {form.llm_api_key_configured ? `(已配置 ${form.llm_api_key_hint ?? ""})` : "(未配置)"}</span><div className="af-password-wrapper"><input disabled={clearApiKey} type={showKey ? "text" : "password"} value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="留空保持不变；输入新值会覆盖" /><button type="button" className="af-toggle-pwd" aria-label={showKey ? "隐藏 Chat API Key" : "显示 Chat API Key"} aria-pressed={showKey} onClick={() => setShowKey((previous) => !previous)}>{showKey ? <EyeOff size={14} /> : <Eye size={14} />}</button></div></label>
             <label className="af-field"><span><input type="checkbox" checked={clearApiKey} onChange={(event) => setClearApiKey(event.target.checked)} /> 清除已保存的 API Key</span></label>
             <label className="af-field"><span>Temperature</span><input type="number" min="0" max="2" step="0.1" value={form.llm_temperature} onChange={(event) => setField("llm_temperature", Number(event.target.value))} /></label>
             <label className="af-field"><span>最大输出 Token</span><input type="number" min="256" step="256" value={form.llm_max_tokens} onChange={(event) => setField("llm_max_tokens", Number(event.target.value))} /></label>
             <label className="af-field"><span>Embedding 模式</span><select value={form.embedding_provider} onChange={(event) => setField("embedding_provider", event.target.value as SettingsResponse["embedding_provider"])}><option value="disabled">关闭（lexical-only）</option><option value="openai_compatible">OpenAI 兼容接口</option></select></label>
             <label className="af-field"><span>Embedding Base URL</span><input disabled={form.embedding_provider === "disabled"} value={form.embedding_base_url} onChange={(event) => setField("embedding_base_url", event.target.value)} placeholder="https://api.openai.com/v1" /></label>
             <label className="af-field"><span>Embedding 模型</span><input disabled={form.embedding_provider === "disabled"} value={form.embedding_model} onChange={(event) => setField("embedding_model", event.target.value)} placeholder="text-embedding-3-small" /></label>
-            <label className="af-field"><span>Embedding API Key {form.embedding_api_key_configured ? `(已配置 ${form.embedding_api_key_hint ?? ""})` : "(未配置)"}</span><div className="af-password-wrapper"><input disabled={clearEmbeddingApiKey || form.embedding_provider === "disabled"} type={showEmbeddingKey ? "text" : "password"} value={embeddingApiKey} onChange={(event) => setEmbeddingApiKey(event.target.value)} placeholder="独立于 Chat Key；留空保持不变" /><button type="button" className="af-toggle-pwd" onClick={() => setShowEmbeddingKey((previous) => !previous)}>{showEmbeddingKey ? <EyeOff size={14} /> : <Eye size={14} />}</button></div></label>
+            <label className="af-field"><span>Embedding API Key {form.embedding_api_key_configured ? `(已配置 ${form.embedding_api_key_hint ?? ""})` : "(未配置)"}</span><div className="af-password-wrapper"><input disabled={clearEmbeddingApiKey || form.embedding_provider === "disabled"} type={showEmbeddingKey ? "text" : "password"} value={embeddingApiKey} onChange={(event) => setEmbeddingApiKey(event.target.value)} placeholder="独立于 Chat Key；留空保持不变" /><button type="button" className="af-toggle-pwd" aria-label={showEmbeddingKey ? "隐藏 Embedding API Key" : "显示 Embedding API Key"} aria-pressed={showEmbeddingKey} onClick={() => setShowEmbeddingKey((previous) => !previous)}>{showEmbeddingKey ? <EyeOff size={14} /> : <Eye size={14} />}</button></div></label>
             <label className="af-field"><span><input type="checkbox" checked={clearEmbeddingApiKey} onChange={(event) => setClearEmbeddingApiKey(event.target.checked)} /> 清除已保存的 Embedding Key</span></label>
             <label className="af-field"><span>检索结果上限</span><input type="number" min="1" max="50" value={form.retrieval_limit} onChange={(event) => setField("retrieval_limit", Number(event.target.value))} /></label>
             <label className="af-field"><span>输入价格（美元/1K token）</span><input type="number" min="0" step="0.00001" value={form.input_cost_per_1k_tokens} onChange={(event) => setField("input_cost_per_1k_tokens", Number(event.target.value))} /></label>
             <label className="af-field"><span>输出价格（美元/1K token）</span><input type="number" min="0" step="0.00001" value={form.output_cost_per_1k_tokens} onChange={(event) => setField("output_cost_per_1k_tokens", Number(event.target.value))} /></label>
           </div>
           <div className="af-settings-actions"><button className="af-btn secondary" onClick={testBackend}>测试后端</button><button className="af-btn primary" onClick={save} disabled={saving}>{saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />} 保存配置</button></div>
-          {status && <div className="af-settings-status">{status}</div>}
+          {status && <div className="af-settings-status" role="status" aria-live="polite">{status}</div>}
           <div className="af-settings-tip"><strong>说明：</strong>Chat 与 Embedding 凭据彼此独立，并使用 Windows DPAPI 保存；Embedding 关闭或调用失败时，仓库仍会以 lexical-only 模式完成索引和检索。</div>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -1672,24 +1786,30 @@ function PricingModal({ settings, onClose, onSaved }: { settings: SettingsRespon
   }
 
   return (
-    <div className="af-modal-overlay" onClick={onClose}>
-      <div className="af-modal pricing-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="af-modal-header"><h2><CircleDollarSign size={18} /> 费用估算设置</h2><button className="af-icon-btn" onClick={onClose}><X size={18} /></button></div>
-        <div className="af-pricing">
-          <p className="af-pricing-intro">不同模型价格会变化，本页只提供本地估算。真实扣费请以对应平台控制台为准。</p>
+    <Dialog
+      isOpen
+      onClose={onClose}
+      className="af-modal pricing-modal"
+      title={<><CircleDollarSign size={18} /> 费用估算设置</>}
+      description="价格只用于本地估算，不代表模型供应商的官方账单。"
+    >
+      <div className="af-modal-header rm-modal-action-row"><IconButton label="关闭费用估算设置" onClick={onClose}><X size={18} /></IconButton></div>
+      <div className="af-pricing">
+        <p className="af-pricing-intro">不同模型价格会变化，本页只提供本地估算。真实扣费请以对应平台控制台为准。</p>
+        <div className="af-pricing-table-wrap" role="region" aria-label="常见模型价格参考" tabIndex={0}>
           <table className="af-pricing-table">
             <thead><tr><th>平台</th><th>模型</th><th>输入 $/1K</th><th>输出 $/1K</th><th>备注</th></tr></thead>
             <tbody>{PRICING_PRESETS.map((item) => <tr key={`${item.provider}-${item.model}`}><td>{item.provider}</td><td>{item.model}</td><td>{item.input.toFixed(5)}</td><td>{item.output.toFixed(5)}</td><td>{item.note}</td></tr>)}</tbody>
           </table>
-          <div className="af-settings-form">
-            <label className="af-field"><span>当前输入单价</span><input type="number" min="0" step="0.00001" value={inputRate} onChange={(event) => setInputRate(Number(event.target.value))} /></label>
-            <label className="af-field"><span>当前输出单价</span><input type="number" min="0" step="0.00001" value={outputRate} onChange={(event) => setOutputRate(Number(event.target.value))} /></label>
-          </div>
-          <div className="af-settings-actions"><button className="af-btn primary" onClick={saveRates}><Save size={16} /> 保存单价</button></div>
-          {status && <div className="af-settings-status">{status}</div>}
         </div>
+        <div className="af-settings-form">
+          <label className="af-field"><span>当前输入单价</span><input type="number" min="0" step="0.00001" value={inputRate} onChange={(event) => setInputRate(Number(event.target.value))} /></label>
+          <label className="af-field"><span>当前输出单价</span><input type="number" min="0" step="0.00001" value={outputRate} onChange={(event) => setOutputRate(Number(event.target.value))} /></label>
+        </div>
+        <div className="af-settings-actions"><button className="af-btn primary" onClick={saveRates}><Save size={16} /> 保存单价</button></div>
+        {status && <div className="af-settings-status" role="status" aria-live="polite">{status}</div>}
       </div>
-    </div>
+    </Dialog>
   );
 }
 

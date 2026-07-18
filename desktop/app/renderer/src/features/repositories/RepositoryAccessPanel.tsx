@@ -33,20 +33,35 @@ export function RepositoryAccessPanel(props: {
         </ol>
       </div>
       <div className="af-form">
-        <input value={props.githubUrl} onChange={(event) => props.onGithubUrlChange(event.target.value)} placeholder="GitHub URL，例如 https://github.com/user/repo" />
-        <input value={props.repoPath} onChange={(event) => props.onRepoPathChange(event.target.value)} placeholder={"本地 Git 仓库路径，例如 G:\\projects\\demo"} />
-        <input value={props.alias} onChange={(event) => props.onAliasChange(event.target.value)} placeholder="仓库别名，可选" />
+        <label className="af-field-inline">
+          <span>公开 GitHub 仓库 URL</span>
+          <input aria-label="公开 GitHub 仓库 URL" value={props.githubUrl} onChange={(event) => props.onGithubUrlChange(event.target.value)} placeholder="https://github.com/user/repo" />
+        </label>
+        <label className="af-field-inline">
+          <span>本地 Git 仓库路径</span>
+          <input aria-label="本地 Git 仓库路径" value={props.repoPath} onChange={(event) => props.onRepoPathChange(event.target.value)} placeholder={"G:\\projects\\demo"} />
+        </label>
+        <label className="af-field-inline">
+          <span>仓库别名（可选）</span>
+          <input aria-label="仓库别名" value={props.alias} onChange={(event) => props.onAliasChange(event.target.value)} placeholder="例如：支付服务" />
+        </label>
         <button className="af-btn primary" onClick={props.onRegister} disabled={props.isRegistering}>
           {props.isRegistering ? <Loader2 size={16} className="spin" /> : <FolderPlus size={16} />}
           {props.isRegistering ? "处理中" : "注册并索引"}
         </button>
-        <button data-testid="open-demo" className="af-btn" onClick={props.onOpenDemo} disabled={props.isRegistering}>
+        <button data-testid="open-demo" className="af-btn secondary" onClick={props.onOpenDemo} disabled={props.isRegistering}>
           <PlayCircle size={16} />
           打开内置 Demo
         </button>
-        <span className="af-help">无需网络、无需 API Key；使用本地合成仓库演示完整能力。</span>
+        <span className="af-help">无需网络、无需 API Key；使用本地合成仓库演示 Snapshot、Evidence、Trace 与导出。</span>
       </div>
-      <div className="af-progress-box" data-testid="ingest-progress">
+      <div
+        className="af-progress-box"
+        data-testid="ingest-progress"
+        role="status"
+        aria-live="polite"
+        aria-busy={props.isRegistering}
+      >
         {props.isRegistering ? <Loader2 size={16} className="spin" /> : <Activity size={16} />}
         <div>
           <strong>{props.registerProgress}</strong>

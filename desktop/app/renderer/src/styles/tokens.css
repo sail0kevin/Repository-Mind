@@ -1,0 +1,74 @@
+:root {
+  color-scheme: light;
+
+  /* 小白说明：这些是 RepoMind 全站统一使用的颜色，后续页面不再各写一套颜色。 */
+  --rm-canvas: #efede7;
+  --rm-surface-1: #fbfaf7;
+  --rm-surface-2: #f4f2ec;
+  --rm-surface-3: #e9e6de;
+  --rm-surface-inverse: #182421;
+  --rm-ink-strong: #17211f;
+  --rm-ink: #34423e;
+  --rm-ink-muted: #687570;
+  --rm-ink-disabled: #929c98;
+  --rm-accent: #12605b;
+  --rm-accent-hover: #0c4d49;
+  --rm-accent-pressed: #083f3b;
+  --rm-accent-soft: #dcebe6;
+  --rm-petrol: #1b6072;
+  --rm-petrol-soft: #dce9ed;
+  --rm-success: #23734f;
+  --rm-success-soft: #e2f0e8;
+  --rm-warning: #986019;
+  --rm-warning-soft: #f7ead2;
+  --rm-danger: #aa4037;
+  --rm-danger-soft: #f8e5e2;
+  --rm-border-subtle: #e2ded5;
+  --rm-border: #cbc6bb;
+  --rm-border-strong: #9ea9a4;
+  --rm-focus: #147381;
+  --rm-code-bg: #17211f;
+  --rm-code-text: #dcebe6;
+  --rm-backdrop: rgb(18 26 24 / 52%);
+
+  --rm-space-1: 4px;
+  --rm-space-2: 8px;
+  --rm-space-3: 12px;
+  --rm-space-4: 16px;
+  --rm-space-5: 20px;
+  --rm-space-6: 24px;
+  --rm-space-8: 32px;
+  --rm-control-sm: 28px;
+  --rm-control: 32px;
+  --rm-control-lg: 38px;
+  --rm-radius-sm: 4px;
+  --rm-radius-md: 7px;
+  --rm-radius-lg: 10px;
+  --rm-shadow-float: 0 18px 48px rgb(23 33 31 / 18%);
+  --rm-shadow-drawer: -16px 0 36px rgb(23 33 31 / 16%);
+  --rm-duration-fast: 120ms;
+  --rm-duration: 180ms;
+  --rm-ease: cubic-bezier(.2, .8, .2, 1);
+
+  /* 兼容现有 class，逐步迁移时页面不会突然失去样式。 */
+  --bg: var(--rm-canvas);
+  --panel-bg: var(--rm-surface-1);
+  --border: var(--rm-border-subtle);
+  --border-light: var(--rm-surface-2);
+  --text-primary: var(--rm-ink-strong);
+  --text-secondary: var(--rm-ink);
+  --text-muted: var(--rm-ink-muted);
+  --primary: var(--rm-accent);
+  --primary-hover: var(--rm-accent-hover);
+  --primary-light: var(--rm-accent-soft);
+  --success: var(--rm-success);
+  --success-bg: var(--rm-success-soft);
+  --warn: var(--rm-warning);
+  --warn-bg: var(--rm-warning-soft);
+  --danger: var(--rm-danger);
+  --danger-bg: var(--rm-danger-soft);
+  --radius: var(--rm-radius-md);
+  --radius-sm: var(--rm-radius-sm);
+  --shadow: 0 1px 2px rgb(23 33 31 / 7%);
+  --shadow-md: var(--rm-shadow-float);
+}

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, screen } from "electron";
 import * as path from "path";
 import * as childProcess from "child_process";
 import * as fs from "fs";
@@ -431,9 +431,14 @@ export function isAllowedRendererNavigation(currentUrl: string, targetUrl: strin
 }
 
 function createWindow(): void {
+  const { width: workWidth, height: workHeight } = screen.getPrimaryDisplay().workAreaSize;
+  const contentWidth = Math.min(1280, Math.max(900, workWidth - 32));
+  const contentHeight = Math.min(800, Math.max(640, workHeight - 64));
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: contentWidth,
+    height: contentHeight,
+    // 小白说明：默认尽量提供 1280×800 内容区，小屏幕会按 Windows 可用工作区自动缩小，避免窗口底部跑出屏幕。
+    useContentSize: true,
     title: "RepoMind",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
