@@ -4,6 +4,11 @@
     {"query": "parse_config_key", "relevant": ["src/config_loader.py"]},
     {"query": "src/auth/token_service.py", "relevant": ["src/auth/token_service.py"]},
     {"query": "用户认证", "relevant": ["src/auth/token_service.py"]},
-    {"query": "database timeout", "relevant": ["config/database.yaml"]}
+    {"query": "database timeout", "relevant": ["config/database.yaml"]},
+    {"query": "src/config_loader.py", "relevant": ["src/config_loader.py"]},
+    {"query": "src/auth/token_service.py TokenService", "relevant": ["src/auth/token_service.py"]},
+    {"query": "config/database.yaml database settings", "relevant": ["config/database.yaml"]},
+    {"query": "database_timeout", "relevant": ["config/database.yaml"]},
+    {"query": "parse config key", "relevant": ["src/config_loader.py"]}
   ]
 }

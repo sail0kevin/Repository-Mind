@@ -91,13 +91,52 @@ class EvidenceAssembler:
             used = min(max_tokens, estimate_tokens(text))
         return f"{text}\n…" if text != content else text, used, True
 
+    @staticmethod
+    def _normalize_candidate(candidate: dict) -> dict | None:
+        """规范化候选路径，并让带正文的同位置候选可稳定参与去重。"""
+        path = str(candidate.get("file_path") or candidate.get("path") or "").strip().replace("\\", "/")
+        while "//" in path:
+            path = path.replace("//", "/")
+        if not path:
+            return None
+        normalized = dict(candidate)
+        normalized["file_path"] = path
+        normalized["content"] = str(candidate.get("content") or candidate.get("snippet") or "")
+        return normalized
+
+    @staticmethod
+    def _candidate_identity(candidate: dict) -> tuple:
+        chunk_id = str(candidate.get("chunk_id") or candidate.get("id") or "").strip()
+        if chunk_id:
+            return ("evidence", chunk_id)
+        return (
+            "location",
+            candidate["file_path"].casefold(),
+            candidate.get("start_line"),
+            candidate.get("end_line"),
+        )
+
     def assemble(self, candidates: list[dict], *, commit: str, limit: int | None = None) -> EvidenceBundle:
         max_items = min(self.budget.max_items, max(1, int(limit))) if limit is not None else self.budget.max_items
+        deduplicated: dict[tuple, dict] = {}
+        for raw_candidate in candidates:
+            candidate = self._normalize_candidate(raw_candidate)
+            if candidate is None:
+                continue
+            identity = self._candidate_identity(candidate)
+            current = deduplicated.get(identity)
+            if current is None or (
+                not str(current.get("content") or "").strip()
+                and str(candidate.get("content") or "").strip()
+            ):
+                deduplicated[identity] = candidate
+
         ordered = sorted(
-            candidates,
+            deduplicated.values(),
             key=lambda item: (
+                -int(item.get("specialist_priority") or 0),
                 -float(item.get("score", 0.0)),
-                str(item.get("file_path") or item.get("path") or ""),
+                str(item.get("file_path") or ""),
                 int(item.get("start_line") or 0),
                 str(item.get("chunk_id") or item.get("id") or ""),
             ),
@@ -109,7 +148,15 @@ class EvidenceAssembler:
 
         # 先从不同文件各选一条，尽可能满足多来源，再按全局分数补齐。
         preferred: list[dict] = []
-        for path in sorted(by_path, key=lambda key: (-float(by_path[key][0].get("score", 0.0)), key)):
+        for path in sorted(
+            by_path,
+            key=lambda key: (
+                -int(bool(by_path[key][0].get("specialist_priority"))),
+                -int(by_path[key][0].get("specialist_priority") or 0),
+                -float(by_path[key][0].get("score", 0.0)),
+                key,
+            ),
+        ):
             if len(preferred) >= min(self.budget.min_sources, max_items):
                 break
             preferred.append(by_path[path][0])

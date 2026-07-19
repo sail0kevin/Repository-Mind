@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from service.evaluation import evaluate_rankings
 from service.storage.chunk_store import replace_repo_chunks, search_chunks
 from service.storage.lexical_store import normalize_query
 from service.storage.repository_store import create_repo_record, replace_file_records
@@ -41,16 +42,6 @@ def _seed_baseline(tmp_path: Path) -> tuple[str, str, str]:
         snapshot_id=old_id,
     )
     return repo_id, active_id, old_id
-
-
-def _metrics(ranked: list[list[str]], relevant: list[set[str]]) -> tuple[float, float, float]:
-    """计算 Recall@5、Recall@10 和 MRR，作为后续混合检索可复现基线。"""
-    recall5 = sum(bool(set(items[:5]) & expected) for items, expected in zip(ranked, relevant)) / len(ranked)
-    recall10 = sum(bool(set(items[:10]) & expected) for items, expected in zip(ranked, relevant)) / len(ranked)
-    reciprocal = []
-    for items, expected in zip(ranked, relevant):
-        reciprocal.append(next((1 / rank for rank, item in enumerate(items, 1) if item in expected), 0.0))
-    return recall5, recall10, sum(reciprocal) / len(reciprocal)
 
 
 def test_query_normalization_covers_chinese_snake_camel_and_path() -> None:
@@ -104,10 +95,11 @@ def test_recall_at_5_10_and_mrr_baseline(tmp_path: Path) -> None:
     for case in cases:
         ranked.append([item["file_path"] for item in search_chunks(repo_id, case["query"], limit=10)])
         relevant.append(set(case["relevant"]))
-    recall5, recall10, mrr = _metrics(ranked, relevant)
-    assert recall5 == 1.0
-    assert recall10 == 1.0
-    assert mrr == 1.0
+    metrics = evaluate_rankings(ranked, relevant)
+    assert metrics.query_count == len(cases)
+    assert metrics.recall_at_5 == 1.0
+    assert metrics.recall_at_10 == 1.0
+    assert metrics.mrr == 1.0
 
 
 def test_lexical_search_backfills_path_for_legacy_null_chunk_path(tmp_path: Path) -> None:

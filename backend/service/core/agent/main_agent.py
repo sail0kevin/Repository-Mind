@@ -12,6 +12,7 @@ from service.core.repo_map import build_repo_map, build_repo_summary
 from service.core.retrieval import HybridRetriever
 from service.storage.agent_trace_store import finish_agent_trace, record_agent_step, start_agent_trace
 from service.storage.chunk_store import count_chunks
+from service.storage.evidence_store import get_evidence_unit, list_symbols
 from service.storage.repository_store import get_repo_record, list_file_records
 
 
@@ -28,6 +29,102 @@ def _refs(items: list[dict]) -> list[dict]:
     return refs
 
 
+def _merge_tool_evidence(existing: list[dict], additions: list[dict], *, specialist_limit: int = 3) -> list[dict]:
+    """规范化并合并有正文的 Specialist 候选，最终预算由 Assembler 统一执行。"""
+    merged = list(existing)
+    seen = {
+        (
+            str(item.get("chunk_id") or item.get("id") or "").strip(),
+            str(item.get("file_path") or item.get("path") or "").strip().replace("\\", "/"),
+            item.get("start_line"),
+            item.get("end_line"),
+        ): index
+        for index, item in enumerate(merged)
+    }
+    added = 0
+    used_paths: set[str] = set()
+    ordered = sorted(
+        additions,
+        key=lambda item: (
+            -int(item.get("specialist_priority") or 0),
+            -float(item.get("score") or 0.0),
+            str(item.get("file_path") or item.get("path") or ""),
+        ),
+    )
+    # Specialist 槽位先保证路径多样，再按优先级补齐。
+    diverse = []
+    remaining = []
+    for item in ordered:
+        path = str(item.get("file_path") or item.get("path") or "").strip().replace("\\", "/")
+        if path and path not in used_paths:
+            diverse.append(item)
+            used_paths.add(path)
+        else:
+            remaining.append(item)
+    for item in diverse + remaining:
+        if added >= max(0, specialist_limit):
+            break
+        path = str(item.get("file_path") or item.get("path") or "").strip().replace("\\", "/")
+        while "//" in path:
+            path = path.replace("//", "/")
+        content = str(item.get("content") or item.get("snippet") or "").strip()
+        if not path or not content:
+            continue
+        candidate = dict(item)
+        candidate["file_path"] = path
+        candidate["content"] = str(item.get("content") or item.get("snippet") or "")
+        candidate.setdefault("reason", "Specialist Tool evidence")
+        candidate.setdefault("specialist_priority", 1)
+        key = (
+            str(candidate.get("chunk_id") or candidate.get("id") or "").strip(),
+            path,
+            candidate.get("start_line"),
+            candidate.get("end_line"),
+        )
+        if key in seen:
+            existing_index = seen[key]
+            existing = merged[existing_index]
+            if int(candidate.get("specialist_priority") or 0) > int(existing.get("specialist_priority") or 0):
+                merged[existing_index] = {**existing, **candidate}
+            continue
+        seen[key] = len(merged)
+        merged.append(candidate)
+        added += 1
+    return merged
+
+
+def _direct_symbol_evidence(context: AgentContext) -> list[dict]:
+    """为普通限定符号问题补入真实定义，不触发 Specialist Tool。"""
+    from service.core.agent.tools import _symbol_term
+
+    query = _symbol_term(context.question)
+    if not ("." in query or "_" in query or any(char.isupper() for char in query[1:])):
+        return []
+    short_name = query.rsplit(".", 1)[-1]
+    symbols = list_symbols(context.repo_id, context.snapshot_id, query=query, limit=20)
+    if not symbols and short_name != query:
+        symbols = list_symbols(context.repo_id, context.snapshot_id, query=short_name, limit=20)
+    folded = query.casefold()
+    symbols.sort(key=lambda item: (
+        str(item.get("qualified_name") or "").casefold() == folded,
+        str(item.get("qualified_name") or "").casefold().endswith(f".{folded}"),
+        str(item.get("name") or "").casefold() == short_name.casefold(),
+    ), reverse=True)
+    for symbol in symbols:
+        evidence_id = symbol.get("evidence_id")
+        row = get_evidence_unit(context.repo_id, evidence_id, context.snapshot_id) if evidence_id else None
+        if row and str(row.get("content") or "").strip():
+            return [{
+                **row,
+                "chunk_id": row["id"],
+                "reason": "限定符号定义",
+                "score": 1000.0,
+                "specialist_priority": 2,
+                "signals": ["symbol_definition"],
+            }]
+    return []
+
+
 def run_main_agent(context: AgentContext) -> MainAgentResult:
     """执行一次有硬上限的 Main Agent 问答。"""
     plan = route_question(context.question)
@@ -41,11 +138,20 @@ def run_main_agent(context: AgentContext) -> MainAgentResult:
     retrieval = HybridRetriever().retrieve(
         context.repo_id, context.snapshot_id, context.question, context.limit
     )
-    bundle = EvidenceAssembler().assemble(retrieval.items, commit=context.commit, limit=context.limit)
-    evidence_rows = [item.to_dict() for item in bundle.items]
+    retrieval_bundle = EvidenceAssembler().assemble(
+        retrieval.items, commit=context.commit, limit=context.limit
+    )
+    retrieval_rows = [item.to_dict() for item in retrieval_bundle.items]
+    evidence_candidates = list(retrieval.items)
+    if not plan.tools:
+        evidence_candidates = _merge_tool_evidence(
+            evidence_candidates,
+            _direct_symbol_evidence(context),
+            specialist_limit=1,
+        )
     record_agent_step(trace_id, step_no, "retrieval", tool_name="hybrid_retriever",
-                      output_summary={"mode": retrieval.run.mode, **bundle.stats},
-                      evidence_refs=_refs(evidence_rows))
+                      output_summary={"mode": retrieval.run.mode, **retrieval_bundle.stats},
+                      evidence_refs=_refs(retrieval_rows))
     step_no += 1
 
     tool_summaries: list[str] = []
@@ -54,6 +160,11 @@ def run_main_agent(context: AgentContext) -> MainAgentResult:
         started = time.perf_counter()
         try:
             result = run_tool(decision, context)
+            evidence_candidates = _merge_tool_evidence(
+                evidence_candidates,
+                result.evidence,
+                specialist_limit=min(3, context.limit),
+            )
             tool_summaries.append(f"{decision.name}: {result.summary}")
             if result.limitation:
                 limitations.append(result.limitation)
@@ -72,6 +183,11 @@ def run_main_agent(context: AgentContext) -> MainAgentResult:
                               duration_ms=(time.perf_counter() - started) * 1000, error=str(exc))
         step_no += 1
 
+    final_bundle = EvidenceAssembler().assemble(
+        evidence_candidates, commit=context.commit, limit=context.limit
+    )
+    evidence_rows = [item.to_dict() for item in final_bundle.items]
+
     repo = get_repo_record(context.repo_id) or {"id": context.repo_id, "alias": context.repo_id}
     repo_map = build_repo_map(
         repo,
@@ -84,9 +200,10 @@ def run_main_agent(context: AgentContext) -> MainAgentResult:
     answer = answer_question(context.question, evidence_rows, repo_summary)
     if limitations:
         answer["answer"] += "\n\n限制说明：" + "；".join(limitations)
-    generation_mode = "llm" if answer.get("token_count", 0) else "rule_fallback"
+    generation_mode = "llm" if answer.get("used_llm") else "rule_fallback"
     record_agent_step(trace_id, step_no, "synthesis", status="succeeded",
-                      output_summary={"generation_mode": generation_mode, "limitations": limitations},
+                      output_summary={"generation_mode": generation_mode, "limitations": limitations,
+                                      "evidence_stats": final_bundle.stats},
                       token_count=answer.get("token_count", 0), evidence_refs=_refs(evidence_rows))
     finish_agent_trace(trace_id, status="succeeded" if generation_mode == "llm" else "fallback",
                        answer=answer["answer"], confidence=answer.get("confidence", "low"),

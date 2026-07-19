@@ -1,0 +1,112 @@
+{
+  "project": "RepoMind bundled Demo",
+  "snapshot_commit": "8c5ac33542fbed5e117bfee19af1457e60bd166c",
+  "mode": "lexical-only/no-key-fallback",
+  "source": "real FastAPI registration/ingest/ask/trace responses",
+  "source_trace": "examples/outputs/repomind-demo-trace.post-fix.json",
+  "query_count": 3,
+  "pre_fix_capture": "demo-evidence-capture.json",
+  "result_limit": 8,
+  "limitations": [
+    "This capture evaluates cited evidence paths only; it does not judge answer semantics.",
+    "The bundled Demo contains three questions and is not a large-repository benchmark.",
+    "Latency is omitted because this script does not establish a controlled timing protocol.",
+    "This is a post-fix capture generated after Specialist Tool evidence was merged into synthesis.",
+    "No target-repository code was executed and no Chat or Embedding key was configured."
+  ],
+  "queries": [
+    {
+      "id": "navigation-build-message",
+      "query": "GreetingService.build_message 方法是做什么的？",
+      "route_tools": [],
+      "ranked": [
+        "README.md",
+        "tests/test_greeting.py",
+        "tests/test_greeting.py",
+        "README.md",
+        "README.md",
+        "README.md",
+        "tests/test_greeting.py",
+        "tests/test_greeting.py"
+      ],
+      "evidence_paths": [
+        "repomind_demo/service.py",
+        "README.md",
+        "tests/test_greeting.py",
+        "tests/test_greeting.py",
+        "README.md",
+        "README.md",
+        "README.md",
+        "tests/test_greeting.py"
+      ],
+      "relevant": [
+        "repomind_demo/service.py",
+        "README.md",
+        "tests/test_greeting.py"
+      ]
+    },
+    {
+      "id": "security-review",
+      "query": "security token 安全风险",
+      "route_tools": [
+        "security_review"
+      ],
+      "ranked": [
+        "README.md",
+        "repomind_demo/security_examples.py",
+        "repomind_demo/security_examples.py",
+        "README.md",
+        "repomind_demo/security_examples.py",
+        "repomind_demo/security_examples.py",
+        "repomind_demo/security_examples.py",
+        "repomind_demo/security_examples.py"
+      ],
+      "evidence_paths": [
+        "README.md",
+        "config.json",
+        "expected/showcase.json",
+        "README.md",
+        "repomind_demo/security_examples.py",
+        "repomind_demo/security_examples.py",
+        "README.md",
+        "repomind_demo/security_examples.py"
+      ],
+      "relevant": [
+        "repomind_demo/security_examples.py",
+        "README.md"
+      ]
+    },
+    {
+      "id": "impact-build-message",
+      "query": "Changing GreetingService.build_message impact call chain and tests",
+      "route_tools": [
+        "dependency_impact"
+      ],
+      "ranked": [
+        "expected/showcase.json",
+        "tests/test_greeting.py",
+        "expected/showcase.json",
+        "expected/showcase.json",
+        "expected/showcase.json",
+        "expected/showcase.json",
+        "expected/showcase.json",
+        "expected/showcase.json"
+      ],
+      "evidence_paths": [
+        "repomind_demo/service.py",
+        "repomind_demo/app/main.py",
+        "tests/test_greeting.py",
+        "expected/showcase.json",
+        "expected/showcase.json",
+        "expected/showcase.json",
+        "expected/showcase.json",
+        "expected/showcase.json"
+      ],
+      "relevant": [
+        "repomind_demo/service.py",
+        "repomind_demo/app/main.py",
+        "tests/test_greeting.py"
+      ]
+    }
+  ]
+}

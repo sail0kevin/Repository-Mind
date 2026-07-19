@@ -1,147 +1,148 @@
 # RepoMind
 
-RepoMind is a local, Windows-first Git repository knowledge assistant. It turns a commit into an immutable Snapshot, builds structured Evidence and a Catalog, and answers repository questions with file, line, commit, and Main Agent Trace references.
+[中文](README.md)
 
-It is not an auto-coding tool: it does not execute the target repository, edit files, commit changes, or create pull requests. The Legacy multi-role screen is compatibility/demo UI; the core path is one bounded Main Agent that may select zero or one read-only Specialist Tool.
+![Windows-first](https://img.shields.io/badge/platform-Windows-0078D4)
+![Local-first](https://img.shields.io/badge/design-local--first-2E7D32)
+![Read-only](https://img.shields.io/badge/repository-read--only-6A1B9A)
+![Evidence-first](https://img.shields.io/badge/answers-evidence--first-C62828)
 
-## The two core layers
+**A local, read-only, evidence-first Git repository understanding agent.** RepoMind binds analysis to an immutable commit Snapshot, uses structured parsing and hybrid retrieval, and answers repository questions with file, source-line, Evidence ID, and Main Agent Trace references.
 
-1. **Evidence/RAG layer** — Snapshot → Parser → Evidence/Catalog → FTS5/BM25, optional Embedding, and RRF fusion.
-2. **Bounded Agent layer** — deterministic routing to a direct answer (zero tools), `security_review`, or `dependency_impact`, followed by a persisted Trace.
+| What is different | RepoMind's approach |
+| --- | --- |
+| Version consistency | Catalog, symbols, relations, Evidence, and answers stay on one Commit Snapshot |
+| Traceable answers | Every answer can link back to source files, line ranges, Evidence IDs, and a persisted Trace |
+| Bounded agent behavior | Direct explanations use zero tools; security or impact questions use at most one read-only Specialist Tool |
 
-### Why a collaboration layer?
+![RepoMind question answering, source Evidence, and repository catalog](docs/assets/screenshots/qa-evidence-inspector.png)
 
-Repository overview, local explanation, security clues, and impact analysis need different evidence scopes and output constraints. A free-form single model is difficult to reproduce and audit, so the Main Agent owns Snapshot selection, evidence budgets, and synthesis, then delegates to at most one narrow Specialist Tool. This is observable, bounded collaboration—not a multi-agent chat room. The two core layers are the Evidence/RAG layer and the Main Agent/tool layer.
+## Fastest way to experience it
 
-```mermaid
-flowchart LR
-  A[Git commit] --> B[Immutable Snapshot] --> C[Parser] --> D[Evidence + Catalog]
-  D --> E[Hybrid retrieval]
-  E --> F[Bounded Main Agent]
-  F --> G[Direct answer · 0 tools]
-  F --> H[Security Review]
-  F --> I[Dependency Impact]
-  G --> J[Answer + refs + Trace]
-  H --> J
-  I --> J
-```
+### Inspect a real run without starting the app
 
-## Real demo
+- [~32-second runtime GIF](docs/assets/repomind-showcase.gif)
+- [Post-fix Trace](examples/outputs/repomind-demo-trace.post-fix.json)
+- [FastAPI Demo capture](examples/benchmarks/demo-evidence-capture-post-fix.json)
+- [Markdown metrics report](examples/benchmarks/demo-evidence-report-post-fix.md)
 
-The bundled Demo is pinned to `8c5ac33542fbed5e117bfee19af1457e60bd166c`. A local run with no network, Chat key, or Embedding key produced a successful Snapshot for `main`, 10 files, and 150 knowledge chunks.
+### Run the no-key Demo locally
 
-![RepoMind Repository Intelligence Workbench](docs/assets/screenshots/workbench-overview.png)
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/assets/screenshots/snapshot-catalog-tree.png" alt="Snapshot-bound Catalog Tree and catalog details" />
-      <p align="center"><strong>Snapshot-bound Catalog Tree</strong></p>
-    </td>
-    <td width="50%">
-      <img src="docs/assets/screenshots/qa-evidence-inspector.png" alt="Repository Q&amp;A with the Evidence Inspector" />
-      <p align="center"><strong>Repository Q&amp;A with Evidence</strong></p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="docs/assets/screenshots/source-evidence-drawer.png" alt="Source Evidence Drawer with Snapshot, commit, path, and line range" />
-      <p align="center"><strong>Snapshot-bound source evidence</strong></p>
-    </td>
-    <td width="50%">
-      <img src="docs/assets/screenshots/main-agent-trace.png" alt="Main Agent Trace showing route, retrieval, security review, and synthesis" />
-      <p align="center"><strong>Auditable Main Agent Trace</strong></p>
-    </td>
-  </tr>
-</table>
-
-Real runtime sequence (about 32 seconds):
-
-![RepoMind showcase](docs/assets/repomind-showcase.gif)
-
-Public artifacts: [`examples/outputs/repomind-demo-report.md`](examples/outputs/repomind-demo-report.md) and [`examples/outputs/repomind-demo-trace.json`](examples/outputs/repomind-demo-trace.json).
-
-## Desktop experience
-
-Repository access, Workbench, workflow analysis, and the command palette were captured from the same bundled Demo run. The responsive view shows the “仓库与目录” and “Evidence 与状态” drawer entry points at a medium-narrow window width.
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/assets/screenshots/repository-access-demo.png" alt="Repository access panel with bundled Demo, GitHub URL, local path, and indexing status" />
-      <p align="center"><strong>Repository access and bundled Demo</strong></p>
-    </td>
-    <td width="50%">
-      <img src="docs/assets/screenshots/workflow-export.png" alt="Workflow report with structured Finding, Snapshot context, and Markdown export status" />
-      <p align="center"><strong>Workflow analysis and export</strong></p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="docs/assets/screenshots/command-palette.png" alt="Ctrl+K command palette with catalog, Q&amp;A, workflow, code graph, and settings commands" />
-      <p align="center"><strong>Ctrl+K command palette</strong></p>
-    </td>
-    <td width="50%">
-      <img src="docs/assets/screenshots/responsive-workbench.png" alt="Responsive Workbench with repository navigation and Evidence status drawer entry points" />
-      <p align="center"><strong>Responsive Workbench</strong></p>
-    </td>
-  </tr>
-</table>
-
-## Quick start
-
-Runtime dependencies for the app are in `backend/requirements.txt`. Install `backend/requirements-dev.txt` additionally only for development or tests.
+Requires Windows, Python 3.11+, and Node.js 20+:
 
 ```powershell
-cd repo-knowledge-assistant
+git clone https://github.com/sail0kevin/Repository-Mind.git
+cd Repository-Mind
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r backend/requirements.txt
-# Before backend tests: pip install -r backend/requirements-dev.txt
+
 cd desktop/app
 npm ci
 npm run dev
 ```
 
-Click **打开内置 Demo** in the desktop app. Lexical-only indexing and no-key fallback work without model credentials.
+Click **打开内置 Demo**. Snapshot, Catalog/Repo Map, lexical retrieval, rule-based answers, Evidence, and Trace work without Chat or Embedding credentials.
 
-## Verification
-
-The following results are **local working-tree validation**, not GitHub Actions run results:
-
-- Backend: `python -m pytest -q backend/tests` → **122 passed** (60 warnings).
-- Desktop: `npm test -- --run` → **53 passed** across 6 test files.
-- Desktop build: `npm run build` passed (Vite renderer and Electron TypeScript).
-- Frozen backend smoke passed for schema, FTS5, no-key fallback, process cleanup, and file locks.
-- Demo routing was verified locally: local explanation uses zero tools; security uses only `security_review`; impact uses only `dependency_impact`; missing traces return 404; opening the Demo twice is idempotent.
-
-Windows CI is configured for pushes to `public-main`, `main`, and `master`, for pull requests, and for manual dispatch. Its status must be taken from an actual GitHub Actions run. This README does not claim that remote CI is green, that binaries are signed, or that a GitHub Release has been published.
-
-## Downloads, installation, and removal
-
-The repository includes a Windows Release workflow, but that **does not mean a downloadable GitHub Release already exists**. After a maintainer publishes one, use the repository's **Releases** page and download the matching files:
-
-- `RepoMind-<version>-x64-setup.exe`: Setup installer with an installation wizard and selectable directory;
-- `RepoMind-<version>-x64-portable.exe`: portable single-file build; no installation is required;
-- `SHA256SUMS.txt`: SHA-256 checksums for that release's artifacts.
-
-Verify downloads in PowerShell. Each result must exactly match the corresponding entry in `SHA256SUMS.txt`:
+<details>
+<summary><strong>Build Windows Setup / Portable artifacts</strong></summary>
 
 ```powershell
-Get-FileHash .\RepoMind-<version>-x64-setup.exe -Algorithm SHA256
-Get-FileHash .\RepoMind-<version>-x64-portable.exe -Algorithm SHA256
+pip install -r backend/requirements-build.txt
+.\scripts\package_windows.ps1 -PythonCommand python -Release
 ```
 
-Current builds are unsigned. Windows SmartScreen may report an unknown publisher or block the first launch. First confirm that the file came from this repository's Releases page and verify its SHA-256. Do not run it if the source is uncertain or the hash differs. If both checks pass, use **More info** and decide whether to **Run anyway**. Bypassing an unsigned warning is not a security guarantee.
+This is the same packaging chain used by the Windows Release workflow. It does not imply that a public GitHub Release exists; current builds are unsigned.
 
-Remove the Setup edition through **Windows Settings → Apps → Installed apps → RepoMind → Uninstall**. For the portable edition, exit RepoMind and delete the downloaded executable. User data for either edition is stored separately at `%APPDATA%\repomind-desktop` by default, so uninstalling or deleting the executable may leave Snapshots, indexes, settings, and saved credentials behind. Back up anything needed, exit RepoMind, and delete that directory manually only when you want to remove all local data.
+</details>
 
-## Security and data boundary
+## Representative questions
 
-RepoMind is read-only with respect to the target repository and never executes its code. Use a temporary `REPOMIND_USER_DATA_PATH` for development, tests, and screenshots. Do not commit databases, logs, credentials, or build output.
+| Question | Actual route | Key evidence |
+| --- | --- | --- |
+| `What does GreetingService.build_message do?` | zero tools | definition, README, and test |
+| `security token risk` | `security_review` | `repomind_demo/security_examples.py` |
+| `Changing GreetingService.build_message impact call chain and tests` | `dependency_impact` | definition, entrypoint reference candidate, and test |
 
-When Chat or Embedding is enabled, RepoMind sends the repository Evidence retrieved for the request—which may include source code, paths, configuration excerpts, and the question—to the user-configured Base URL, together with the corresponding API key as required by that API. An arbitrary custom endpoint is a local-user trust boundary: configure only HTTPS services you trust, and do not send private repository evidence or credentials to an untrusted endpoint. See [`SECURITY.md`](SECURITY.md) for the detailed boundary and reporting guidance.
+## Real no-key Demo results
 
-## Contributions and roadmap
+Measured from a real FastAPI `register → ingest → ask → trace` run:
 
-Issues and pull requests are welcome for parsers, retrieval quality, evidence explainability, and Windows UX. Please do not upload private repositories or secrets. The next steps are to observe the first remote Windows CI run, create a version tag and GitHub Release only after explicit approval, and later add a real application icon and Windows code signing.
+| Item | Result |
+| --- | ---: |
+| Snapshot | `8c5ac33542fbed5e117bfee19af1457e60bd166c` |
+| Mode | `lexical-only/no-key-fallback` |
+| Recall@5 / Recall@10 | 0.667 / 0.667 |
+| MRR | 0.833 |
+| Citation hit rate / precision | 1.000 / 0.750 |
+
+Pre-fix → post-fix: Recall@5 `0.556 → 0.667`, MRR `0.667 → 0.833`, and citation hit rate `0.667 → 1.000`.
+
+> **Scope:** three synthetic questions measuring cited-path hits—not general accuracy or production performance. Instance-method call edges remain incomplete, so entrypoint/test references are candidates, not proven edges. No controlled P50/P95 data is available.
+
+```powershell
+python scripts/capture_demo_evidence.py
+python scripts/report_retrieval_metrics.py examples/benchmarks/demo-evidence-capture-post-fix.json --format markdown
+```
+
+## Architecture
+
+```mermaid
+flowchart LR
+  A["Git commit"] --> B["Immutable Snapshot"]
+  B --> C["Parser + Code Graph"]
+  C --> D["Evidence + Catalog"]
+  D --> E["FTS5/BM25 + optional Embedding/RRF"]
+  E --> F["Bounded Main Agent"]
+  F -->|"0 tools"| G["Direct answer"]
+  F -->|"security"| H["Security Review"]
+  F -->|"impact"| I["Dependency Impact"]
+  G --> J["Answer + Evidence + Trace"]
+  H --> J
+  I --> J
+```
+
+Repo Map narrows scope; BM25/optional Embedding retrieve candidates; RRF and structural signals fuse them; EvidenceAssembler applies total, item, and file budgets.
+
+## Evidence and Trace
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/source-evidence-drawer.png" alt="Evidence Drawer showing Snapshot, commit, file path, and source lines" />
+      <p align="center"><strong>Snapshot-bound source Evidence</strong></p>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/main-agent-trace.png" alt="Main Agent Trace showing route, retrieval, tool, and synthesis" />
+      <p align="center"><strong>Auditable Main Agent Trace</strong></p>
+    </td>
+  </tr>
+</table>
+
+## Local verification
+
+- Backend: `python -m pytest -q backend/tests` → **136 passed** (60 warnings)
+- Desktop: `npm test -- --run` → **63 passed** across 11 test files
+- Desktop: `npm run build` → Vite renderer and Electron TypeScript passed
+- Demo routes: zero tools / `security_review` / `dependency_impact`
+
+These are local results. Remote CI, signed binaries, and a published Release are not claimed.
+
+## Safety and limitations
+
+- Target repositories stay read-only: no code execution, edits, commits, pushes, or PRs.
+- Each request uses at most one narrow read-only Specialist Tool.
+- Remote Chat/Embedding can send retrieved Evidence to the configured Base URL; custom endpoints are user-selected trust boundaries.
+- Local-instance type propagation and some call edges remain incomplete; static clues are not runtime facts or a full audit.
+- There is no large-repository benchmark or controlled latency study yet.
+
+See [SECURITY.md](SECURITY.md) for the complete data boundary.
+
+## Documentation
+
+- [Development and verification report](docs/后续开发指导/DEVELOPMENT_REPORT.md)
+- [Architecture and roadmap](docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md)
+- [Evaluation and resume claim boundaries](docs/后续开发指导/RESUME_EVIDENCE_PLAN.md)
+- [RAG versus bounded agent responsibilities](docs/后续开发指导/RAG_VS_AGENTIC.md)
+
+Next: observe the first remote Windows CI run → create a Tag/Release only after explicit approval → expand real-repository evaluation → add a production icon and Windows code signing.

@@ -1,0 +1,17 @@
+{
+  "project": "RepoMind",
+  "snapshot_commit": "8c5ac33542fbed5e117bfee19af1457e60bd166c",
+  "mode": "lexical-only",
+  "queries": [
+    {
+      "query": "parseConfigKey",
+      "ranked": ["src/config_loader.py", "src/noise.py"],
+      "relevant": ["src/config_loader.py"]
+    },
+    {
+      "query": "database timeout",
+      "ranked": ["config/database.yaml", "src/noise.py"],
+      "relevant": ["config/database.yaml"]
+    }
+  ]
+}

@@ -43,6 +43,7 @@ def _fallback_answer(question: str, evidence: list[dict], repo_summary: dict | N
             "查看建议阅读的文件片段",
         ],
         "token_count": 0,
+        "used_llm": False,
     }
 
 
@@ -70,5 +71,6 @@ def answer_question(
             "trace_id": f"trace_{uuid.uuid4().hex}",
             "next_steps": [],
             "token_count": llm_result.token_count,
+            "used_llm": True,
         }
     return _fallback_answer(question, evidence, repo_summary)

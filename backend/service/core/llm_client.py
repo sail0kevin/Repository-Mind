@@ -85,7 +85,7 @@ def _build_messages(
             sl = item.get("start_line", "?")
             el = item.get("end_line", "?")
             location = f"{fp}:{sl}-{el}"
-            snippet = (item.get("snippet") or "")[:300]
+            snippet = (item.get("snippet") or item.get("content") or "")[:300]
             evidence_lines.append(f"[{index}] {title} ({location})\n{snippet}")
         user_bits.append("检索证据：\n" + "\n\n".join(evidence_lines))
     else:

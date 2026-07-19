@@ -1,0 +1,63 @@
+{
+  "name": "repomind-demo-cross-file-v1",
+  "description": "人工标注的跨文件代码理解问题集；仅定义期望证据，不伪造检索排名或准确率。",
+  "snapshot_commit": "8c5ac33542fbed5e117bfee19af1457e60bd166c",
+  "queries": [
+    {
+      "id": "navigation-build-message",
+      "category": "symbol_navigation",
+      "query": "GreetingService.build_message 做什么？",
+      "relevant_paths": ["repomind_demo/service.py", "README.md", "tests/test_greeting.py"],
+      "relevant_symbols": ["GreetingService.build_message"]
+    },
+    {
+      "id": "impact-build-message",
+      "category": "dependency_impact",
+      "query": "修改 GreetingService.build_message 会影响哪些调用方和测试？",
+      "relevant_paths": ["repomind_demo/service.py", "repomind_demo/app/main.py", "tests/test_greeting.py"],
+      "relevant_symbols": ["GreetingService.build_message", "GreetingServiceTests"]
+    },
+    {
+      "id": "security-eval",
+      "category": "security_review",
+      "query": "仓库中有哪些 eval 相关安全线索？",
+      "relevant_paths": ["repomind_demo/security_examples.py", "README.md"],
+      "relevant_symbols": ["parse_demo_expression"]
+    },
+    {
+      "id": "security-yaml",
+      "category": "security_review",
+      "query": "yaml.load 的风险在哪里？",
+      "relevant_paths": ["repomind_demo/security_examples.py"],
+      "relevant_symbols": ["load_demo_yaml"]
+    },
+    {
+      "id": "entrypoint",
+      "category": "symbol_navigation",
+      "query": "这个 Demo 的启动入口在哪里？",
+      "relevant_paths": ["repomind_demo/app/main.py", "README.md"],
+      "relevant_symbols": ["main", "load_config"]
+    },
+    {
+      "id": "configuration",
+      "category": "repository_navigation",
+      "query": "项目有哪些配置文件？",
+      "relevant_paths": ["config.json", "expected/showcase.json", "README.md"],
+      "relevant_symbols": []
+    },
+    {
+      "id": "subprocess-risk",
+      "category": "security_review",
+      "query": "哪个位置使用了 subprocess shell=True？",
+      "relevant_paths": ["repomind_demo/security_examples.py"],
+      "relevant_symbols": ["run_demo_command"]
+    },
+    {
+      "id": "test-coverage",
+      "category": "dependency_impact",
+      "query": "GreetingService 的行为由哪些测试覆盖？",
+      "relevant_paths": ["tests/test_greeting.py", "repomind_demo/service.py"],
+      "relevant_symbols": ["GreetingServiceTests", "test_build_message_strips_name"]
+    }
+  ]
+}

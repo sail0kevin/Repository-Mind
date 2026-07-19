@@ -367,6 +367,32 @@ async function stopBackend(): Promise<void> {
   }
 }
 
+const DEMO_FIXTURE_FILES = [
+  "README.md",
+  "config.json",
+  "expected/showcase.json",
+  "repomind_demo/__init__.py",
+  "repomind_demo/app/__init__.py",
+  "repomind_demo/app/main.py",
+  "repomind_demo/notifier.py",
+  "repomind_demo/security_examples.py",
+  "repomind_demo/service.py",
+  "tests/test_greeting.py",
+] as const;
+
+function copyDemoFixture(sourcePath: string, targetPath: string): void {
+  // 只复制发布清单中的 synthetic 源文件，避免 __pycache__ 等开发残留改变固定 commit。
+  for (const relativePath of DEMO_FIXTURE_FILES) {
+    const source = path.join(sourcePath, ...relativePath.split("/"));
+    const destination = path.join(targetPath, ...relativePath.split("/"));
+    if (!fs.existsSync(source) || !fs.statSync(source).isFile()) {
+      throw new Error("内置 Demo 资源缺失：" + source);
+    }
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(source, destination);
+  }
+}
+
 // 内置 Demo 只在用户数据目录生成运行副本；绝不修改打包资源或源码目录。
 function prepareDemoRepository(): DemoPrepareResult {
   const repoRoot = path.join(__dirname, "..", "..", "..");
@@ -385,11 +411,17 @@ function prepareDemoRepository(): DemoPrepareResult {
 
   // 半成品目录不作为有效 Demo；只清理应用自己管理的版本化目标目录。
   fs.rmSync(targetPath, { recursive: true, force: true });
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.cpSync(sourcePath, targetPath, { recursive: true });
+  fs.mkdirSync(targetPath, { recursive: true });
+  copyDemoFixture(sourcePath, targetPath);
 
+  const isolatedGitHome = path.join(app.getPath("userData"), "demo-workspaces", ".git-home");
+  fs.mkdirSync(isolatedGitHome, { recursive: true });
   const gitEnv: NodeJS.ProcessEnv = {
     ...process.env,
+    HOME: isolatedGitHome,
+    USERPROFILE: isolatedGitHome,
+    XDG_CONFIG_HOME: path.join(isolatedGitHome, "xdg"),
+    GIT_CONFIG_NOSYSTEM: "1",
     GIT_AUTHOR_NAME: "RepoMind Demo",
     GIT_AUTHOR_EMAIL: "demo@repomind.local",
     GIT_COMMITTER_NAME: "RepoMind Demo",
@@ -399,7 +431,7 @@ function prepareDemoRepository(): DemoPrepareResult {
   };
   const runGit = (args: string[]) => childProcess.execFileSync(
     "git",
-    args,
+    ["-c", "core.autocrlf=false", "-c", "core.filemode=false", "-c", "commit.gpgsign=false", ...args],
     { cwd: targetPath, env: gitEnv, stdio: "ignore" },
   );
   try {

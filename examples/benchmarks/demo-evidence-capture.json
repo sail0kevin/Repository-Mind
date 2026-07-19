@@ -1,0 +1,35 @@
+{
+  "project": "RepoMind bundled Demo",
+  "snapshot_commit": "8c5ac33542fbed5e117bfee19af1457e60bd166c",
+  "mode": "lexical-only/no-key-fallback",
+  "source_trace": "examples/outputs/repomind-demo-trace.json",
+  "limitations": [
+    "This capture evaluates cited paths only; it does not judge answer semantics.",
+    "The bundled Demo contains three questions and is not a large-repository benchmark.",
+    "Trace step durations were not recorded, so no latency claim is made.",
+    "The capture was generated before Specialist Tool evidence was merged into synthesis; rerun the Demo after the fix for a post-fix comparison."
+  ],
+  "queries": [
+    {
+      "id": "navigation-build-message",
+      "query": "GreetingService.build_message 方法是做什么的？",
+      "ranked": ["README.md", "tests/test_greeting.py", "tests/test_greeting.py", "README.md", "README.md"],
+      "evidence_paths": ["README.md", "tests/test_greeting.py", "tests/test_greeting.py", "README.md", "README.md"],
+      "relevant": ["repomind_demo/service.py", "README.md", "tests/test_greeting.py"]
+    },
+    {
+      "id": "security-review",
+      "query": "security token 安全风险",
+      "ranked": ["README.md", "repomind_demo/security_examples.py", "repomind_demo/security_examples.py", "README.md", "repomind_demo/security_examples.py"],
+      "evidence_paths": ["README.md", "repomind_demo/security_examples.py", "repomind_demo/security_examples.py", "README.md", "repomind_demo/security_examples.py"],
+      "relevant": ["repomind_demo/security_examples.py", "README.md"]
+    },
+    {
+      "id": "impact-build-message",
+      "query": "Changing GreetingService.build_message impact call chain and tests",
+      "ranked": ["expected/showcase.json", "expected/showcase.json", "expected/showcase.json", "expected/showcase.json", "expected/showcase.json"],
+      "evidence_paths": ["expected/showcase.json", "expected/showcase.json", "expected/showcase.json", "expected/showcase.json", "expected/showcase.json"],
+      "relevant": ["repomind_demo/service.py", "repomind_demo/app/main.py", "tests/test_greeting.py"]
+    }
+  ]
+}

@@ -3,7 +3,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from service.core.agent import tools as agent_tools
+from service.core.agent.models import AgentContext
+from service.core.agent.main_agent import _merge_tool_evidence
 from service.core.agent.router import route_question
+from service.core.agent.tools import _symbol_term, dependency_impact
 from service.core.qa import _fallback_answer
 from service.main import create_app
 from service.storage.repository_store import create_repo_record, replace_file_records
@@ -38,6 +42,11 @@ def test_router_simple_question_uses_zero_tools_and_specialized_questions_are_na
     assert [item.name for item in route_question("认证和密钥是否安全").tools] == ["security_review"]
     assert [item.name for item in route_question("修改 authenticate 会影响谁").tools] == ["dependency_impact"]
     assert len(route_question("测试失败怎么运行").tools) <= 2
+
+
+def test_specialist_term_extraction_prefers_symbol_over_question_tail() -> None:
+    assert _symbol_term("Changing GreetingService.build_message impact call chain and tests") == "GreetingService.build_message"
+    assert _symbol_term("修改 authenticate 会影响哪些调用方") == "authenticate"
 
 
 def test_ask_persists_trace_and_no_key_fallback(tmp_path: Path):
@@ -77,6 +86,22 @@ def test_rule_fallback_never_emits_empty_evidence_reference():
     )
     assert "[1] :" not in result["answer"]
     assert "src/main.py:3-4" in result["answer"]
+
+
+def test_specialist_tool_evidence_is_merged_into_synthesis_context() -> None:
+    existing = [{"chunk_id": "retrieval-1", "file_path": "README.md", "start_line": 1, "end_line": 2}]
+    additions = [
+        {"chunk_id": "tool-1", "file_path": "src/service.py", "start_line": 10, "end_line": 20,
+         "content": "def build_message(): ..."},
+        {"chunk_id": "tool-1", "file_path": "src/service.py", "start_line": 10, "end_line": 20,
+         "content": "def build_message(): ..."},
+        {"chunk_id": "", "file_path": "   ", "start_line": None, "end_line": None,
+         "content": "not referenceable"},
+    ]
+
+    merged = _merge_tool_evidence(existing, additions)
+
+    assert [item["file_path"] for item in merged] == ["README.md", "src/service.py"]
 
 
 def test_missing_trace_returns_404(tmp_path: Path):

@@ -1,10 +1,16 @@
 """Main Agent 可调用的只读 Specialist Tools。"""
 from __future__ import annotations
 
+import re
+
 from service.core.agent.models import AgentContext, ToolDecision, ToolResult
-from service.core.codegraph.store import get_call_chain, search_graph_nodes
 from service.storage.catalog_store import list_catalog_items
-from service.storage.evidence_store import list_evidence_units, list_relations, list_symbols
+from service.storage.evidence_store import (
+    get_evidence_unit,
+    list_evidence_units,
+    list_relations,
+    list_symbols,
+)
 from service.storage.repository_store import list_file_records
 
 
@@ -13,6 +19,33 @@ def _term(question: str) -> str:
     words = [item.strip("，。？！,.?!()[]{}:：`'\"") for item in question.split()]
     candidates = [item for item in words if len(item) >= 2]
     return candidates[-1] if candidates else question[:80]
+
+
+def _symbol_term(question: str) -> str:
+    """优先提取限定名、snake_case 或 CamelCase 符号，排除问题尾部通用词。"""
+    tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_.]*|[\u4e00-\u9fff]+", question)
+    stopwords = {
+        "what", "does", "which", "where", "when", "why", "how", "impact",
+        "call", "calls", "caller", "callers", "chain", "tests", "test",
+        "change", "changing", "affect", "affected", "will", "the",
+    }
+    symbol_candidates = [
+        token for token in tokens
+        if len(token) >= 3
+        and token.casefold() not in stopwords
+        and ("." in token or "_" in token or any(char.isupper() for char in token[1:]))
+    ]
+    if symbol_candidates:
+        return max(symbol_candidates, key=len)
+    ascii_identifiers = [
+        token for token in tokens
+        if token.isascii() and token.isidentifier() and len(token) >= 3
+        and token.casefold() not in stopwords
+    ]
+    if ascii_identifiers:
+        return max(ascii_identifiers, key=len)
+    candidates = [token for token in tokens if len(token) >= 2 and token.casefold() not in stopwords]
+    return candidates[-1] if candidates else _term(question)
 
 
 def repository_navigator(context: AgentContext) -> ToolResult:
@@ -30,7 +63,7 @@ def repository_navigator(context: AgentContext) -> ToolResult:
 
 def language_structure(context: AgentContext) -> ToolResult:
     """查询相关符号及其关系。"""
-    query = _term(context.question)
+    query = _symbol_term(context.question)
     symbols = list_symbols(context.repo_id, context.snapshot_id, query=query, limit=20)
     relations = list_relations(context.repo_id, context.snapshot_id, limit=1000)
     symbol_ids = {item["id"] for item in symbols}
@@ -42,18 +75,139 @@ def language_structure(context: AgentContext) -> ToolResult:
                       evidence, {"symbols": symbols, "relations": related[:100]})
 
 
+def _hydrated_evidence(context: AgentContext, evidence_id: str | None, reason: str,
+                       *, score: float, specialist_priority: int) -> dict | None:
+    """将真实持久化 Evidence 转成可供最终综合使用的候选。"""
+    if not evidence_id:
+        return None
+    row = get_evidence_unit(context.repo_id, evidence_id, context.snapshot_id)
+    if not row or not str(row.get("file_path") or "").strip() or not str(row.get("content") or "").strip():
+        return None
+    return {
+        **row,
+        "chunk_id": row["id"],
+        "reason": reason,
+        "score": score,
+        "specialist_priority": specialist_priority,
+        "signals": ["specialist"],
+    }
+
+
+def _rank_target_symbols(symbols: list[dict], query: str) -> list[dict]:
+    """优先精确限定名及其后缀，避免选中同名但无关的符号。"""
+    folded = query.casefold()
+    short_name = folded.rsplit(".", 1)[-1]
+
+    def rank(item: dict) -> tuple:
+        qualified = str(item.get("qualified_name") or "").casefold()
+        name = str(item.get("name") or "").casefold()
+        return (
+            qualified == folded,
+            qualified.endswith(f".{folded}"),
+            name == short_name,
+            qualified,
+        )
+
+    return sorted(symbols, key=rank, reverse=True)
+
+
+def _reference_candidates(context: AgentContext, target: dict, *, limit: int = 20) -> list[dict]:
+    """查找有源码支撑的引用候选；它们不是已解析调用边。"""
+    name = str(target.get("name") or "").strip()
+    if not name:
+        return []
+    rows = list_evidence_units(context.repo_id, context.snapshot_id, limit=1000, query=name)
+    target_id = str(target.get("evidence_id") or "")
+    selected = []
+    for row in rows:
+        path = str(row.get("file_path") or "").replace("\\", "/")
+        content = str(row.get("content") or "")
+        if row.get("id") == target_id or not re.search(rf"\b{re.escape(name)}\s*\(", content):
+            continue
+        if not (path.endswith(".py") and ("/app/" in f"/{path}" or path.startswith("tests/") or "/tests/" in f"/{path}")):
+            continue
+        selected.append({
+            **row,
+            "chunk_id": row["id"],
+            "reason": "源码引用候选（未解析为调用边）",
+            "score": 900.0 if "test" in path.casefold() else 950.0,
+            "specialist_priority": 2,
+            "signals": ["specialist", "lexical_reference"],
+        })
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def dependency_impact(context: AgentContext) -> ToolResult:
-    """从图谱与规范关系两侧分析一跳影响。"""
-    query = _term(context.question)
-    nodes = search_graph_nodes(context.repo_id, query, limit=10, snapshot_id=context.snapshot_id)
-    chain = get_call_chain(context.repo_id, query, "both", 2, context.snapshot_id)
-    relations = list_relations(context.repo_id, context.snapshot_id, limit=2000)
-    evidence = [{"chunk_id": "", "file_path": item.get("file_path") or "",
-                 "start_line": item.get("start_line"), "end_line": item.get("end_line"),
-                 "reason": "代码图谱影响"} for item in nodes]
-    return ToolResult("dependency_impact",
-                      f"图谱命中 {len(nodes)} 个节点，调用链包含 {len(chain.get('nodes', []))} 个节点。",
-                      evidence, {"nodes": nodes, "call_chain": chain, "relation_count": len(relations)})
+    """从规范符号与持久化关系分析影响，并保留有界引用候选。"""
+    query = _symbol_term(context.question)
+    short_query = query.rsplit(".", 1)[-1]
+    symbols = list_symbols(context.repo_id, context.snapshot_id, query=query, limit=50)
+    if not symbols and short_query != query:
+        symbols = list_symbols(context.repo_id, context.snapshot_id, query=short_query, limit=50)
+    ranked = _rank_target_symbols(symbols, query)
+    target = ranked[0] if ranked else None
+    relations = list_relations(context.repo_id, context.snapshot_id, limit=10000)
+    symbol_by_id = {
+        item["id"]: item
+        for item in list_symbols(context.repo_id, context.snapshot_id, limit=None)
+    }
+
+    evidence: list[dict] = []
+    resolved_relations: list[dict] = []
+    if target:
+        hydrated = _hydrated_evidence(
+            context, target.get("evidence_id"), "目标符号定义",
+            score=1000.0, specialist_priority=3,
+        )
+        if hydrated:
+            evidence.append(hydrated)
+        for relation in relations:
+            if relation.get("target_symbol_id") != target.get("id"):
+                continue
+            if relation.get("relation_type") != "calls" or not relation.get("observed"):
+                continue
+            if relation.get("resolver_status") not in {None, "resolved"}:
+                continue
+            source = symbol_by_id.get(relation.get("source_symbol_id"))
+            if not source:
+                continue
+            hydrated = _hydrated_evidence(
+                context,
+                source.get("evidence_id") or relation.get("source_evidence_id") or relation.get("evidence_id"),
+                "已解析调用方",
+                score=975.0,
+                specialist_priority=3,
+            )
+            if hydrated:
+                evidence.append(hydrated)
+                resolved_relations.append(relation)
+        evidence.extend(_reference_candidates(context, target))
+
+    unique_paths = []
+    for item in evidence:
+        path = str(item.get("file_path") or "")
+        if path and path not in unique_paths:
+            unique_paths.append(path)
+    limitation = None
+    if target and not resolved_relations:
+        limitation = "解析器未生成完整实例方法调用边；入口与测试仅标记为源码引用候选，不视为已解析调用关系。"
+    elif not target:
+        limitation = f"未在当前 Snapshot 中解析到目标符号 {query}。"
+    return ToolResult(
+        "dependency_impact",
+        f"目标 {target.get('qualified_name') if target else query}；找到 {len(resolved_relations)} 条已解析调用关系和 "
+        f"{sum(item.get('reason', '').startswith('源码引用候选') for item in evidence)} 条引用候选。",
+        evidence,
+        {
+            "query": query,
+            "target": target,
+            "resolved_relations": resolved_relations[:100],
+            "evidence_paths": unique_paths,
+        },
+        limitation=limitation,
+    )
 
 
 def test_runtime(context: AgentContext) -> ToolResult:
@@ -86,9 +240,14 @@ def security_review(context: AgentContext) -> ToolResult:
             continue
         findings.append({"file_path": row.get("file_path"), "start_line": row.get("start_line"),
                          "end_line": row.get("end_line"), "rules": matched})
-        evidence.append({"chunk_id": row["id"], "file_path": row.get("file_path") or "",
-                         "start_line": row.get("start_line"), "end_line": row.get("end_line"),
-                         "reason": "安全规则命中"})
+        evidence.append({
+            **row,
+            "chunk_id": row["id"],
+            "reason": "安全规则命中",
+            "score": 1000.0,
+            "specialist_priority": 3,
+            "signals": ["specialist", "security_rule"],
+        })
     return ToolResult("security_review", f"规则扫描发现 {len(findings)} 条需要人工确认的安全线索。",
                       evidence[:50], {"findings": findings[:50]},
                       limitation="静态规则扫描不是完整安全审计，也不会执行仓库代码。")
