@@ -77,6 +77,9 @@ finally {
                 $diagnostic = [regex]::Replace($diagnostic, '(?i)(api[_-]?key|token|authorization|password|secret)(\s*[:=]\s*)\S+', '$1$2[REDACTED]')
                 Write-Host "=== Playwright failure context ==="
                 Write-Host $diagnostic
+                $annotation = $diagnostic.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+                if ($annotation.Length -gt 6000) { $annotation = $annotation.Substring(0, 6000) }
+                Write-Host "::error title=Packaged Electron E2E failure::$annotation"
             }
         }
         Copy-SanitizedLog (Join-Path $userDataPath "repomind-backend-logs.txt") (Join-Path $publicArtifacts "backend-redacted.log")
