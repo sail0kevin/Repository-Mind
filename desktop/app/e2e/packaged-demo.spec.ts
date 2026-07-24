@@ -20,7 +20,7 @@ async function askDemoQuestion(page: Page, index: number): Promise<void> {
 async function closeDrawer(drawer: Locator): Promise<void> {
   const closeButton = drawer.getByTitle("关闭证据抽屉");
   await expect(closeButton).toBeVisible();
-  await closeButton.evaluate((element) => (element as HTMLElement).click());
+  await drawer.press("Escape");
   await expect(drawer).toBeHidden();
 }
 
