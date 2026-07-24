@@ -71,6 +71,13 @@ finally {
             $destination = Join-Path $publicArtifacts "test-results"
             if (Test-Path $destination) { Remove-Item -Recurse -Force $destination }
             Copy-Item -Recurse -Force $playwrightResults $destination
+            Get-ChildItem -Path $playwrightResults -Filter "error-context.md" -Recurse -File | ForEach-Object {
+                $diagnostic = Get-Content $_.FullName -Raw
+                $diagnostic = $diagnostic.Replace($tempRoot, "[TEMP_PATH]").Replace($userDataPath, "[USER_DATA]")
+                $diagnostic = [regex]::Replace($diagnostic, '(?i)(api[_-]?key|token|authorization|password|secret)(\s*[:=]\s*)\S+', '$1$2[REDACTED]')
+                Write-Host "=== Playwright failure context ==="
+                Write-Host $diagnostic
+            }
         }
         Copy-SanitizedLog (Join-Path $userDataPath "repomind-backend-logs.txt") (Join-Path $publicArtifacts "backend-redacted.log")
         Copy-SanitizedLog (Join-Path $runtimeArtifacts "renderer-console.txt") (Join-Path $publicArtifacts "renderer-console.txt")
