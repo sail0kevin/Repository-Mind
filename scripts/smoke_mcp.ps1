@@ -83,8 +83,19 @@ asyncio.run(main())
 try {
     New-Item -ItemType Directory -Force -Path $tempRoot, $dataDir | Out-Null
     [System.IO.File]::WriteAllText($helperPath, $helper, [System.Text.UTF8Encoding]::new($false))
-    & $PythonCommand $helperPath $exePath $dataDir $databasePath $expectedAliasArgument
-    if ($LASTEXITCODE -ne 0) { throw "Frozen MCP smoke failed with exit code $LASTEXITCODE" }
+    # The frozen MCP SDK can emit cleanup diagnostics on stderr after a successful stdio session.
+    # Keep those diagnostics visible, but use the native process exit code as the pass/fail signal.
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $PythonCommand $helperPath $exePath $dataDir $databasePath $expectedAliasArgument 2>&1 |
+            ForEach-Object { Write-Host $_ }
+        $nativeExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($nativeExitCode -ne 0) { throw "Frozen MCP smoke failed with exit code $nativeExitCode" }
 }
 finally {
     if (Test-Path $tempRoot) { Remove-Item -Recurse -Force $tempRoot -ErrorAction SilentlyContinue }
