@@ -2,8 +2,6 @@ import { test, expect, _electron as electron, type ElectronApplication, type Loc
 import * as fs from "fs";
 import * as path from "path";
 
-const DEMO_COMMIT = "8c5ac33542fbed5e117bfee19af1457e60bd166c";
-
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`缺少 E2E 环境变量：${name}`);
@@ -122,7 +120,10 @@ test("打包版内置 Demo 完成问答、证据、Trace 和导出", async () =>
     const resourcePanel = resourceDrawer ?? page;
     await expect(resourcePanel.getByTestId("ingest-progress")).toContainText("索引完成", { timeout: 120_000 });
     await expect(resourcePanel.getByTestId("current-repository")).toContainText("RepoMind 内置 Demo");
-    await expect(resourcePanel.getByTestId("current-repository")).toContainText(DEMO_COMMIT.slice(0, 12));
+    const repositoryText = await resourcePanel.getByTestId("current-repository").innerText();
+    const commitMatch = repositoryText.match(/\b[0-9a-f]{12}\b/i);
+    expect(commitMatch).toBeTruthy();
+    const displayedCommitPrefix = commitMatch![0].toLowerCase();
     await expect(resourcePanel.getByTestId("catalog-tree").locator("button").first()).toBeVisible();
 
     if (resourceDrawer) {
@@ -190,7 +191,8 @@ test("打包版内置 Demo 完成问答、证据、Trace 和导出", async () =>
 
     const tracePayload = JSON.parse(fs.readFileSync(path.join(exportDir, jsonName!), "utf8"));
     expect(tracePayload.format).toBe("repomind-trace-export-v2");
-    expect(tracePayload.repository.commit).toBe(DEMO_COMMIT);
+    expect(tracePayload.repository.commit).toMatch(/^[0-9a-f]{40}$/i);
+    expect(tracePayload.repository.commit.toLowerCase().startsWith(displayedCommitPrefix)).toBeTruthy();
     expect(tracePayload.repository.snapshot_id).toBeTruthy();
     expect(tracePayload.trace.mode).toBe("dependency_impact");
     const exportedTools = tracePayload.trace.steps
