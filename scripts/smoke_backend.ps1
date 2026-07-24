@@ -137,18 +137,33 @@ finally {
             $cleanupFailure = "Backend did not exit after authenticated shutdown; process ownership is no longer proven, so it was not force-killed."
         }
         else {
-            # Open the executable exclusively to confirm that no process still holds a file lock.
-            try {
-                $lockProbe = [System.IO.File]::Open(
-                    $exePath,
-                    [System.IO.FileMode]::Open,
-                    [System.IO.FileAccess]::Read,
-                    [System.IO.FileShare]::None
-                )
-                $lockProbe.Dispose()
+            # Drain redirected streams and release our process handle before checking for external locks.
+            $backendProcess.WaitForExit()
+            $backendProcess.Dispose()
+            $backendProcess = $null
+
+            # Windows runners can retain a transient image-scanner lock after process exit.
+            $lockDeadline = (Get-Date).AddSeconds(15)
+            $lastLockError = $null
+            while ((Get-Date) -lt $lockDeadline) {
+                try {
+                    $lockProbe = [System.IO.File]::Open(
+                        $exePath,
+                        [System.IO.FileMode]::Open,
+                        [System.IO.FileAccess]::Read,
+                        [System.IO.FileShare]::None
+                    )
+                    $lockProbe.Dispose()
+                    $lastLockError = $null
+                    break
+                }
+                catch {
+                    $lastLockError = $_.Exception.Message
+                    Start-Sleep -Milliseconds 250
+                }
             }
-            catch {
-                $cleanupFailure = "Backend executable is still locked after smoke: $exePath"
+            if ($lastLockError) {
+                $cleanupFailure = "Backend executable is still locked after smoke: $exePath ($lastLockError)"
             }
         }
     }
