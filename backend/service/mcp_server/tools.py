@@ -1,5 +1,5 @@
 """
-这个文件负责 MCP 的 5 个 Phase 1 工具实现。
+这个文件负责 MCP 的只读工具实现。
 每个工具只做参数校验、调用现成核心模块、把结果套进统一 envelope，不重新实现扫描/检索/关系分析逻辑。
 """
 from __future__ import annotations
@@ -19,7 +19,44 @@ from service.mcp_server.envelope import (
 from service.mcp_server.snapshot_guard import SnapshotGuardError, resolve_repo_and_snapshot
 from service.storage.chunk_store import count_chunks
 from service.storage.evidence_store import list_evidence_units, list_relations, list_symbols
-from service.storage.repository_store import list_file_records
+from service.storage.repository_store import list_file_records, list_repo_records
+
+
+def list_repositories(limit: int | None = None) -> dict:
+    """列出可供 MCP 查询的仓库和活动快照，不暴露本机绝对路径。"""
+    normalized_limit = clamp_limit(limit, default=100, maximum=100)
+    try:
+        records = list_repo_records(limit=normalized_limit)
+    except Exception as exc:  # noqa: BLE001 - MCP 进程不能因单次调用异常崩溃
+        return error_envelope("", f"列出仓库失败：{exc}")
+
+    repositories = [
+        {
+            "repo_id": item["id"],
+            "alias": item.get("alias"),
+            "branch": item.get("branch"),
+            "snapshot_id": item.get("active_snapshot_id"),
+            "commit": item.get("active_commit_hash"),
+            "snapshot_status": item.get("active_snapshot_status"),
+            "file_count": item.get("file_count") or 0,
+            "indexed": item.get("active_snapshot_status") == "succeeded",
+        }
+        for item in records
+    ]
+    indexed_count = sum(1 for item in repositories if item["indexed"])
+    limitations = []
+    if indexed_count < len(repositories):
+        limitations.append("未完成索引的仓库仅用于状态提示；其他查询工具只能使用带 succeeded 活动快照的仓库。")
+    return envelope(
+        repo_id="",
+        status="ok",
+        data={
+            "repositories": repositories,
+            "total": len(repositories),
+            "indexed_count": indexed_count,
+        },
+        limitations=limitations,
+    )
 
 
 def _guard_or_envelope(repo_id: str, snapshot_id: str | None):

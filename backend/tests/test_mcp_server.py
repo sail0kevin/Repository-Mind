@@ -1,4 +1,4 @@
-"""MCP Server 验收测试：覆盖 5 个 Phase 1 工具、只读边界和真实 stdio 通信。"""
+"""MCP Server 验收测试：覆盖仓库发现、5 个上下文工具、只读边界和真实 stdio 通信。"""
 from __future__ import annotations
 
 import json
@@ -19,6 +19,7 @@ from service.mcp_server.tools import (
     analyze_impact,
     find_related_tests,
     get_symbol,
+    list_repositories,
     repo_overview,
     search_code,
 )
@@ -154,6 +155,25 @@ def _assert_envelope(payload: dict, repo_id: str, snapshot_id: str) -> None:
     assert isinstance(payload["limitations"], list)
 
 
+def test_repository_discovery_returns_ids_without_local_paths(tmp_path: Path) -> None:
+    indexed_repo_id, indexed_snapshot_id, _ = _seed_repo(tmp_path, "indexed")
+    building_repo_id, _, _ = _seed_repo(tmp_path, "building-discovery", publish=False)
+
+    result = list_repositories()
+
+    assert result["status"] == "ok"
+    assert result["repo_id"] == ""
+    assert result["data"]["total"] == 2
+    assert result["data"]["indexed_count"] == 1
+    by_id = {item["repo_id"]: item for item in result["data"]["repositories"]}
+    assert by_id[indexed_repo_id]["snapshot_id"] == indexed_snapshot_id
+    assert by_id[indexed_repo_id]["indexed"] is True
+    assert by_id[building_repo_id]["indexed"] is False
+    serialized = json.dumps(result, ensure_ascii=False)
+    assert str(tmp_path) not in serialized
+    assert "repo_path" not in serialized
+
+
 def test_active_snapshot_and_lexical_search_envelope(tmp_path: Path) -> None:
     repo_id, snapshot_id, _ = _seed_repo(tmp_path)
 
@@ -271,7 +291,7 @@ def test_invalid_empty_and_oversized_parameters_are_bounded(tmp_path: Path) -> N
 
 
 @pytest.mark.anyio
-async def test_real_stdio_server_lists_five_tools_and_calls_three(
+async def test_real_stdio_server_lists_six_tools_and_calls_four(
     tmp_path: Path, temporary_database: Path
 ) -> None:
     from mcp import ClientSession, StdioServerParameters
@@ -297,14 +317,20 @@ async def test_real_stdio_server_lists_five_tools_and_calls_three(
             await session.initialize()
             listed = await session.list_tools()
             assert {tool.name for tool in listed.tools} == {
-                "repo_overview", "search_code", "get_symbol", "analyze_impact", "find_related_tests"
+                "list_repositories", "repo_overview", "search_code", "get_symbol",
+                "analyze_impact", "find_related_tests"
             }
+            discovery = await session.call_tool("list_repositories", {})
             calls = [
                 await session.call_tool("repo_overview", {"repo_id": repo_id}),
                 await session.call_tool("search_code", {"repo_id": repo_id, "query": "authenticate"}),
                 await session.call_tool("get_symbol", {"repo_id": repo_id, "symbol_query": "authenticate"}),
             ]
 
+    assert not discovery.isError
+    discovery_payload = discovery.structuredContent or json.loads(discovery.content[0].text)
+    assert discovery_payload["data"]["repositories"][0]["repo_id"] == repo_id
+    assert str(tmp_path) not in json.dumps(discovery_payload, ensure_ascii=False)
     for call in calls:
         assert not call.isError
         payload = call.structuredContent or json.loads(call.content[0].text)

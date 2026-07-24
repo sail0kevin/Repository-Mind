@@ -45,6 +45,7 @@ finally {
 
 & (Join-Path $scriptRoot "build_backend.ps1") -PythonCommand $PythonCommand
 & (Join-Path $scriptRoot "smoke_backend.ps1") -ExePath $backendExe
+& (Join-Path $scriptRoot "smoke_mcp.ps1") -ExePath $backendExe -PythonCommand $PythonCommand
 
 function Invoke-NativeBuildStep {
     param(
@@ -88,6 +89,7 @@ try {
     $packagedHash = (Get-FileHash $packagedBackend -Algorithm SHA256).Hash
     if ($sourceHash -ne $packagedHash) { throw "Packaged backend does not match the current build" }
     & (Join-Path $scriptRoot "smoke_backend.ps1") -ExePath $packagedBackend
+    & (Join-Path $scriptRoot "smoke_mcp.ps1") -ExePath $packagedBackend -PythonCommand $PythonCommand
 
     $packagedDemo = Join-Path $releaseRoot "win-unpacked\resources\demo\repomind-demo"
     if (-not (Test-Path $packagedDemo -PathType Container)) { throw "Packaged demo is missing" }

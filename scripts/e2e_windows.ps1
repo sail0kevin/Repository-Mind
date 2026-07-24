@@ -1,5 +1,6 @@
 param(
-    [Parameter(Mandatory = $true)] [string] $ExePath
+    [Parameter(Mandatory = $true)] [string] $ExePath,
+    [string] $PythonCommand = "python"
 )
 
 $ErrorActionPreference = "Stop"
@@ -57,8 +58,19 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Packaged Electron E2E failed with exit code $LASTEXITCODE" }
     }
     finally { Pop-Location }
+
+    $packagedBackend = Join-Path (Split-Path $exePath -Parent) "resources\backend\repomind-backend.exe"
+    $desktopDatabase = Join-Path $userDataPath "backend-data\repomind.sqlite3"
+    $demoAlias = "RepoMind " + (-join [char[]](0x5185, 0x7F6E)) + " Demo"
+    & (Join-Path $PSScriptRoot "smoke_mcp.ps1") `
+        -ExePath $packagedBackend `
+        -PythonCommand $PythonCommand `
+        -DatabasePath $desktopDatabase `
+        -ExpectedRepositoryAlias $demoAlias
+    if ($LASTEXITCODE -ne 0) { throw "Packaged Electron/MCP shared-index verification failed" }
+
     $testSucceeded = $true
-    Write-Host "Packaged Electron E2E OK"
+    Write-Host "Packaged Electron E2E and shared-index MCP verification OK"
 }
 finally {
     # 不扫描或强制终止未知进程；Electron 正式桥接负责关闭本次启动的后端。

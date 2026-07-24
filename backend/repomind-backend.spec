@@ -2,7 +2,7 @@
 # 所有路径都从本文件位置推导，避免依赖开发机目录或调用时的当前工作目录。
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs, collect_submodules
 
 backend_root = Path(SPEC).resolve().parent
 
@@ -20,9 +20,15 @@ hiddenimports = [
 ]
 hiddenimports += collect_submodules("service.core.parsing")
 hiddenimports += collect_submodules("service.storage.migrations")
+hiddenimports += collect_submodules("service.mcp_server")
 
 datas = []
 binaries = []
+# MCP SDK 包含按传输和消息类型动态导入的模块，冻结程序需要显式收集；
+# mcp.cli 属于带 typer 的可选开发命令，不是 stdio Server 的运行依赖。
+datas += collect_data_files("mcp")
+binaries += collect_dynamic_libs("mcp")
+hiddenimports += collect_submodules("mcp", filter=lambda name: not name.startswith("mcp.cli"))
 # tree-sitter grammar 带有原生动态库，必须同时收集 Python 模块、数据和二进制文件。
 for package_name in ("tree_sitter", "tree_sitter_javascript", "tree_sitter_typescript"):
     package_datas, package_binaries, package_hiddenimports = collect_all(package_name)
@@ -31,7 +37,7 @@ for package_name in ("tree_sitter", "tree_sitter_javascript", "tree_sitter_types
     hiddenimports += package_hiddenimports
 
 a = Analysis(
-    [str(backend_root / "service" / "main.py")],
+    [str(backend_root / "service" / "launcher.py")],
     pathex=[str(backend_root)],
     binaries=binaries,
     datas=datas,

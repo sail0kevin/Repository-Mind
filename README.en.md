@@ -55,6 +55,8 @@ python -m service.mcp_server
 
 The MCP process does not require FastAPI to remain running, does not execute target-repository code, and exposes no file-editing or shell tools. Claude Code has been verified with a real client. Codex can use the standard `stdio` MCP configuration, but has not completed end-to-end validation in the current environment. See the [MCP Server guide](docs/MCP_SERVER.md).
 
+The Windows Setup build can use the bundled `resources\backend\repomind-backend.exe --mcp` directly, without a separate Python installation. Call `list_repositories` first to discover indexed repositories, then use the other five code-context tools.
+
 <details>
 <summary><strong>Build Windows Setup / Portable artifacts</strong></summary>
 
@@ -132,14 +134,15 @@ Repo Map narrows scope; BM25/optional Embedding retrieve candidates; RRF and str
   </tr>
 </table>
 
-## Local verification
+## Verification
 
-- Backend: `cd backend; python -m pytest -q` → **167 passed**
+- Backend: `cd backend; python -m pytest -q` → **168 passed**, including **9 MCP tests**
 - Desktop: `npm test -- --run` → **63 passed** across 11 test files
 - Desktop: `npm run build` → Vite renderer and Electron TypeScript passed
-- Demo routes: zero tools / `security_review` / `dependency_impact`
+- Frozen MCP: the packaged backend starts with `--mcp`, lists six read-only tools, and completes repository discovery
+- Packaged Demo: real Electron flow covers ingest, zero/one-tool routing, Evidence, Trace, and exports, then verifies that the bundled MCP process discovers the repository from the same desktop index database
 
-These are local results. Remote CI, signed binaries, and a published Release are not claimed.
+Windows CI rebuilds the frozen backend and Electron package in a clean environment and runs the packaged-app E2E. See GitHub Actions for the current commit status. Signed binaries and a published Release are not claimed.
 
 ## Safety and limitations
 
@@ -159,4 +162,4 @@ See [SECURITY.md](SECURITY.md) for the complete data boundary.
 - [RAG versus bounded agent responsibilities](docs/后续开发指导/RAG_VS_AGENTIC.md)
 - [MCP Server guide](docs/MCP_SERVER.md)
 
-Next: observe the first remote Windows CI run → create a Tag/Release only after explicit approval → expand real-repository evaluation → add a production icon and Windows code signing.
+Next: expand real-repository evaluation and Coding Agent Token A/B comparisons → create a Tag/Release only after explicit approval → add a production icon and Windows code signing.

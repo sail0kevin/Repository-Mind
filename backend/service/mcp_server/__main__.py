@@ -14,10 +14,21 @@ mcp = FastMCP(
     instructions=(
         "RepoMind 是一个只读的代码上下文服务，供 Claude Code/Codex 等编码 Agent 查询已索引仓库。"
         "它不会执行目标仓库代码、不会修改文件、不会安装依赖。"
-        "所有工具都需要显式的 repo_id；未显式提供 snapshot_id 时，默认使用该仓库当前 active 的 succeeded 快照。"
+        "先调用 list_repositories 发现可用 repo_id 和索引状态；其他工具都需要显式的 repo_id。"
+        "未显式提供 snapshot_id 时，默认使用该仓库当前 active 的 succeeded 快照。"
         "返回结果统一包含 repo_id/snapshot_id/commit/status/data/evidence/limitations 字段。"
     ),
 )
+
+
+@mcp.tool()
+def list_repositories(limit: int | None = None) -> dict:
+    """列出当前 RepoMind 数据库中的仓库、repo_id 和活动 Snapshot，供后续工具选择目标；不返回本机绝对路径。
+
+    Args:
+        limit: 可选，返回仓库数量上限（默认和最大值均为 100）。
+    """
+    return impl.list_repositories(limit)
 
 
 @mcp.tool()

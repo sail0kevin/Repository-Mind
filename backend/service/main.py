@@ -123,7 +123,15 @@ app = create_app()
 
 
 def main() -> None:
-    """启动后端服务，并在 Windows 桌面模式监视已验证的 Electron 父进程。"""
+    """按命令行模式启动 FastAPI，或把同一冻结程序作为只读 stdio MCP Server。"""
+    import sys
+
+    if "--mcp" in sys.argv[1:]:
+        from service.mcp_server.__main__ import main as run_mcp_server
+
+        run_mcp_server()
+        return
+
     import uvicorn
 
     settings = get_settings()
