@@ -1,4 +1,4 @@
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
+import { test, expect, _electron as electron, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -17,13 +17,20 @@ async function askDemoQuestion(page: Page, index: number): Promise<void> {
   await expect(page.getByTestId("ask-button")).toBeEnabled({ timeout: 60_000 });
 }
 
+async function closeDrawer(drawer: Locator): Promise<void> {
+  const closeButton = drawer.getByTitle("关闭证据抽屉");
+  await expect(closeButton).toBeVisible();
+  await closeButton.evaluate((element) => (element as HTMLElement).click());
+  await expect(drawer).toBeHidden();
+}
+
 async function openTrace(page: Page): Promise<{ steps: string[]; tools: string[] }> {
   await page.getByTestId("open-trace").click();
   const drawer = page.getByTestId("trace-drawer");
   await expect(drawer).toBeVisible();
   const steps = await drawer.getByTestId("trace-step").locator("strong").allTextContents();
   const tools = await drawer.locator('[data-testid="trace-step"][data-step-type="tool"] strong').allTextContents();
-  await drawer.getByTitle("关闭证据抽屉").click();
+  await closeDrawer(drawer);
   return { steps, tools };
 }
 
@@ -104,7 +111,7 @@ test("打包版内置 Demo 完成问答、证据、Trace 和导出", async () =>
     const evidenceDrawer = page.getByTestId("evidence-drawer");
     await expect(evidenceDrawer).toContainText(/tests\/test_greeting\.py|repomind_demo\/service\.py/);
     await expect(evidenceDrawer).toContainText(/行 \d+ - \d+/);
-    await evidenceDrawer.getByTitle("关闭证据抽屉").click();
+    await closeDrawer(evidenceDrawer);
 
     await page.getByTestId("export-trace-json").click();
     await expect(page.getByTestId("export-status")).toContainText("已导出");
