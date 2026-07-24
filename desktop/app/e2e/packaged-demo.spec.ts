@@ -67,13 +67,22 @@ test("打包版内置 Demo 完成问答、证据、Trace 和导出", async () =>
       },
     });
     page = await electronApp.firstWindow();
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      if (!mainWindow) throw new Error("RepoMind main window was not created");
+      mainWindow.setSize(1440, 1000);
+      mainWindow.center();
+    });
     page.on("console", (message) => rendererLogs.push(`[${message.type()}] ${message.text()}`));
     page.on("pageerror", (error) => rendererLogs.push(`[pageerror] ${error.message}`));
 
     await expect(page.getByTestId("app-ready")).toBeVisible({ timeout: 45_000 });
     await expect(page.getByText("无法连接后端")).toHaveCount(0);
 
-    await page.getByTestId("open-demo").click();
+    const openDemo = page.getByTestId("open-demo");
+    await expect(openDemo).toBeVisible({ timeout: 45_000 });
+    await expect(openDemo).toBeEnabled();
+    await openDemo.click();
     await expect(page.getByTestId("ingest-progress")).toContainText("索引完成", { timeout: 120_000 });
     await expect(page.getByTestId("current-repository")).toContainText("RepoMind 内置 Demo");
     await expect(page.getByTestId("current-repository")).toContainText(DEMO_COMMIT.slice(0, 12));
