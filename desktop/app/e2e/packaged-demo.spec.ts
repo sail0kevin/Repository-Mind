@@ -24,6 +24,44 @@ async function closeDrawer(drawer: Locator): Promise<void> {
   await expect(drawer).toBeHidden();
 }
 
+async function openResourceDrawer(page: Page): Promise<Locator> {
+  const resourcePanelButton = page.locator(".rm-mobile-panel-bar button").first();
+  await expect(resourcePanelButton).toBeVisible({ timeout: 45_000 });
+  await resourcePanelButton.click();
+  const resourceDrawer = page.locator(".rm-resource-drawer");
+  await expect(resourceDrawer).toBeVisible();
+  return resourceDrawer;
+}
+
+async function openEvidencePanel(page: Page): Promise<Locator | Page> {
+  const evidenceItems = page.getByTestId("evidence-item");
+  if (await evidenceItems.first().isVisible()) return page;
+  const inspectorButton = page.locator(".rm-mobile-panel-bar button").nth(1);
+  await expect(inspectorButton).toBeVisible({ timeout: 45_000 });
+  await inspectorButton.click();
+  const inspectorDrawer = page.locator(".rm-inspector-drawer");
+  await expect(inspectorDrawer).toBeVisible();
+  return inspectorDrawer;
+}
+
+async function closeResponsivePanel(panel: Locator | Page): Promise<void> {
+  if ("isClosed" in panel) return;
+  await panel.press("Escape");
+  await expect(panel).toBeHidden();
+}
+
+async function openDemoRepository(page: Page): Promise<Locator | null> {
+  const openDemo = page.getByTestId("open-demo");
+  let resourceDrawer: Locator | null = null;
+  if (!await openDemo.isVisible()) {
+    resourceDrawer = await openResourceDrawer(page);
+  }
+  await expect(openDemo).toBeVisible({ timeout: 45_000 });
+  await expect(openDemo).toBeEnabled();
+  await openDemo.click();
+  return resourceDrawer;
+}
+
 async function openTrace(page: Page): Promise<{ steps: string[]; tools: string[] }> {
   await page.getByTestId("open-trace").click();
   const drawer = page.getByTestId("trace-drawer");
@@ -67,29 +105,38 @@ test("打包版内置 Demo 完成问答、证据、Trace 和导出", async () =>
       },
     });
     page = await electronApp.firstWindow();
-    await electronApp.evaluate(({ BrowserWindow }) => {
+    const windowWidth = Number.parseInt(process.env.REPOMIND_E2E_WINDOW_WIDTH || "1440", 10);
+    await electronApp.evaluate(({ BrowserWindow }, requestedWidth) => {
       const mainWindow = BrowserWindow.getAllWindows()[0];
       if (!mainWindow) throw new Error("RepoMind main window was not created");
-      mainWindow.setSize(1440, 1000);
+      mainWindow.setSize(requestedWidth, 1000);
       mainWindow.center();
-    });
+    }, windowWidth);
     page.on("console", (message) => rendererLogs.push(`[${message.type()}] ${message.text()}`));
     page.on("pageerror", (error) => rendererLogs.push(`[pageerror] ${error.message}`));
 
     await expect(page.getByTestId("app-ready")).toBeVisible({ timeout: 45_000 });
     await expect(page.getByText("无法连接后端")).toHaveCount(0);
 
-    const openDemo = page.getByTestId("open-demo");
-    await expect(openDemo).toBeVisible({ timeout: 45_000 });
-    await expect(openDemo).toBeEnabled();
-    await openDemo.click();
-    await expect(page.getByTestId("ingest-progress")).toContainText("索引完成", { timeout: 120_000 });
-    await expect(page.getByTestId("current-repository")).toContainText("RepoMind 内置 Demo");
-    await expect(page.getByTestId("current-repository")).toContainText(DEMO_COMMIT.slice(0, 12));
-    await expect(page.getByTestId("catalog-tree").locator("button").first()).toBeVisible();
+    let resourceDrawer = await openDemoRepository(page);
+    const resourcePanel = resourceDrawer ?? page;
+    await expect(resourcePanel.getByTestId("ingest-progress")).toContainText("索引完成", { timeout: 120_000 });
+    await expect(resourcePanel.getByTestId("current-repository")).toContainText("RepoMind 内置 Demo");
+    await expect(resourcePanel.getByTestId("current-repository")).toContainText(DEMO_COMMIT.slice(0, 12));
+    await expect(resourcePanel.getByTestId("catalog-tree").locator("button").first()).toBeVisible();
+
+    if (resourceDrawer) {
+      await resourceDrawer.press("Escape");
+      await expect(resourceDrawer).toBeHidden();
+    }
 
     await page.getByTestId("workspace-tab-catalog").click();
-    await page.getByTestId("catalog-tree").locator("button").first().click();
+    if (resourceDrawer) resourceDrawer = await openResourceDrawer(page);
+    await (resourceDrawer ?? page).getByTestId("catalog-tree").locator("button").first().click();
+    if (resourceDrawer) {
+      await resourceDrawer.press("Escape");
+      await expect(resourceDrawer).toBeHidden();
+    }
     await expect(page.getByTestId("catalog-workspace")).toContainText(/repomind_demo\/app\/main\.py|仓库总览/);
 
     await page.getByTestId("workspace-tab-qa").click();
@@ -108,19 +155,23 @@ test("打包版内置 Demo 完成问答、证据、Trace 和导出", async () =>
     const securityTrace = await openTrace(page);
     expect(securityTrace.tools.filter((step) => step.includes("security_review"))).toHaveLength(1);
     expect(securityTrace.tools.some((step) => step.includes("dependency_impact"))).toBeFalsy();
-    await expect(page.getByTestId("evidence-item").filter({ hasText: "repomind_demo/security_examples.py" }).first()).toBeVisible();
+    let evidencePanel = await openEvidencePanel(page);
+    await expect(evidencePanel.getByTestId("evidence-item").filter({ hasText: "repomind_demo/security_examples.py" }).first()).toBeVisible();
+    await closeResponsivePanel(evidencePanel);
 
     await askDemoQuestion(page, 2);
     const impactTrace = await openTrace(page);
     expect(impactTrace.tools.filter((step) => step.includes("dependency_impact"))).toHaveLength(1);
     expect(impactTrace.tools.some((step) => step.includes("security_review"))).toBeFalsy();
-    const evidenceButton = page.getByTestId("evidence-item").filter({ hasText: /tests\/test_greeting\.py|repomind_demo\/service\.py/ }).first();
+    evidencePanel = await openEvidencePanel(page);
+    const evidenceButton = evidencePanel.getByTestId("evidence-item").filter({ hasText: /tests\/test_greeting\.py|repomind_demo\/service\.py/ }).first();
     await expect(evidenceButton).toBeVisible();
     await evidenceButton.click();
     const evidenceDrawer = page.getByTestId("evidence-drawer");
     await expect(evidenceDrawer).toContainText(/tests\/test_greeting\.py|repomind_demo\/service\.py/);
     await expect(evidenceDrawer).toContainText(/行 \d+ - \d+/);
     await closeDrawer(evidenceDrawer);
+    await closeResponsivePanel(evidencePanel);
 
     await page.getByTestId("export-trace-json").click();
     await expect(page.getByTestId("export-status")).toContainText("已导出");
