@@ -21,22 +21,30 @@ $listener.Start()
 $port = ([System.Net.IPEndPoint] $listener.LocalEndpoint).Port
 $listener.Stop()
 $backendProcess = $null
+$environmentValues = @{
+    APPDATA = $appDataRoot
+    REPOMIND_PATHS__DATA_DIR = $dataDir
+    REPOMIND_PATHS__DATABASE_PATH = $databasePath
+    REPOMIND_INSTANCE_ID = "repomind-desktop-backend"
+    REPOMIND_SESSION_ID = $sessionId
+    REPOMIND_API_TOKEN = $apiToken
+    REPOMIND_SHUTDOWN_TOKEN = $shutdownToken
+    REPOMIND_PORT = [string] $port
+    REPOMIND_LLM_API_KEY = ""
+    REPOMIND_EMBEDDING_API_KEY = ""
+    OPENAI_API_KEY = ""
+}
+$processEnvironment = [System.Environment]::GetEnvironmentVariables("Process")
+$originalEnvironment = @{}
+foreach ($environmentKey in $environmentValues.Keys) {
+    $originalEnvironment[$environmentKey] = @{
+        Exists = $processEnvironment.Contains($environmentKey)
+        Value = [System.Environment]::GetEnvironmentVariable($environmentKey, "Process")
+    }
+}
 
 try {
     New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-    $environmentValues = @{
-        APPDATA = $appDataRoot
-        REPOMIND_PATHS__DATA_DIR = $dataDir
-        REPOMIND_PATHS__DATABASE_PATH = $databasePath
-        REPOMIND_INSTANCE_ID = "repomind-desktop-backend"
-        REPOMIND_SESSION_ID = $sessionId
-        REPOMIND_API_TOKEN = $apiToken
-        REPOMIND_SHUTDOWN_TOKEN = $shutdownToken
-        REPOMIND_PORT = [string] $port
-        REPOMIND_LLM_API_KEY = ""
-        REPOMIND_EMBEDDING_API_KEY = ""
-        OPENAI_API_KEY = ""
-    }
     foreach ($environmentItem in $environmentValues.GetEnumerator()) {
         [System.Environment]::SetEnvironmentVariable($environmentItem.Key, $environmentItem.Value, "Process")
     }
@@ -144,8 +152,14 @@ finally {
             }
         }
     }
-    foreach ($environmentKey in @("APPDATA", "REPOMIND_PATHS__DATA_DIR", "REPOMIND_PATHS__DATABASE_PATH", "REPOMIND_INSTANCE_ID", "REPOMIND_SESSION_ID", "REPOMIND_API_TOKEN", "REPOMIND_SHUTDOWN_TOKEN", "REPOMIND_PORT", "REPOMIND_LLM_API_KEY", "REPOMIND_EMBEDDING_API_KEY", "OPENAI_API_KEY")) {
-        [System.Environment]::SetEnvironmentVariable($environmentKey, $null, "Process")
+    foreach ($environmentKey in $environmentValues.Keys) {
+        $originalValue = $originalEnvironment[$environmentKey]
+        if ($originalValue.Exists) {
+            [System.Environment]::SetEnvironmentVariable($environmentKey, $originalValue.Value, "Process")
+        }
+        else {
+            Remove-Item -LiteralPath "Env:$environmentKey" -ErrorAction SilentlyContinue
+        }
     }
     if (Test-Path $tempRoot) { Remove-Item -Recurse -Force $tempRoot -ErrorAction SilentlyContinue }
     if ($cleanupFailure) { throw $cleanupFailure }
