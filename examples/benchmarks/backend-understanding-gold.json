@@ -1,0 +1,329 @@
+{
+  "name": "repomind-backend-understanding-v1",
+  "description": "针对 RepoMind 自身后端代码的跨文件理解评测集。每条题目的 relevant_paths / relevant_symbols 均由只读代码核查确认，expected_tools 由确定性 Router (backend/service/core/agent/router.py) 的关键字规则逐条推导。仅定义期望证据与期望路由，不伪造检索排名或准确率。",
+  "target_repo": "repo-knowledge-assistant 仓库根（ingest 时以仓库根为准，故路径形如 backend/service/...）",
+  "snapshot_commit": "c92e2f9af153212074da62d2d7fc1418bfbc0d72",
+  "router_note": "Router 为 if/elif 互斥链，优先级：SECURITY > IMPACT > TEST > OVERVIEW > LANGUAGE；均不命中则 direct_qa（零工具）。expected_tools 反映该确定性路由结果，可能与题目 category 语义标签不同（category 是语义分类，expected_tools 是真实路由）。",
+  "queries": [
+    {
+      "id": "sn-route-question",
+      "category": "symbol_navigation",
+      "query": "route_question 这个函数的作用是什么？",
+      "relevant_paths": ["backend/service/core/agent/router.py"],
+      "relevant_symbols": ["route_question"],
+      "expected_tools": []
+    },
+    {
+      "id": "sn-rrf-fuse",
+      "category": "symbol_navigation",
+      "query": "ReciprocalRankFusion.fuse 是如何给多路候选打分的？",
+      "relevant_paths": ["backend/service/core/retrieval/fusion.py"],
+      "relevant_symbols": ["ReciprocalRankFusion.fuse"],
+      "expected_tools": []
+    },
+    {
+      "id": "sn-hybrid-retrieve",
+      "category": "symbol_navigation",
+      "query": "HybridRetriever.retrieve 的检索流程是怎样的？",
+      "relevant_paths": ["backend/service/core/retrieval/service.py"],
+      "relevant_symbols": ["HybridRetriever.retrieve"],
+      "expected_tools": []
+    },
+    {
+      "id": "sn-evidence-assemble",
+      "category": "symbol_navigation",
+      "query": "EvidenceAssembler.assemble 负责做什么？",
+      "relevant_paths": ["backend/service/core/evidence/assembler.py"],
+      "relevant_symbols": ["EvidenceAssembler.assemble"],
+      "expected_tools": []
+    },
+    {
+      "id": "sn-run-main-agent",
+      "category": "symbol_navigation",
+      "query": "run_main_agent 完成一次问答要经过哪几个阶段？",
+      "relevant_paths": ["backend/service/core/agent/main_agent.py"],
+      "relevant_symbols": ["run_main_agent"],
+      "expected_tools": []
+    },
+    {
+      "id": "sn-agentplan-structure",
+      "category": "symbol_navigation",
+      "query": "AgentPlan 的类结构和字段有哪些？",
+      "relevant_paths": ["backend/service/core/agent/models.py"],
+      "relevant_symbols": ["AgentPlan"],
+      "expected_tools": ["language_structure"]
+    },
+    {
+      "id": "sn-retrievalplan-fields",
+      "category": "symbol_navigation",
+      "query": "列出 RetrievalPlan 的字段和方法列表。",
+      "relevant_paths": ["backend/service/core/retrieval/planner.py"],
+      "relevant_symbols": ["RetrievalPlan"],
+      "expected_tools": ["language_structure"]
+    },
+    {
+      "id": "sn-evidencebudget-symbol",
+      "category": "symbol_navigation",
+      "query": "EvidenceBudget 这个符号定义了哪些预算项？",
+      "relevant_paths": ["backend/service/core/evidence/budget.py"],
+      "relevant_symbols": ["EvidenceBudget"],
+      "expected_tools": ["language_structure"]
+    },
+    {
+      "id": "di-route-question-callers",
+      "category": "dependency_impact",
+      "query": "修改 route_question 的关键字规则会影响哪些调用方？",
+      "relevant_paths": ["backend/service/core/agent/router.py", "backend/service/core/agent/main_agent.py"],
+      "relevant_symbols": ["route_question", "run_main_agent"],
+      "expected_tools": ["dependency_impact"]
+    },
+    {
+      "id": "di-run-main-agent-deps",
+      "category": "dependency_impact",
+      "query": "run_main_agent 依赖哪些模块和函数来完成一次问答？",
+      "relevant_paths": ["backend/service/core/agent/main_agent.py", "backend/service/core/agent/router.py", "backend/service/core/retrieval/service.py", "backend/service/core/evidence/assembler.py", "backend/service/core/qa.py"],
+      "relevant_symbols": ["run_main_agent"],
+      "expected_tools": ["dependency_impact"]
+    },
+    {
+      "id": "di-evidencebudget-impact",
+      "category": "dependency_impact",
+      "query": "改动 EvidenceBudget 的常量会影响证据组装的哪些逻辑？",
+      "relevant_paths": ["backend/service/core/evidence/budget.py", "backend/service/core/evidence/assembler.py"],
+      "relevant_symbols": ["EvidenceBudget", "EvidenceAssembler.assemble"],
+      "expected_tools": ["dependency_impact"]
+    },
+    {
+      "id": "di-fusion-consumers",
+      "category": "dependency_impact",
+      "query": "ReciprocalRankFusion.fuse 的融合结果被检索流程中的谁依赖？",
+      "relevant_paths": ["backend/service/core/retrieval/fusion.py", "backend/service/core/retrieval/service.py"],
+      "relevant_symbols": ["ReciprocalRankFusion.fuse", "HybridRetriever.retrieve"],
+      "expected_tools": ["dependency_impact"]
+    },
+    {
+      "id": "di-publish-snapshot",
+      "category": "dependency_impact",
+      "query": "谁调用 publish_snapshot，它在索引流程中处于哪个位置？",
+      "relevant_paths": ["backend/service/storage/snapshot_store.py", "backend/service/core/ingest_service.py"],
+      "relevant_symbols": ["publish_snapshot", "ingest_repository_snapshot"],
+      "expected_tools": ["dependency_impact"]
+    },
+    {
+      "id": "di-embed-snapshot",
+      "category": "dependency_impact",
+      "query": "embed_snapshot_evidence 受哪个索引步骤的调用影响，又会影响后续什么？",
+      "relevant_paths": ["backend/service/core/embeddings/service.py", "backend/service/core/ingest_service.py"],
+      "relevant_symbols": ["embed_snapshot_evidence", "ingest_repository_snapshot"],
+      "expected_tools": ["dependency_impact"]
+    },
+    {
+      "id": "di-semantic-available",
+      "category": "dependency_impact",
+      "query": "SemanticRetriever.available 返回 False 会影响检索计划的哪些选择？",
+      "relevant_paths": ["backend/service/core/retrieval/semantic.py", "backend/service/core/retrieval/planner.py", "backend/service/core/retrieval/service.py"],
+      "relevant_symbols": ["SemanticRetriever.available", "RetrievalPlanner.plan"],
+      "expected_tools": ["dependency_impact"]
+    },
+    {
+      "id": "di-ask-endpoint",
+      "category": "dependency_impact",
+      "query": "ask 接口的改动依赖哪个核心函数来生成回答？",
+      "relevant_paths": ["backend/service/api/v1/repos.py", "backend/service/core/agent/main_agent.py"],
+      "relevant_symbols": ["ask_repository", "run_main_agent"],
+      "expected_tools": ["dependency_impact"]
+    },
+    {
+      "id": "sr-scan-patterns",
+      "category": "security_review",
+      "query": "security_review 工具会扫描哪些安全风险模式？",
+      "relevant_paths": ["backend/service/core/agent/tools.py"],
+      "relevant_symbols": ["security_review"],
+      "expected_tools": ["security_review"]
+    },
+    {
+      "id": "sr-dpapi-secret",
+      "category": "security_review",
+      "query": "WindowsDPAPISecretStore 是如何保护 API 密钥的？",
+      "relevant_paths": ["backend/service/storage/secret_store.py"],
+      "relevant_symbols": ["WindowsDPAPISecretStore"],
+      "expected_tools": ["security_review"]
+    },
+    {
+      "id": "sr-dynamic-exec",
+      "category": "security_review",
+      "query": "安全审查如何识别 eval、exec 这类动态执行风险？",
+      "relevant_paths": ["backend/service/core/agent/tools.py"],
+      "relevant_symbols": ["security_review"],
+      "expected_tools": ["security_review"]
+    },
+    {
+      "id": "sr-unsafe-deser",
+      "category": "security_review",
+      "query": "安全扫描怎样发现 yaml.load、pickle.loads 这类不安全反序列化？",
+      "relevant_paths": ["backend/service/core/agent/tools.py"],
+      "relevant_symbols": ["security_review"],
+      "expected_tools": ["security_review"]
+    },
+    {
+      "id": "sr-token-auth",
+      "category": "security_review",
+      "query": "桌面端接口的令牌认证是怎么实现的？",
+      "relevant_paths": ["backend/service/main.py"],
+      "relevant_symbols": ["verify_desktop_api_token", "create_app"],
+      "expected_tools": ["security_review"]
+    },
+    {
+      "id": "sr-redact-secret",
+      "category": "security_review",
+      "query": "redact_secret 如何防止密钥泄漏到提示文本里？",
+      "relevant_paths": ["backend/service/core/redaction.py"],
+      "relevant_symbols": ["redact_secret"],
+      "expected_tools": ["security_review"]
+    },
+    {
+      "id": "sr-subprocess-shell",
+      "category": "security_review",
+      "query": "安全扫描如何标记 subprocess shell=True 的命令执行风险？",
+      "relevant_paths": ["backend/service/core/agent/tools.py"],
+      "relevant_symbols": ["security_review"],
+      "expected_tools": ["security_review"]
+    },
+    {
+      "id": "sr-embedding-key-isolation",
+      "category": "security_review",
+      "query": "为什么 get_embedding_api_key 不复用 Chat 的密钥？",
+      "relevant_paths": ["backend/service/storage/secret_store.py"],
+      "relevant_symbols": ["get_embedding_api_key"],
+      "expected_tools": ["security_review"]
+    },
+    {
+      "id": "rn-overall-architecture",
+      "category": "repository_navigation",
+      "query": "这个项目的整体架构是怎样设计的？",
+      "relevant_paths": ["README.md", "backend/service/main.py"],
+      "relevant_symbols": [],
+      "expected_tools": ["repository_navigator"]
+    },
+    {
+      "id": "rn-retrieval-modules",
+      "category": "repository_navigation",
+      "query": "检索子系统由哪些主要模块组成？",
+      "relevant_paths": ["backend/service/core/retrieval/service.py", "backend/service/core/retrieval/planner.py", "backend/service/core/retrieval/lexical.py", "backend/service/core/retrieval/semantic.py", "backend/service/core/retrieval/fusion.py", "backend/service/core/retrieval/structural.py"],
+      "relevant_symbols": [],
+      "expected_tools": ["repository_navigator"]
+    },
+    {
+      "id": "rn-fastapi-entry",
+      "category": "repository_navigation",
+      "query": "FastAPI 应用的入口在哪里定义？",
+      "relevant_paths": ["backend/service/main.py"],
+      "relevant_symbols": ["create_app"],
+      "expected_tools": ["repository_navigator"]
+    },
+    {
+      "id": "rn-storage-modules",
+      "category": "repository_navigation",
+      "query": "存储层由哪些主要模块组成？",
+      "relevant_paths": ["backend/service/storage/snapshot_store.py", "backend/service/storage/chunk_store.py", "backend/service/storage/evidence_store.py", "backend/service/storage/lexical_store.py", "backend/service/storage/symbol_store.py", "backend/service/storage/sqlite_db.py"],
+      "relevant_symbols": [],
+      "expected_tools": ["repository_navigator"]
+    },
+    {
+      "id": "rn-agent-core",
+      "category": "repository_navigation",
+      "query": "Agent 核心代码的架构和入口是什么？",
+      "relevant_paths": ["backend/service/core/agent/main_agent.py", "backend/service/core/agent/router.py", "backend/service/core/agent/tools.py", "backend/service/core/agent/models.py"],
+      "relevant_symbols": ["run_main_agent", "route_question"],
+      "expected_tools": ["repository_navigator"]
+    },
+    {
+      "id": "rn-evaluation-overview",
+      "category": "repository_navigation",
+      "query": "评测子系统的概览是怎样的？",
+      "relevant_paths": ["backend/service/evaluation/retrieval_metrics.py", "backend/service/evaluation/citation_metrics.py", "backend/service/evaluation/timing.py"],
+      "relevant_symbols": [],
+      "expected_tools": ["repository_navigator"]
+    },
+    {
+      "id": "rn-embedding-modules",
+      "category": "repository_navigation",
+      "query": "Embedding 相关的主要模块分布在哪里？",
+      "relevant_paths": ["backend/service/core/embeddings/service.py", "backend/service/core/embeddings/disabled.py", "backend/service/core/embeddings/openai_compatible.py", "backend/service/core/vector_store.py"],
+      "relevant_symbols": ["resolve_embedding_provider"],
+      "expected_tools": ["repository_navigator"]
+    },
+    {
+      "id": "rn-rest-api",
+      "category": "repository_navigation",
+      "query": "REST API 的整体架构和主要入口是什么？",
+      "relevant_paths": ["backend/service/main.py", "backend/service/api/v1/repos.py"],
+      "relevant_symbols": ["create_app"],
+      "expected_tools": ["repository_navigator"]
+    },
+    {
+      "id": "tr-router-tests",
+      "category": "test_runtime",
+      "query": "哪些测试用例验证了 Router 的路由行为？",
+      "relevant_paths": ["backend/tests/test_m4_main_agent.py"],
+      "relevant_symbols": ["test_router_simple_question_uses_zero_tools_and_specialized_questions_are_narrow", "test_security_question_calls_only_security_tool"],
+      "expected_tools": ["test_runtime"]
+    },
+    {
+      "id": "tr-assembler-tests",
+      "category": "test_runtime",
+      "query": "EvidenceAssembler 的单元测试覆盖了什么？",
+      "relevant_paths": ["backend/tests/test_evidence_assembler.py"],
+      "relevant_symbols": ["test_specialist_priority_stays_inside_item_and_token_budgets", "test_assembler_prefers_content_bearing_duplicate"],
+      "expected_tools": ["test_runtime"]
+    },
+    {
+      "id": "tr-snapshot-branches",
+      "category": "test_runtime",
+      "query": "快照的成功与失败分支分别由哪些测试保证？",
+      "relevant_paths": ["backend/tests/test_snapshot_ingest.py"],
+      "relevant_symbols": ["test_new_sha_builds_new_snapshot_then_switches_active", "test_failed_new_snapshot_keeps_previous_active"],
+      "expected_tools": ["test_runtime"]
+    },
+    {
+      "id": "tr-metrics-tests",
+      "category": "test_runtime",
+      "query": "Recall 和 MRR 指标的计算有测试覆盖吗？",
+      "relevant_paths": ["backend/tests/test_evaluation_metrics.py"],
+      "relevant_symbols": ["test_evaluate_rankings_returns_reproducible_metrics", "test_summarize_durations_uses_deterministic_nearest_rank_percentiles"],
+      "expected_tools": ["test_runtime"]
+    },
+    {
+      "id": "tr-nokey-fallback",
+      "category": "test_runtime",
+      "query": "缺少模型凭据时的降级问答由哪个测试验证？",
+      "relevant_paths": ["backend/tests/test_m4_main_agent.py"],
+      "relevant_symbols": ["test_ask_persists_trace_and_no_key_fallback"],
+      "expected_tools": ["test_runtime"]
+    },
+    {
+      "id": "tr-desktop-token",
+      "category": "test_runtime",
+      "query": "业务接口鉴权、health 接口保持公开的行为由哪个测试用例覆盖？",
+      "relevant_paths": ["backend/tests/test_desktop_security.py"],
+      "relevant_symbols": ["test_business_api_requires_electron_token_but_health_stays_public"],
+      "expected_tools": ["test_runtime"]
+    },
+    {
+      "id": "tr-settings-redaction",
+      "category": "test_runtime",
+      "query": "敏感信息存储与脱敏迁移由哪些测试保证？",
+      "relevant_paths": ["backend/tests/test_settings_security.py"],
+      "relevant_symbols": ["test_redact_secret_only_exposes_short_hint", "test_get_migrates_legacy_plaintext_and_never_echoes_key"],
+      "expected_tools": ["test_runtime"]
+    },
+    {
+      "id": "tr-workflow-snapshot",
+      "category": "test_runtime",
+      "query": "工作流快照的分页与契约由哪些测试用例覆盖？",
+      "relevant_paths": ["backend/tests/test_workflow_snapshot.py"],
+      "relevant_symbols": ["test_workflow_snapshot_files_pages_through_more_than_ten_thousand_files", "test_legacy_saved_workflow_report_backfills_snapshot_and_commit"],
+      "expected_tools": ["test_runtime"]
+    }
+  ]
+}

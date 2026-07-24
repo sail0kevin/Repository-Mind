@@ -1,0 +1,1613 @@
+{
+  "project": "repomind-backend-understanding-v1",
+  "snapshot_commit": "c92e2f9af153212074da62d2d7fc1418bfbc0d72",
+  "mode": "lexical",
+  "source": "real HTTP responses from a running backend at http://127.0.0.1:8123/api/v1",
+  "query_count": 40,
+  "result_limit": 8,
+  "known_paths": [
+    ".env.example",
+    ".git",
+    ".github/workflows/ci-windows.yml",
+    ".github/workflows/release-windows.yml",
+    ".gitignore",
+    ".nvmrc",
+    ".python-version",
+    "README.en.md",
+    "README.md",
+    "SECURITY.md",
+    "backend/pytest.ini",
+    "backend/repomind-backend.spec",
+    "backend/requirements-build.txt",
+    "backend/requirements-dev.txt",
+    "backend/requirements.txt",
+    "backend/service/api/v1/code_graph.py",
+    "backend/service/api/v1/collaborate.py",
+    "backend/service/api/v1/jobs.py",
+    "backend/service/api/v1/repos.py",
+    "backend/service/api/v1/settings.py",
+    "backend/service/config/settings.py",
+    "backend/service/core/agent/__init__.py",
+    "backend/service/core/agent/main_agent.py",
+    "backend/service/core/agent/models.py",
+    "backend/service/core/agent/router.py",
+    "backend/service/core/agent/tools.py",
+    "backend/service/core/catalog/__init__.py",
+    "backend/service/core/catalog/builder.py",
+    "backend/service/core/catalog/models.py",
+    "backend/service/core/catalog/summarizer.py",
+    "backend/service/core/chunker.py",
+    "backend/service/core/codegraph/builder.py",
+    "backend/service/core/codegraph/store.py",
+    "backend/service/core/database_identity.py",
+    "backend/service/core/debate.py",
+    "backend/service/core/embeddings/__init__.py",
+    "backend/service/core/embeddings/base.py",
+    "backend/service/core/embeddings/disabled.py",
+    "backend/service/core/embeddings/openai_compatible.py",
+    "backend/service/core/embeddings/service.py",
+    "backend/service/core/evidence/__init__.py",
+    "backend/service/core/evidence/assembler.py",
+    "backend/service/core/evidence/budget.py",
+    "backend/service/core/ingest_service.py",
+    "backend/service/core/llm_client.py",
+    "backend/service/core/parallel_ingest.py",
+    "backend/service/core/parent_watchdog.py",
+    "backend/service/core/parsing/__init__.py",
+    "backend/service/core/parsing/base.py",
+    "backend/service/core/parsing/config_adapter.py",
+    "backend/service/core/parsing/fallback_parser.py",
+    "backend/service/core/parsing/javascript_typescript_parser.py",
+    "backend/service/core/parsing/linker.py",
+    "backend/service/core/parsing/markdown_adapter.py",
+    "backend/service/core/parsing/models.py",
+    "backend/service/core/parsing/python_parser.py",
+    "backend/service/core/parsing/registry.py",
+    "backend/service/core/qa.py",
+    "backend/service/core/redaction.py",
+    "backend/service/core/repo_map.py",
+    "backend/service/core/repo_scanner.py",
+    "backend/service/core/retrieval/__init__.py",
+    "backend/service/core/retrieval/fusion.py",
+    "backend/service/core/retrieval/lexical.py",
+    "backend/service/core/retrieval/planner.py",
+    "backend/service/core/retrieval/semantic.py",
+    "backend/service/core/retrieval/service.py",
+    "backend/service/core/retrieval/structural.py",
+    "backend/service/core/vector_store.py",
+    "backend/service/core/workflow_analysis.py",
+    "backend/service/evaluation/__init__.py",
+    "backend/service/evaluation/citation_metrics.py",
+    "backend/service/evaluation/retrieval_metrics.py",
+    "backend/service/evaluation/timing.py",
+    "backend/service/main.py",
+    "backend/service/storage/agent_trace_store.py",
+    "backend/service/storage/analysis_store.py",
+    "backend/service/storage/catalog_store.py",
+    "backend/service/storage/chunk_store.py",
+    "backend/service/storage/evidence_store.py",
+    "backend/service/storage/job_store.py",
+    "backend/service/storage/lexical_store.py",
+    "backend/service/storage/migrations/__init__.py",
+    "backend/service/storage/migrations/runner.py",
+    "backend/service/storage/migrations/v001_baseline.py",
+    "backend/service/storage/migrations/v002_m0_compatibility_columns.py",
+    "backend/service/storage/migrations/v003_snapshot_data_model.py",
+    "backend/service/storage/migrations/v004_parser_evidence_storage.py",
+    "backend/service/storage/migrations/v006_m3_knowledge_retrieval.py",
+    "backend/service/storage/migrations/v007_m4_agent_traces.py",
+    "backend/service/storage/models.py",
+    "backend/service/storage/repository_store.py",
+    "backend/service/storage/secret_store.py",
+    "backend/service/storage/session_store.py",
+    "backend/service/storage/settings_store.py",
+    "backend/service/storage/snapshot_store.py",
+    "backend/service/storage/sqlite_db.py",
+    "backend/service/storage/symbol_store.py",
+    "backend/tests/conftest.py",
+    "backend/tests/fixtures/js_ts/sample.js",
+    "backend/tests/fixtures/js_ts/sample.ts",
+    "backend/tests/fixtures/m3_lexical_baseline.json",
+    "backend/tests/fixtures/parsing/pkg/base.py",
+    "backend/tests/fixtures/parsing/pkg/other.py",
+    "backend/tests/fixtures/parsing/pkg/service.py",
+    "backend/tests/test_benchmark_fixtures.py",
+    "backend/tests/test_database_identity.py",
+    "backend/tests/test_desktop_security.py",
+    "backend/tests/test_evaluation_metrics.py",
+    "backend/tests/test_evidence_assembler.py",
+    "backend/tests/test_javascript_typescript_parser.py",
+    "backend/tests/test_m0_contract.py",
+    "backend/tests/test_m1_hardening.py",
+    "backend/tests/test_m2_parser_storage.py",
+    "backend/tests/test_m2_stage2.py",
+    "backend/tests/test_m3_catalog.py",
+    "backend/tests/test_m3_embeddings.py",
+    "backend/tests/test_m3_hybrid_retrieval.py",
+    "backend/tests/test_m3_lexical_retrieval.py",
+    "backend/tests/test_m4_main_agent.py",
+    "backend/tests/test_migrations.py",
+    "backend/tests/test_parent_watchdog.py",
+    "backend/tests/test_parsing_python.py",
+    "backend/tests/test_registration_ingest_http.py",
+    "backend/tests/test_repo_scanner.py",
+    "backend/tests/test_repository_registration_dedup.py",
+    "backend/tests/test_search_and_ask.py",
+    "backend/tests/test_settings_security.py",
+    "backend/tests/test_snapshot_api.py",
+    "backend/tests/test_snapshot_ingest.py",
+    "backend/tests/test_workflow_snapshot.py",
+    "demo/repomind-demo/README.md",
+    "demo/repomind-demo/config.json",
+    "demo/repomind-demo/expected/showcase.json",
+    "demo/repomind-demo/repomind_demo/__init__.py",
+    "demo/repomind-demo/repomind_demo/app/__init__.py",
+    "demo/repomind-demo/repomind_demo/app/main.py",
+    "demo/repomind-demo/repomind_demo/notifier.py",
+    "demo/repomind-demo/repomind_demo/security_examples.py",
+    "demo/repomind-demo/repomind_demo/service.py",
+    "demo/repomind-demo/tests/test_greeting.py",
+    "desktop/app/e2e/global-teardown.ts",
+    "desktop/app/e2e/packaged-demo.spec.ts",
+    "desktop/app/electron-builder.yml",
+    "desktop/app/electron/backendLifecycle.test.ts",
+    "desktop/app/electron/backendLifecycle.ts",
+    "desktop/app/electron/bridgeContract.ts",
+    "desktop/app/electron/exportContract.test.ts",
+    "desktop/app/electron/exportContract.ts",
+    "desktop/app/electron/main.ts",
+    "desktop/app/electron/preload.ts",
+    "desktop/app/electron/tsconfig.json",
+    "desktop/app/package-lock.json",
+    "desktop/app/package.json",
+    "desktop/app/playwright.config.ts",
+    "desktop/app/renderer/index.html",
+    "desktop/app/renderer/services/apiClient.test.ts",
+    "desktop/app/renderer/services/apiClient.ts",
+    "desktop/app/renderer/src/UserGuide.tsx",
+    "desktop/app/renderer/src/app/AppHeader.tsx",
+    "desktop/app/renderer/src/app/AppShell.test.tsx",
+    "desktop/app/renderer/src/app/AppShell.tsx",
+    "desktop/app/renderer/src/app/CommandBar.tsx",
+    "desktop/app/renderer/src/app/Inspector.tsx",
+    "desktop/app/renderer/src/app/types.ts",
+    "desktop/app/renderer/src/components/ui/Dialog.test.tsx",
+    "desktop/app/renderer/src/components/ui/Dialog.tsx",
+    "desktop/app/renderer/src/components/ui/Drawer.test.tsx",
+    "desktop/app/renderer/src/components/ui/Drawer.tsx",
+    "desktop/app/renderer/src/components/ui/EmptyState.tsx",
+    "desktop/app/renderer/src/components/ui/IconButton.tsx",
+    "desktop/app/renderer/src/components/ui/SectionHeader.tsx",
+    "desktop/app/renderer/src/components/ui/StatusBadge.tsx",
+    "desktop/app/renderer/src/components/ui/Tabs.test.tsx",
+    "desktop/app/renderer/src/components/ui/Tabs.tsx",
+    "desktop/app/renderer/src/components/ui/overlayStack.ts",
+    "desktop/app/renderer/src/exportRedaction.test.ts",
+    "desktop/app/renderer/src/exportRedaction.ts",
+    "desktop/app/renderer/src/features/catalog/CatalogWorkspace.tsx",
+    "desktop/app/renderer/src/features/catalog/RepositoryKnowledgeNavigator.test.tsx",
+    "desktop/app/renderer/src/features/catalog/RepositoryKnowledgeNavigator.tsx",
+    "desktop/app/renderer/src/features/evidence/EvidenceDrawer.tsx",
+    "desktop/app/renderer/src/features/legacy/LegacyAgentPanel.tsx",
+    "desktop/app/renderer/src/features/repositories/RepositoryAccessPanel.tsx",
+    "desktop/app/renderer/src/main.tsx",
+    "desktop/app/renderer/src/repositoryContextReset.test.ts",
+    "desktop/app/renderer/src/repositoryContextReset.ts",
+    "desktop/app/renderer/src/repositoryRegistration.test.ts",
+    "desktop/app/renderer/src/repositoryRegistration.ts",
+    "desktop/app/renderer/src/styles.css",
+    "desktop/app/renderer/src/styles/accessibility.css",
+    "desktop/app/renderer/src/styles/legacy.css",
+    "desktop/app/renderer/src/styles/tokens.css",
+    "desktop/app/renderer/src/styles/workbench.css",
+    "desktop/app/renderer/test/setup.ts",
+    "desktop/app/vite.config.ts",
+    "docs/assets/repomind-showcase.gif",
+    "docs/assets/screenshots/command-palette.png",
+    "docs/assets/screenshots/main-agent-trace.png",
+    "docs/assets/screenshots/qa-evidence-inspector.png",
+    "docs/assets/screenshots/repository-access-demo.png",
+    "docs/assets/screenshots/responsive-workbench.png",
+    "docs/assets/screenshots/snapshot-catalog-tree.png",
+    "docs/assets/screenshots/source-evidence-drawer.png",
+    "docs/assets/screenshots/workbench-overview.png",
+    "docs/assets/screenshots/workflow-export.png",
+    "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+    "docs/后续开发指导/DEVELOPMENT_REPORT.md",
+    "docs/后续开发指导/GITHUB_UPLOAD_GUIDE.md",
+    "docs/后续开发指导/RAG_VS_AGENTIC.md",
+    "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+    "docs/多模态AI交接/RepoMind_多模态AI展示与发布任务书.md",
+    "examples/benchmarks/code-understanding-gold.json",
+    "examples/benchmarks/demo-evidence-capture-post-fix.json",
+    "examples/benchmarks/demo-evidence-capture.json",
+    "examples/benchmarks/demo-evidence-report-post-fix.md",
+    "examples/benchmarks/demo-evidence-report.md",
+    "examples/benchmarks/retrieval-rankings.example.json",
+    "examples/outputs/repomind-demo-report.md",
+    "examples/outputs/repomind-demo-trace.json",
+    "examples/outputs/repomind-demo-trace.post-fix.json",
+    "scripts/build_backend.ps1",
+    "scripts/capture_demo_evidence.py",
+    "scripts/e2e_windows.ps1",
+    "scripts/package_windows.ps1",
+    "scripts/report_retrieval_metrics.py",
+    "scripts/smoke_backend.ps1",
+    "scripts/verify_identity_contract.ps1"
+  ],
+  "limitations": [
+    "This capture evaluates cited evidence paths only; it does not judge answer semantics.",
+    "Tool-routing mismatches against the gold file's expected_tools are logged as warnings, not hard failures.",
+    "Latency is omitted because this script does not establish a controlled timing protocol.",
+    "known_paths is capped at 1000 files by the /files endpoint; larger repositories are only partially covered."
+  ],
+  "queries": [
+    {
+      "id": "sn-route-question",
+      "query": "route_question 这个函数的作用是什么？",
+      "route_tools": [],
+      "ranked": [
+        "backend/tests/test_m4_main_agent.py",
+        "examples/benchmarks/demo-evidence-report-post-fix.md",
+        "backend/tests/test_m4_main_agent.py",
+        "desktop/app/renderer/src/main.tsx",
+        "desktop/app/renderer/src/main.tsx",
+        "examples/outputs/repomind-demo-trace.json",
+        "demo/repomind-demo/README.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "evidence_paths": [
+        "backend/service/core/agent/router.py",
+        "backend/tests/test_m4_main_agent.py",
+        "backend/tests/test_m4_main_agent.py",
+        "examples/benchmarks/demo-evidence-report-post-fix.md",
+        "desktop/app/renderer/src/main.tsx",
+        "desktop/app/renderer/src/main.tsx",
+        "examples/outputs/repomind-demo-trace.json",
+        "demo/repomind-demo/README.md"
+      ],
+      "relevant": [
+        "backend/service/core/agent/router.py"
+      ],
+      "confidence": "low",
+      "expected_tools": []
+    },
+    {
+      "id": "sn-rrf-fuse",
+      "query": "ReciprocalRankFusion.fuse 是如何给多路候选打分的？",
+      "route_tools": [],
+      "ranked": [
+        "backend/service/core/retrieval/fusion.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/fusion.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/fusion.py",
+        "backend/service/core/retrieval/service.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/service.py"
+      ],
+      "evidence_paths": [
+        "backend/service/core/retrieval/fusion.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/fusion.py",
+        "backend/service/core/retrieval/fusion.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/service.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/service.py"
+      ],
+      "relevant": [
+        "backend/service/core/retrieval/fusion.py"
+      ],
+      "confidence": "low",
+      "expected_tools": []
+    },
+    {
+      "id": "sn-hybrid-retrieve",
+      "query": "HybridRetriever.retrieve 的检索流程是怎样的？",
+      "route_tools": [],
+      "ranked": [
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/lexical.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/__init__.py",
+        "backend/service/core/retrieval/lexical.py",
+        "backend/service/core/retrieval/lexical.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/tests/test_m3_hybrid_retrieval.py"
+      ],
+      "evidence_paths": [
+        "backend/service/core/retrieval/service.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/lexical.py",
+        "backend/service/core/retrieval/__init__.py",
+        "backend/service/core/retrieval/lexical.py",
+        "backend/service/core/retrieval/lexical.py",
+        "backend/tests/test_m3_hybrid_retrieval.py"
+      ],
+      "relevant": [
+        "backend/service/core/retrieval/service.py"
+      ],
+      "confidence": "low",
+      "expected_tools": []
+    },
+    {
+      "id": "sn-evidence-assemble",
+      "query": "EvidenceAssembler.assemble 负责做什么？",
+      "route_tools": [],
+      "ranked": [
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py"
+      ],
+      "evidence_paths": [
+        "backend/service/core/evidence/assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py"
+      ],
+      "relevant": [
+        "backend/service/core/evidence/assembler.py"
+      ],
+      "confidence": "low",
+      "expected_tools": []
+    },
+    {
+      "id": "sn-run-main-agent",
+      "query": "run_main_agent 完成一次问答要经过哪几个阶段？",
+      "route_tools": [],
+      "ranked": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "backend/service/core/agent/models.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "backend/service/core/agent/models.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "README.md"
+      ],
+      "evidence_paths": [
+        "backend/service/core/agent/main_agent.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "backend/service/core/agent/models.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "backend/service/core/agent/models.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md"
+      ],
+      "relevant": [
+        "backend/service/core/agent/main_agent.py"
+      ],
+      "confidence": "low",
+      "expected_tools": []
+    },
+    {
+      "id": "sn-agentplan-structure",
+      "query": "AgentPlan 的类结构和字段有哪些？",
+      "route_tools": [
+        "language_structure"
+      ],
+      "ranked": [
+        "backend/service/core/agent/models.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/models.py",
+        "backend/service/core/agent/__init__.py"
+      ],
+      "evidence_paths": [
+        "backend/service/core/agent/models.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/models.py",
+        "backend/service/core/agent/__init__.py"
+      ],
+      "relevant": [
+        "backend/service/core/agent/models.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "language_structure"
+      ]
+    },
+    {
+      "id": "sn-retrievalplan-fields",
+      "query": "列出 RetrievalPlan 的字段和方法列表。",
+      "route_tools": [
+        "language_structure"
+      ],
+      "ranked": [
+        "backend/service/core/retrieval/planner.py",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/planner.py"
+      ],
+      "evidence_paths": [
+        "backend/service/core/retrieval/planner.py",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/planner.py"
+      ],
+      "relevant": [
+        "backend/service/core/retrieval/planner.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "language_structure"
+      ]
+    },
+    {
+      "id": "sn-evidencebudget-symbol",
+      "query": "EvidenceBudget 这个符号定义了哪些预算项？",
+      "route_tools": [
+        "language_structure"
+      ],
+      "ranked": [
+        "backend/service/core/evidence/assembler.py",
+        "backend/service/core/evidence/budget.py",
+        "backend/service/core/evidence/assembler.py",
+        "backend/service/core/evidence/budget.py",
+        "backend/tests/fixtures/parsing/pkg/other.py",
+        "backend/service/core/evidence/budget.py",
+        "backend/service/core/evidence/assembler.py",
+        "backend/service/core/evidence/assembler.py"
+      ],
+      "evidence_paths": [
+        "backend/service/core/evidence/assembler.py",
+        "backend/service/core/evidence/budget.py",
+        "backend/service/core/evidence/assembler.py",
+        "backend/service/core/evidence/budget.py",
+        "backend/tests/fixtures/parsing/pkg/other.py",
+        "backend/service/core/evidence/budget.py",
+        "backend/service/core/evidence/assembler.py",
+        "backend/service/core/evidence/assembler.py"
+      ],
+      "relevant": [
+        "backend/service/core/evidence/budget.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "language_structure"
+      ]
+    },
+    {
+      "id": "di-route-question-callers",
+      "query": "修改 route_question 的关键字规则会影响哪些调用方？",
+      "route_tools": [
+        "dependency_impact"
+      ],
+      "ranked": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/tests/test_m4_main_agent.py",
+        "backend/tests/test_m4_main_agent.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/tests/test_m4_main_agent.py",
+        "backend/tests/test_m4_main_agent.py",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "demo/repomind-demo/README.md"
+      ],
+      "evidence_paths": [
+        "backend/service/core/agent/router.py",
+        "backend/tests/test_m4_main_agent.py",
+        "backend/tests/test_m4_main_agent.py",
+        "backend/tests/test_m4_main_agent.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/tests/test_m4_main_agent.py",
+        "backend/tests/test_m4_main_agent.py",
+        "examples/benchmarks/code-understanding-gold.json"
+      ],
+      "relevant": [
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/main_agent.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "dependency_impact"
+      ]
+    },
+    {
+      "id": "di-run-main-agent-deps",
+      "query": "run_main_agent 依赖哪些模块和函数来完成一次问答？",
+      "route_tools": [
+        "dependency_impact"
+      ],
+      "ranked": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "backend/service/core/debate.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "backend/service/core/debate.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md"
+      ],
+      "evidence_paths": [
+        "backend/service/core/agent/main_agent.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "backend/service/core/debate.py",
+        "backend/service/core/debate.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md"
+      ],
+      "relevant": [
+        "backend/service/core/agent/main_agent.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/retrieval/service.py",
+        "backend/service/core/evidence/assembler.py",
+        "backend/service/core/qa.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "dependency_impact"
+      ]
+    },
+    {
+      "id": "di-evidencebudget-impact",
+      "query": "改动 EvidenceBudget 的常量会影响证据组装的哪些逻辑？",
+      "route_tools": [
+        "dependency_impact"
+      ],
+      "ranked": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "README.md",
+        "backend/tests/test_m4_main_agent.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/core/evidence/budget.py",
+        "backend/tests/test_m4_main_agent.py",
+        "backend/service/core/evidence/assembler.py"
+      ],
+      "evidence_paths": [
+        "backend/service/core/evidence/budget.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_evidence_assembler.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "README.md",
+        "backend/tests/test_m4_main_agent.py"
+      ],
+      "relevant": [
+        "backend/service/core/evidence/budget.py",
+        "backend/service/core/evidence/assembler.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "dependency_impact"
+      ]
+    },
+    {
+      "id": "di-fusion-consumers",
+      "query": "ReciprocalRankFusion.fuse 的融合结果被检索流程中的谁依赖？",
+      "route_tools": [
+        "dependency_impact"
+      ],
+      "ranked": [
+        "backend/service/core/retrieval/fusion.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/fusion.py",
+        "backend/service/core/retrieval/fusion.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/service.py",
+        "backend/service/core/retrieval/service.py",
+        "backend/service/core/retrieval/service.py"
+      ],
+      "evidence_paths": [
+        "backend/service/core/retrieval/fusion.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/fusion.py",
+        "backend/service/core/retrieval/fusion.py",
+        "backend/service/core/retrieval/service.py",
+        "backend/service/core/retrieval/service.py"
+      ],
+      "relevant": [
+        "backend/service/core/retrieval/fusion.py",
+        "backend/service/core/retrieval/service.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "dependency_impact"
+      ]
+    },
+    {
+      "id": "di-publish-snapshot",
+      "query": "谁调用 publish_snapshot，它在索引流程中处于哪个位置？",
+      "route_tools": [
+        "dependency_impact"
+      ],
+      "ranked": [
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "demo/repomind-demo/README.md",
+        "backend/service/core/agent/router.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "README.md",
+        "backend/service/storage/lexical_store.py",
+        "backend/service/storage/lexical_store.py"
+      ],
+      "evidence_paths": [
+        "backend/service/storage/snapshot_store.py",
+        "backend/tests/test_m3_catalog.py",
+        "backend/tests/test_m3_lexical_retrieval.py",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "demo/repomind-demo/README.md",
+        "backend/service/core/agent/router.py",
+        "examples/benchmarks/code-understanding-gold.json"
+      ],
+      "relevant": [
+        "backend/service/storage/snapshot_store.py",
+        "backend/service/core/ingest_service.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "dependency_impact"
+      ]
+    },
+    {
+      "id": "di-embed-snapshot",
+      "query": "embed_snapshot_evidence 受哪个索引步骤的调用影响，又会影响后续什么？",
+      "route_tools": [
+        "dependency_impact"
+      ],
+      "ranked": [
+        "README.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "demo/repomind-demo/README.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "desktop/app/renderer/src/main.tsx",
+        "backend/tests/test_m4_main_agent.py"
+      ],
+      "evidence_paths": [
+        "backend/service/core/embeddings/service.py",
+        "backend/tests/test_m3_embeddings.py",
+        "backend/tests/test_m3_embeddings.py",
+        "README.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "demo/repomind-demo/README.md"
+      ],
+      "relevant": [
+        "backend/service/core/embeddings/service.py",
+        "backend/service/core/ingest_service.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "dependency_impact"
+      ]
+    },
+    {
+      "id": "di-semantic-available",
+      "query": "SemanticRetriever.available 返回 False 会影响检索计划的哪些选择？",
+      "route_tools": [
+        "dependency_impact"
+      ],
+      "ranked": [
+        "backend/service/core/retrieval/service.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/semantic.py",
+        "backend/service/core/retrieval/semantic.py",
+        "backend/service/core/retrieval/service.py",
+        "backend/service/core/retrieval/service.py",
+        "backend/service/core/retrieval/semantic.py",
+        "backend/service/core/retrieval/semantic.py"
+      ],
+      "evidence_paths": [
+        "backend/service/core/retrieval/semantic.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/tests/test_m3_hybrid_retrieval.py",
+        "backend/service/core/retrieval/service.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/semantic.py",
+        "backend/service/core/retrieval/service.py"
+      ],
+      "relevant": [
+        "backend/service/core/retrieval/semantic.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/service.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "dependency_impact"
+      ]
+    },
+    {
+      "id": "di-ask-endpoint",
+      "query": "ask 接口的改动依赖哪个核心函数来生成回答？",
+      "route_tools": [
+        "dependency_impact"
+      ],
+      "ranked": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "desktop/app/renderer/src/main.tsx",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "README.md",
+        "README.md",
+        "README.md",
+        "desktop/app/renderer/src/main.tsx"
+      ],
+      "evidence_paths": [
+        "desktop/app/renderer/services/apiClient.ts",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "desktop/app/renderer/src/main.tsx",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "README.md",
+        "README.md",
+        "README.md"
+      ],
+      "relevant": [
+        "backend/service/api/v1/repos.py",
+        "backend/service/core/agent/main_agent.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "dependency_impact"
+      ]
+    },
+    {
+      "id": "sr-scan-patterns",
+      "query": "security_review 工具会扫描哪些安全风险模式？",
+      "route_tools": [
+        "security_review"
+      ],
+      "ranked": [
+        "examples/outputs/repomind-demo-trace.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "evidence_paths": [
+        ".github/workflows/ci-windows.yml",
+        ".gitignore",
+        "backend/service/core/agent/router.py",
+        "examples/outputs/repomind-demo-trace.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "relevant": [
+        "backend/service/core/agent/tools.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "security_review"
+      ]
+    },
+    {
+      "id": "sr-dpapi-secret",
+      "query": "WindowsDPAPISecretStore 是如何保护 API 密钥的？",
+      "route_tools": [
+        "security_review"
+      ],
+      "ranked": [
+        "backend/tests/test_m3_embeddings.py",
+        "backend/service/api/v1/settings.py",
+        "backend/service/api/v1/settings.py",
+        "backend/service/api/v1/settings.py",
+        "demo/repomind-demo/README.md",
+        "backend/service/api/v1/settings.py",
+        "backend/tests/test_m3_embeddings.py",
+        "backend/tests/test_settings_security.py"
+      ],
+      "evidence_paths": [
+        ".github/workflows/ci-windows.yml",
+        ".gitignore",
+        "backend/service/core/agent/router.py",
+        "backend/tests/test_m3_embeddings.py",
+        "backend/service/api/v1/settings.py",
+        "backend/service/api/v1/settings.py"
+      ],
+      "relevant": [
+        "backend/service/storage/secret_store.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "security_review"
+      ]
+    },
+    {
+      "id": "sr-dynamic-exec",
+      "query": "安全审查如何识别 eval、exec 这类动态执行风险？",
+      "route_tools": [
+        "security_review"
+      ],
+      "ranked": [
+        "examples/outputs/repomind-demo-report.md",
+        "backend/service/core/agent/tools.py",
+        "backend/service/core/agent/tools.py",
+        "demo/repomind-demo/README.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "demo/repomind-demo/README.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "evidence_paths": [
+        ".github/workflows/ci-windows.yml",
+        ".gitignore",
+        "backend/service/core/agent/router.py",
+        "examples/outputs/repomind-demo-report.md",
+        "backend/service/core/agent/tools.py",
+        "backend/service/core/agent/tools.py",
+        "demo/repomind-demo/README.md"
+      ],
+      "relevant": [
+        "backend/service/core/agent/tools.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "security_review"
+      ]
+    },
+    {
+      "id": "sr-unsafe-deser",
+      "query": "安全扫描怎样发现 yaml.load、pickle.loads 这类不安全反序列化？",
+      "route_tools": [
+        "security_review"
+      ],
+      "ranked": [
+        "backend/service/core/agent/tools.py",
+        "demo/repomind-demo/README.md",
+        "backend/service/core/agent/tools.py",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "demo/repomind-demo/repomind_demo/security_examples.py",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "evidence_paths": [
+        ".github/workflows/ci-windows.yml",
+        ".gitignore",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/tools.py",
+        "backend/service/core/agent/tools.py",
+        "demo/repomind-demo/README.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "relevant": [
+        "backend/service/core/agent/tools.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "security_review"
+      ]
+    },
+    {
+      "id": "sr-token-auth",
+      "query": "桌面端接口的令牌认证是怎么实现的？",
+      "route_tools": [
+        "security_review"
+      ],
+      "ranked": [
+        "demo/repomind-demo/README.md",
+        "backend/tests/test_desktop_security.py",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "backend/tests/test_desktop_security.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "backend/service/config/settings.py",
+        "backend/service/main.py"
+      ],
+      "evidence_paths": [
+        ".github/workflows/ci-windows.yml",
+        ".gitignore",
+        "backend/service/core/agent/router.py",
+        "demo/repomind-demo/README.md",
+        "backend/tests/test_desktop_security.py",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "backend/tests/test_desktop_security.py"
+      ],
+      "relevant": [
+        "backend/service/main.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "security_review"
+      ]
+    },
+    {
+      "id": "sr-redact-secret",
+      "query": "redact_secret 如何防止密钥泄漏到提示文本里？",
+      "route_tools": [
+        "security_review"
+      ],
+      "ranked": [
+        "backend/service/core/redaction.py",
+        "backend/tests/test_settings_security.py",
+        "backend/tests/test_settings_security.py",
+        "backend/service/core/redaction.py",
+        "backend/service/core/redaction.py",
+        "demo/repomind-demo/README.md",
+        "backend/service/api/v1/settings.py",
+        "backend/service/api/v1/settings.py"
+      ],
+      "evidence_paths": [
+        ".github/workflows/ci-windows.yml",
+        ".gitignore",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/redaction.py",
+        "backend/tests/test_settings_security.py",
+        "backend/tests/test_settings_security.py",
+        "backend/service/core/redaction.py",
+        "backend/service/core/redaction.py"
+      ],
+      "relevant": [
+        "backend/service/core/redaction.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "security_review"
+      ]
+    },
+    {
+      "id": "sr-subprocess-shell",
+      "query": "安全扫描如何标记 subprocess shell=True 的命令执行风险？",
+      "route_tools": [
+        "security_review"
+      ],
+      "ranked": [
+        "examples/outputs/repomind-demo-report.md",
+        "demo/repomind-demo/README.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "demo/repomind-demo/repomind_demo/security_examples.py",
+        "backend/service/core/agent/tools.py",
+        "demo/repomind-demo/README.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "evidence_paths": [
+        ".github/workflows/ci-windows.yml",
+        ".gitignore",
+        "backend/service/core/agent/router.py",
+        "examples/outputs/repomind-demo-report.md",
+        "demo/repomind-demo/README.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "demo/repomind-demo/repomind_demo/security_examples.py"
+      ],
+      "relevant": [
+        "backend/service/core/agent/tools.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "security_review"
+      ]
+    },
+    {
+      "id": "sr-embedding-key-isolation",
+      "query": "为什么 get_embedding_api_key 不复用 Chat 的密钥？",
+      "route_tools": [
+        "security_review"
+      ],
+      "ranked": [
+        "backend/service/core/embeddings/service.py",
+        "backend/service/api/v1/settings.py",
+        "backend/service/core/embeddings/service.py",
+        "backend/service/core/embeddings/service.py",
+        "backend/service/api/v1/settings.py",
+        "backend/tests/test_m3_embeddings.py",
+        "backend/tests/test_m3_embeddings.py",
+        "backend/service/storage/models.py"
+      ],
+      "evidence_paths": [
+        ".github/workflows/ci-windows.yml",
+        ".gitignore",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/embeddings/service.py",
+        "backend/service/core/embeddings/service.py",
+        "backend/service/core/embeddings/service.py",
+        "backend/service/api/v1/settings.py"
+      ],
+      "relevant": [
+        "backend/service/storage/secret_store.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "security_review"
+      ]
+    },
+    {
+      "id": "rn-overall-architecture",
+      "query": "这个项目的整体架构是怎样设计的？",
+      "route_tools": [
+        "repository_navigator"
+      ],
+      "ranked": [
+        "desktop/app/renderer/src/main.tsx",
+        "demo/repomind-demo/README.md",
+        "desktop/app/renderer/src/main.tsx",
+        "demo/repomind-demo/README.md",
+        "demo/repomind-demo/README.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/outputs/repomind-demo-trace.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "evidence_paths": [
+        "desktop/app/renderer/src/main.tsx",
+        "demo/repomind-demo/README.md",
+        "desktop/app/renderer/src/main.tsx",
+        "demo/repomind-demo/README.md",
+        "demo/repomind-demo/README.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/outputs/repomind-demo-trace.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "relevant": [
+        "README.md",
+        "backend/service/main.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "repository_navigator"
+      ]
+    },
+    {
+      "id": "rn-retrieval-modules",
+      "query": "检索子系统由哪些主要模块组成？",
+      "route_tools": [
+        "repository_navigator"
+      ],
+      "ranked": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/GITHUB_UPLOAD_GUIDE.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md"
+      ],
+      "evidence_paths": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/GITHUB_UPLOAD_GUIDE.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md"
+      ],
+      "relevant": [
+        "backend/service/core/retrieval/service.py",
+        "backend/service/core/retrieval/planner.py",
+        "backend/service/core/retrieval/lexical.py",
+        "backend/service/core/retrieval/semantic.py",
+        "backend/service/core/retrieval/fusion.py",
+        "backend/service/core/retrieval/structural.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "repository_navigator"
+      ]
+    },
+    {
+      "id": "rn-fastapi-entry",
+      "query": "FastAPI 应用的入口在哪里定义？",
+      "route_tools": [
+        "repository_navigator"
+      ],
+      "ranked": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/main.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "README.md",
+        "backend/service/api/v1/jobs.py",
+        "backend/service/main.py",
+        "backend/service/main.py",
+        "backend/service/main.py"
+      ],
+      "evidence_paths": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/main.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "README.md",
+        "backend/service/api/v1/jobs.py",
+        "backend/service/main.py",
+        "backend/service/main.py",
+        "backend/service/main.py"
+      ],
+      "relevant": [
+        "backend/service/main.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "repository_navigator"
+      ]
+    },
+    {
+      "id": "rn-storage-modules",
+      "query": "存储层由哪些主要模块组成？",
+      "route_tools": [
+        "repository_navigator"
+      ],
+      "ranked": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/GITHUB_UPLOAD_GUIDE.md",
+        "backend/service/storage/evidence_store.py",
+        "backend/service/storage/evidence_store.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json"
+      ],
+      "evidence_paths": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/GITHUB_UPLOAD_GUIDE.md",
+        "backend/service/storage/evidence_store.py",
+        "backend/service/storage/evidence_store.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json"
+      ],
+      "relevant": [
+        "backend/service/storage/snapshot_store.py",
+        "backend/service/storage/chunk_store.py",
+        "backend/service/storage/evidence_store.py",
+        "backend/service/storage/lexical_store.py",
+        "backend/service/storage/symbol_store.py",
+        "backend/service/storage/sqlite_db.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "repository_navigator"
+      ]
+    },
+    {
+      "id": "rn-agent-core",
+      "query": "Agent 核心代码的架构和入口是什么？",
+      "route_tools": [
+        "repository_navigator"
+      ],
+      "ranked": [
+        "desktop/app/renderer/src/main.tsx",
+        "README.md",
+        "desktop/app/renderer/src/main.tsx",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "README.md",
+        "README.md"
+      ],
+      "evidence_paths": [
+        "desktop/app/renderer/src/main.tsx",
+        "README.md",
+        "desktop/app/renderer/src/main.tsx",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "README.md",
+        "README.md"
+      ],
+      "relevant": [
+        "backend/service/core/agent/main_agent.py",
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/tools.py",
+        "backend/service/core/agent/models.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "repository_navigator"
+      ]
+    },
+    {
+      "id": "rn-evaluation-overview",
+      "query": "评测子系统的概览是怎样的？",
+      "route_tools": [
+        "repository_navigator"
+      ],
+      "ranked": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "demo/repomind-demo/README.md",
+        "desktop/app/vite.config.ts",
+        "backend/service/core/embeddings/__init__.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "backend/tests/test_m4_main_agent.py",
+        "desktop/app/e2e/global-teardown.ts"
+      ],
+      "evidence_paths": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "demo/repomind-demo/README.md",
+        "desktop/app/vite.config.ts",
+        "backend/service/core/embeddings/__init__.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "backend/tests/test_m4_main_agent.py",
+        "desktop/app/e2e/global-teardown.ts"
+      ],
+      "relevant": [
+        "backend/service/evaluation/retrieval_metrics.py",
+        "backend/service/evaluation/citation_metrics.py",
+        "backend/service/evaluation/timing.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "repository_navigator"
+      ]
+    },
+    {
+      "id": "rn-embedding-modules",
+      "query": "Embedding 相关的主要模块分布在哪里？",
+      "route_tools": [
+        "repository_navigator"
+      ],
+      "ranked": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "desktop/app/renderer/src/main.tsx",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md"
+      ],
+      "evidence_paths": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "desktop/app/renderer/src/main.tsx",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md"
+      ],
+      "relevant": [
+        "backend/service/core/embeddings/service.py",
+        "backend/service/core/embeddings/disabled.py",
+        "backend/service/core/embeddings/openai_compatible.py",
+        "backend/service/core/vector_store.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "repository_navigator"
+      ]
+    },
+    {
+      "id": "rn-rest-api",
+      "query": "REST API 的整体架构和主要入口是什么？",
+      "route_tools": [
+        "repository_navigator"
+      ],
+      "ranked": [
+        "desktop/app/renderer/src/main.tsx",
+        "demo/repomind-demo/README.md",
+        "desktop/app/renderer/src/main.tsx",
+        "examples/outputs/repomind-demo-report.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "README.md",
+        "README.md",
+        "examples/benchmarks/demo-evidence-capture.json"
+      ],
+      "evidence_paths": [
+        "desktop/app/renderer/src/main.tsx",
+        "demo/repomind-demo/README.md",
+        "desktop/app/renderer/src/main.tsx",
+        "examples/outputs/repomind-demo-report.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "README.md",
+        "README.md",
+        "examples/benchmarks/demo-evidence-capture.json"
+      ],
+      "relevant": [
+        "backend/service/main.py",
+        "backend/service/api/v1/repos.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "repository_navigator"
+      ]
+    },
+    {
+      "id": "tr-router-tests",
+      "query": "哪些测试用例验证了 Router 的路由行为？",
+      "route_tools": [
+        "test_runtime"
+      ],
+      "ranked": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "README.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "evidence_paths": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "README.md",
+        "examples/outputs/repomind-demo-trace.post-fix.json"
+      ],
+      "relevant": [
+        "backend/tests/test_m4_main_agent.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "test_runtime"
+      ]
+    },
+    {
+      "id": "tr-assembler-tests",
+      "query": "EvidenceAssembler 的单元测试覆盖了什么？",
+      "route_tools": [
+        "test_runtime"
+      ],
+      "ranked": [
+        "examples/outputs/repomind-demo-report.md",
+        "backend/tests/test_evidence_assembler.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/core/evidence/__init__.py",
+        "backend/service/core/evidence/__init__.py",
+        "backend/service/core/evidence/__init__.py",
+        "backend/service/core/evidence/__init__.py",
+        "backend/tests/test_evidence_assembler.py"
+      ],
+      "evidence_paths": [
+        "examples/outputs/repomind-demo-report.md",
+        "backend/tests/test_evidence_assembler.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/core/evidence/__init__.py",
+        "backend/service/core/evidence/__init__.py",
+        "backend/service/core/evidence/__init__.py",
+        "backend/service/core/evidence/__init__.py",
+        "backend/tests/test_evidence_assembler.py"
+      ],
+      "relevant": [
+        "backend/tests/test_evidence_assembler.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "test_runtime"
+      ]
+    },
+    {
+      "id": "tr-snapshot-branches",
+      "query": "快照的成功与失败分支分别由哪些测试保证？",
+      "route_tools": [
+        "test_runtime"
+      ],
+      "ranked": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "README.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "desktop/app/e2e/global-teardown.ts"
+      ],
+      "evidence_paths": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "README.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "desktop/app/e2e/global-teardown.ts"
+      ],
+      "relevant": [
+        "backend/tests/test_snapshot_ingest.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "test_runtime"
+      ]
+    },
+    {
+      "id": "tr-metrics-tests",
+      "query": "Recall 和 MRR 指标的计算有测试覆盖吗？",
+      "route_tools": [
+        "test_runtime"
+      ],
+      "ranked": [
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "backend/service/evaluation/retrieval_metrics.py",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "backend/service/evaluation/retrieval_metrics.py",
+        "backend/service/evaluation/retrieval_metrics.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md"
+      ],
+      "evidence_paths": [
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "backend/service/evaluation/retrieval_metrics.py",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "backend/service/evaluation/retrieval_metrics.py",
+        "backend/service/evaluation/retrieval_metrics.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md"
+      ],
+      "relevant": [
+        "backend/tests/test_evaluation_metrics.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "test_runtime"
+      ]
+    },
+    {
+      "id": "tr-nokey-fallback",
+      "query": "缺少模型凭据时的降级问答由哪个测试验证？",
+      "route_tools": [
+        "test_runtime"
+      ],
+      "ranked": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "README.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "README.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md"
+      ],
+      "evidence_paths": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "README.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "README.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md"
+      ],
+      "relevant": [
+        "backend/tests/test_m4_main_agent.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "test_runtime"
+      ]
+    },
+    {
+      "id": "tr-desktop-token",
+      "query": "业务接口鉴权、health 接口保持公开的行为由哪个测试用例覆盖？",
+      "route_tools": [
+        "test_runtime"
+      ],
+      "ranked": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "desktop/app/renderer/test/setup.ts",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "demo/repomind-demo/repomind_demo/service.py",
+        "backend/tests/test_desktop_security.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md"
+      ],
+      "evidence_paths": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "desktop/app/renderer/test/setup.ts",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "demo/repomind-demo/repomind_demo/service.py",
+        "backend/tests/test_desktop_security.py",
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md"
+      ],
+      "relevant": [
+        "backend/tests/test_desktop_security.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "test_runtime"
+      ]
+    },
+    {
+      "id": "tr-settings-redaction",
+      "query": "敏感信息存储与脱敏迁移由哪些测试保证？",
+      "route_tools": [
+        "test_runtime"
+      ],
+      "ranked": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/benchmarks/code-understanding-gold.json",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/GITHUB_UPLOAD_GUIDE.md",
+        "backend/service/api/v1/settings.py"
+      ],
+      "evidence_paths": [
+        "docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/outputs/repomind-demo-trace.post-fix.json",
+        "examples/benchmarks/code-understanding-gold.json",
+        "examples/benchmarks/code-understanding-gold.json",
+        "docs/后续开发指导/GITHUB_UPLOAD_GUIDE.md",
+        "backend/service/api/v1/settings.py"
+      ],
+      "relevant": [
+        "backend/tests/test_settings_security.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "test_runtime"
+      ]
+    },
+    {
+      "id": "tr-workflow-snapshot",
+      "query": "工作流快照的分页与契约由哪些测试用例覆盖？",
+      "route_tools": [
+        "test_runtime"
+      ],
+      "ranked": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/storage/models.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/storage/models.py",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/storage/models.py",
+        "demo/repomind-demo/tests/test_greeting.py"
+      ],
+      "evidence_paths": [
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/storage/models.py",
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/storage/models.py",
+        "docs/后续开发指导/RESUME_EVIDENCE_PLAN.md",
+        "examples/benchmarks/code-understanding-gold.json",
+        "backend/service/storage/models.py",
+        "demo/repomind-demo/tests/test_greeting.py"
+      ],
+      "relevant": [
+        "backend/tests/test_workflow_snapshot.py"
+      ],
+      "confidence": "low",
+      "expected_tools": [
+        "test_runtime"
+      ]
+    }
+  ]
+}

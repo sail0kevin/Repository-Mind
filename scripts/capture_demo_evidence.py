@@ -2,17 +2,28 @@
 
 安全边界：脚本只复制、提交和静态索引 synthetic Demo 文件；绝不导入、运行或测试 Demo 代码，
 也绝不读取默认 RepoMind 用户数据库或用户密钥存储。
+
+本文件同时提供一个通用 Evidence Capture Runner（`--gold-file --repo-id --snapshot-id`），
+用于驱动任意已注册并已完成 ingest 的仓库（不再局限于内置 3 题 Demo）。通用模式通过真实
+HTTP 请求一个已经在运行的 RepoMind 后端（默认 http://127.0.0.1:8000/api/v1），复用与内置
+Demo 完全相同的 Trace 采集与路径校验逻辑，因此产出结构（`ranked`/`evidence_paths`/`relevant`
+等字段）与下游 `service/evaluation/*_metrics.py` 保持兼容。不带任何参数运行本脚本时，行为与
+改造前完全一致（详见 `scripts/verify_capture_regression.py`）。
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -208,8 +219,12 @@ def _assert_redacted(payload: dict[str, Any], temp_root: Path) -> None:
     walk(payload)
 
 
-def main() -> int:
-    """注册、索引、提问和读取 Trace，全部成功后原子写入两个 post-fix 文件。"""
+def _run_builtin_demo_capture() -> int:
+    """注册、索引、提问和读取 Trace，全部成功后原子写入两个 post-fix 文件。
+
+    这是脚本改造前唯一的行为；不带任何参数运行 `main()` 时会精确调用本函数，
+    逐行未改动，用于保证 `scripts/verify_capture_regression.py` 的可复现性校验。
+    """
     gold = json.loads(GOLD_PATH.read_text(encoding="utf-8"))
     if gold.get("snapshot_commit") != EXPECTED_COMMIT:
         raise RuntimeError("Gold fixture Snapshot 与固定 Demo commit 不一致。")
@@ -402,6 +417,201 @@ def main() -> int:
     print(OUTPUT_PATH.relative_to(ROOT).as_posix())
     print(TRACE_OUTPUT_PATH.relative_to(ROOT).as_posix())
     return 0
+
+
+class _HttpResponse:
+    """包装 urllib 响应，使其满足 `_assert_response` 期待的 status_code/text/json() 接口。"""
+
+    def __init__(self, status_code: int, body: bytes) -> None:
+        self.status_code = status_code
+        self._body = body
+
+    @property
+    def text(self) -> str:
+        return self._body.decode("utf-8", errors="replace")
+
+    def json(self) -> Any:
+        return json.loads(self._body)
+
+
+def _http_call(
+    base_url: str,
+    path: str,
+    *,
+    method: str = "GET",
+    json_body: dict[str, Any] | None = None,
+    api_token: str | None = None,
+) -> _HttpResponse:
+    """对已运行的真实后端发起一次 HTTP 请求，返回结果，绝不吞掉真实的 HTTP 错误码。"""
+    url = base_url.rstrip("/") + path
+    data = json.dumps(json_body).encode("utf-8") if json_body is not None else None
+    headers = {"Content-Type": "application/json"}
+    if api_token:
+        headers["X-RepoMind-API-Token"] = api_token
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return _HttpResponse(response.status, response.read())
+    except urllib.error.HTTPError as exc:
+        return _HttpResponse(exc.code, exc.read())
+
+
+def _normalize_relative_path(raw_path: Any) -> str:
+    """通用模式下只校验相对路径形状，不像内置 Demo 那样限制到固定的十文件集合。"""
+    value = str(raw_path or "").strip().replace("\\", "/")
+    path = PurePosixPath(value)
+    windows_path = PureWindowsPath(value)
+    if not value or path.is_absolute() or windows_path.is_absolute() or windows_path.drive or ".." in path.parts:
+        raise RuntimeError(f"API/Trace 返回了无效的相对路径：{value!r}")
+    return value
+
+
+def _fetch_known_paths(
+    base_url: str,
+    repo_id: str,
+    snapshot_id: str | None,
+    api_token: str | None,
+) -> list[str]:
+    """通过真实 GET /files 拉取目标 Snapshot 下全部已入库的相对路径。
+
+    这份列表是任务完成率指标里"引用路径均能在目标仓库中找到对应文件"这一条
+    的真实核验依据（而不是假设 answer.evidence 一定可信）。受 /files 接口单页
+    上限约束，最多拉取 1000 条；超过该上限的仓库会在 limitations 中说明。
+    """
+    query = {"limit": 1000}
+    if snapshot_id:
+        query["snapshot_id"] = snapshot_id
+    rows = _assert_response(
+        _http_call(base_url, f"/repos/{repo_id}/files?{urllib.parse.urlencode(query)}", api_token=api_token),
+        "list files",
+    )
+    return [_normalize_relative_path(row["relative_path"]) for row in rows]
+
+
+def _run_generic_capture(args: argparse.Namespace) -> int:
+    """驱动任意已注册且已完成 ingest 的仓库，产出与内置 Demo 结构兼容的 Evidence Capture。
+
+    通过真实 HTTP 请求一个已经在运行的后端（不做注册/ingest，目标仓库必须提前
+    ingest 完成），逐题调用 /ask 与 /traces，复用与内置 Demo 完全相同的 route/
+    retrieval/synthesis 校验与 evidence 路径提取逻辑，因此产出的 `ranked`/
+    `evidence_paths`/`relevant` 字段可以直接喂给 `report_retrieval_metrics.py`。
+    另外记录每题的 `confidence`，并在顶层附上真实的 `known_paths` 文件清单，
+    供任务完成率指标校验引用路径是否真实存在。
+    """
+    gold_path = Path(args.gold_file)
+    gold = json.loads(gold_path.read_text(encoding="utf-8"))
+    queries_spec = gold.get("queries")
+    if not isinstance(queries_spec, list) or not queries_spec:
+        raise RuntimeError(f"Gold 文件缺少非空 queries 数组：{gold_path}")
+
+    base_url = args.base_url
+    repo_id = args.repo_id
+    snapshot_id = args.snapshot_id
+    api_token = args.api_token or os.environ.get("REPOMIND_API_TOKEN")
+
+    capture_queries: list[dict[str, Any]] = []
+    retrieval_modes: set[str] = set()
+    snapshot_commit: str | None = None
+
+    for question in queries_spec:
+        query_id = question["id"]
+        expected_tools = list(question.get("expected_tools", []))
+        relevant_paths = question.get("relevant_paths", [])
+
+        ask_body: dict[str, Any] = {"question": question["query"], "limit": RESULT_LIMIT}
+        if snapshot_id:
+            ask_body["snapshot_id"] = snapshot_id
+        answer = _assert_response(
+            _http_call(base_url, f"/repos/{repo_id}/ask", method="POST", json_body=ask_body, api_token=api_token),
+            f"ask {query_id}",
+        )
+        trace = _assert_response(
+            _http_call(base_url, f"/repos/{repo_id}/traces/{answer['trace_id']}", api_token=api_token),
+            f"trace {query_id}",
+        )
+
+        _single_step(trace, "route")
+        retrieval = _single_step(trace, "retrieval")
+        synthesis = _single_step(trace, "synthesis")
+        tools = _trace_tools(trace)
+
+        ranked = [_normalize_relative_path(entry.get("file_path")) for entry in retrieval.get("evidence_refs", [])]
+        evidence_paths = [_normalize_relative_path(entry.get("file_path")) for entry in synthesis.get("evidence_refs", [])]
+        if not ranked or not evidence_paths:
+            raise RuntimeError(f"{query_id} 返回了空的 ranked 或 synthesis evidence，无法参与检索指标计算。")
+
+        retrieval_modes.add(str(retrieval.get("output_summary", {}).get("mode")))
+        snapshot_commit = answer.get("commit") or snapshot_commit
+
+        capture_queries.append({
+            "id": query_id,
+            "query": question["query"],
+            "route_tools": tools,
+            "ranked": ranked,
+            "evidence_paths": evidence_paths,
+            "relevant": relevant_paths,
+            "confidence": str(answer.get("confidence") or ""),
+            "expected_tools": expected_tools,
+        })
+        if expected_tools and tools != expected_tools:
+            print(
+                f"警告：{query_id} 实际路由到 {tools}，gold 期望 {expected_tools}（已记录，未中断采集）。",
+                file=sys.stderr,
+            )
+
+    known_paths = _fetch_known_paths(base_url, repo_id, snapshot_id, api_token)
+
+    capture_payload = {
+        "project": gold.get("name", gold_path.stem),
+        "snapshot_commit": snapshot_commit,
+        "mode": "/".join(sorted(retrieval_modes)) if retrieval_modes else "unknown",
+        "source": f"real HTTP responses from a running backend at {base_url}",
+        "query_count": len(capture_queries),
+        "result_limit": RESULT_LIMIT,
+        "known_paths": known_paths,
+        "limitations": [
+            "This capture evaluates cited evidence paths only; it does not judge answer semantics.",
+            "Tool-routing mismatches against the gold file's expected_tools are logged as warnings, not hard failures.",
+            "Latency is omitted because this script does not establish a controlled timing protocol.",
+            "known_paths is capped at 1000 files by the /files endpoint; larger repositories are only partially covered.",
+        ],
+        "queries": capture_queries,
+    }
+    _assert_redacted(capture_payload, ROOT)
+
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_temp = output_path.with_suffix(output_path.suffix + ".tmp")
+    output_temp.write_text(json.dumps(capture_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(output_temp, output_path)
+
+    print(output_path.as_posix())
+    return 0
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """构造命令行解析器；不带任何参数时保持与内置 Demo 采集完全一致的行为。"""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--gold-file", default=None, help="通用模式：评测集 JSON 路径（需包含非空 queries 数组）。")
+    parser.add_argument("--repo-id", default=None, help="通用模式：已注册并已完成 ingest 的目标仓库 ID。")
+    parser.add_argument("--snapshot-id", default=None, help="通用模式：目标 Snapshot ID；缺省沿用仓库当前 active 快照。")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000/api/v1", help="通用模式：已运行后端的 API 根地址。")
+    parser.add_argument("--api-token", default=None, help="通用模式：X-RepoMind-API-Token；缺省读取 REPOMIND_API_TOKEN 环境变量。")
+    parser.add_argument("--output", default=None, help="通用模式：Capture JSON 输出路径（必填）。")
+    return parser
+
+
+def main() -> int:
+    """无参数时精确复现内置 Demo 采集；带 --gold-file/--repo-id 时驱动任意已 ingest 的仓库。"""
+    args = _build_arg_parser().parse_args()
+    generic_flags = (args.gold_file, args.repo_id)
+    if not any(generic_flags):
+        return _run_builtin_demo_capture()
+    if not all(generic_flags):
+        raise SystemExit("通用模式需要同时提供 --gold-file 和 --repo-id。")
+    if not args.output:
+        raise SystemExit("通用模式需要提供 --output 采集结果写入路径。")
+    return _run_generic_capture(args)
 
 
 if __name__ == "__main__":

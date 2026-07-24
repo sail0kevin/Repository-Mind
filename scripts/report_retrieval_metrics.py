@@ -19,7 +19,13 @@ from typing import Any
 # requiring an editable package installation.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from service.evaluation import evaluate_citations, evaluate_rankings, summarize_durations
+from service.evaluation import (
+    evaluate_citations,
+    evaluate_rankings,
+    evaluate_task_completion,
+    evaluate_tool_selection,
+    summarize_durations,
+)
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -58,6 +64,29 @@ def _evaluate(payload: dict[str, Any]) -> dict[str, Any]:
         if len(evidence_paths) != len(queries):
             raise ValueError("evidence_paths must be provided for every query or none of them")
         result.update(evaluate_citations(evidence_paths, relevant))
+    confidences = [query.get("confidence") for query in queries if isinstance(query, dict) and "confidence" in query]
+    if confidences:
+        if len(confidences) != len(queries):
+            raise ValueError("confidence must be provided for every query or none of them")
+        if not evidence_paths:
+            raise ValueError("task completion requires evidence_paths alongside confidence")
+        known_paths = payload.get("known_paths")
+        if not isinstance(known_paths, list):
+            raise ValueError("task completion requires a top-level known_paths array")
+        result.update(
+            evaluate_task_completion(
+                confidences,
+                evidence_paths,
+                known_paths,
+                relevant_paths=relevant,
+            )
+        )
+    expected_tools = [query.get("expected_tools") for query in queries if isinstance(query, dict) and "expected_tools" in query]
+    if expected_tools:
+        if len(expected_tools) != len(queries):
+            raise ValueError("expected_tools must be provided for every query or none of them")
+        route_tools = [query.get("route_tools", []) for query in queries]
+        result.update(evaluate_tool_selection(route_tools, expected_tools))
     return result
 
 
@@ -83,6 +112,8 @@ def _comparison(payload: dict[str, Any], input_path: Path) -> dict[str, dict[str
         for label, key in labels.items()
         if key in pre and key in post
     }
+
+
 def _markdown(result: dict[str, Any], payload: dict[str, Any] | None = None) -> str:
     payload = payload or {}
     lines = [
@@ -104,6 +135,22 @@ def _markdown(result: dict[str, Any], payload: dict[str, Any] | None = None) -> 
         lines.extend([
             f"- P50 latency: **{result['duration_p50_ms']:.1f} ms**",
             f"- P95 latency: **{result['duration_p95_ms']:.1f} ms**",
+        ])
+    if "task_completion_rate" in result:
+        reasons = result["task_completion_reasons"]
+        lines.extend([
+            f"- Task completion rate: **{result['task_completion_rate']:.3f}**"
+            f" ({reasons['completed']}/{result['task_completion_query_count']})",
+            f"  - Citation path missing: {reasons['citation_path_missing']}",
+            f"  - Relevant evidence missing: {reasons['relevant_evidence_missing']}",
+            f"  - Refused: {reasons['refused']}",
+        ])
+    if "tool_selection_exact_match_rate" in result:
+        lines.extend([
+            f"- Tool selection exact-match rate: **{result['tool_selection_exact_match_rate']:.3f}**",
+            f"  - Missing expected tool: {result['tool_selection_missing_rate']:.3f}",
+            f"  - Unexpected extra tool: {result['tool_selection_extra_rate']:.3f}",
+            "  - Scope: expected tools are labeled from the same deterministic Router rules; this is a regression check, not an unseen-query generalization score.",
         ])
 
     queries = payload.get("queries") if isinstance(payload, dict) else None

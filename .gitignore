@@ -91,6 +91,8 @@ docs/旧的文件/
 !backend/tests/fixtures/**/*.pfx
 secrets.json
 secrets.json.tmp
+# 基准测试用的本地 Embedding Key 文件，仅存在于本机，禁止提交。
+bench-embedding.local.json
 
 # IDE / editor
 .idea/

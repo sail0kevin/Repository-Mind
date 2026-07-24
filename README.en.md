@@ -44,6 +44,17 @@ npm run dev
 
 Click **打开内置 Demo**. Snapshot, Catalog/Repo Map, lexical retrieval, rule-based answers, Evidence, and Trace work without Chat or Embedding credentials.
 
+### Connect a Coding Agent through MCP
+
+RepoMind can also run as an independent, read-only MCP Server that gives an external Coding Agent bounded access to repository overviews, code evidence, symbols, impact candidates, and related tests:
+
+```powershell
+cd backend
+python -m service.mcp_server
+```
+
+The MCP process does not require FastAPI to remain running, does not execute target-repository code, and exposes no file-editing or shell tools. Claude Code has been verified with a real client. Codex can use the standard `stdio` MCP configuration, but has not completed end-to-end validation in the current environment. See the [MCP Server guide](docs/MCP_SERVER.md).
+
 <details>
 <summary><strong>Build Windows Setup / Portable artifacts</strong></summary>
 
@@ -79,6 +90,8 @@ Measured from a real FastAPI `register → ingest → ask → trace` run:
 Pre-fix → post-fix: Recall@5 `0.556 → 0.667`, MRR `0.667 → 0.833`, and citation hit rate `0.667 → 1.000`.
 
 > **Scope:** three synthetic questions measuring cited-path hits—not general accuracy or production performance. Instance-method call edges remain incomplete, so entrypoint/test references are candidates, not proven edges. No controlled P50/P95 data is available.
+
+A separate benchmark contains **40 human-labeled code-understanding tasks across five categories** against RepoMind's own backend. The current lexical baseline has Recall@5 `0.267`, MRR `0.245`, and **22/40** answers cite at least one human-labeled key evidence path, for a `55%` task-completion rate. The report deliberately exposes weak cross-file overview, test-location, and security-review cases instead of presenting the three-question Demo as a general result. Inspect the [Gold labels](examples/benchmarks/backend-understanding-gold.json), [real Capture](examples/benchmarks/backend-understanding-capture-v2.json), and [per-query report](examples/benchmarks/backend-understanding-report-v2.md).
 
 ```powershell
 python scripts/capture_demo_evidence.py
@@ -121,7 +134,7 @@ Repo Map narrows scope; BM25/optional Embedding retrieve candidates; RRF and str
 
 ## Local verification
 
-- Backend: `python -m pytest -q backend/tests` → **136 passed** (60 warnings)
+- Backend: `cd backend; python -m pytest -q` → **167 passed**
 - Desktop: `npm test -- --run` → **63 passed** across 11 test files
 - Desktop: `npm run build` → Vite renderer and Electron TypeScript passed
 - Demo routes: zero tools / `security_review` / `dependency_impact`
@@ -144,5 +157,6 @@ See [SECURITY.md](SECURITY.md) for the complete data boundary.
 - [Architecture and roadmap](docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md)
 - [Evaluation and resume claim boundaries](docs/后续开发指导/RESUME_EVIDENCE_PLAN.md)
 - [RAG versus bounded agent responsibilities](docs/后续开发指导/RAG_VS_AGENTIC.md)
+- [MCP Server guide](docs/MCP_SERVER.md)
 
 Next: observe the first remote Windows CI run → create a Tag/Release only after explicit approval → expand real-repository evaluation → add a production icon and Windows code signing.

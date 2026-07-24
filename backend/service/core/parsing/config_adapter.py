@@ -59,7 +59,7 @@ class ConfigParser(ParserAdapter):
         for path, item in self._walk(value):
             key_path = self._path(path)
             start, end = self._locate(lines, path[-1] if path else None, positions, cursors)
-            content = json.dumps(item, ensure_ascii=False, sort_keys=True, indent=2, default=str)
+            content = json.dumps(self._sort_keys_as_str(item), ensure_ascii=False, indent=2, default=str)
             parent = previous.get(path[:-1]) if path else None
             evidence = EvidenceUnit.create(document, start, end,
                 kind="config_object" if isinstance(item, (dict, list)) else "config_value",
@@ -74,6 +74,24 @@ class ConfigParser(ParserAdapter):
                     metadata={"source_evidence_id": parent.id, "target_evidence_id": evidence.id}))
         result.sort_facts()
         return result
+
+    @staticmethod
+    def _sort_keys_as_str(value: Any) -> Any:
+        """按 str(key) 排序重建 dict，替代 json.dumps 的 sort_keys=True。
+
+        YAML 1.1 把裸 on/off/yes/no 解析成布尔值，同一个 dict 里可能混有 str 和
+        bool 类型的 key，导致 sort_keys=True 直接用 `<` 比较原始 key 时抛出
+        TypeError。这里统一按 str(key) 排序后重建 dict，json.dumps 序列化非 str
+        key（如 bool）时仍会按其原本方式转成字符串，行为与之前一致。
+        """
+        if isinstance(value, dict):
+            return {
+                key: ConfigParser._sort_keys_as_str(child)
+                for key, child in sorted(value.items(), key=lambda pair: str(pair[0]))
+            }
+        if isinstance(value, list):
+            return [ConfigParser._sort_keys_as_str(child) for child in value]
+        return value
 
     @staticmethod
     def _walk(value: Any, path: tuple[str | int, ...] = ()):

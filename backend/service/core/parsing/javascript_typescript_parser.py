@@ -51,6 +51,7 @@ class JavaScriptTypeScriptParser(ParserAdapter):
 
         result = ParseResult(document=document)
         self._symbol_ordinals: dict[tuple[str, str, str, str], int] = {}
+        self._evidence_ordinals: dict[tuple[str, str], int] = {}
         module = self._add_symbol(result, tree.root_node, "module", self._module_name(document.path))
         self._visit_top_level(tree.root_node, result, module, source)
         if tree.root_node.has_error:
@@ -172,7 +173,10 @@ class JavaScriptTypeScriptParser(ParserAdapter):
         if specifier is None:
             return
         target = self._unquote(self._text(specifier, source))
-        evidence = self._add_evidence(result, node, "import", source, module.id)
+        evidence = self._add_evidence(
+            result, node, "import", source, module.id,
+            identity=(module.id, self._next_evidence_discriminator(module.id, "import")),
+        )
         result.relations.append(Relation.create(
             result.document, kind="imports", source_id=module.id, target_id=None,
             target_qualified_name=target, observed=True, inferred=False, confidence=1.0,
@@ -182,7 +186,10 @@ class JavaScriptTypeScriptParser(ParserAdapter):
 
     def _add_exports(self, result: ParseResult, module: Symbol, node: Any, declaration: Any, source: bytes) -> None:
         """记录 export 语句；声明导出会在符号创建后补充精确目标。"""
-        evidence = self._add_evidence(result, node, "export", source, module.id)
+        evidence = self._add_evidence(
+            result, node, "export", source, module.id,
+            identity=(module.id, self._next_evidence_discriminator(module.id, "export")),
+        )
         names: list[str] = []
         if declaration is not None:
             name_node = declaration.child_by_field_name("name")
@@ -213,7 +220,10 @@ class JavaScriptTypeScriptParser(ParserAdapter):
         for clause in (item for item in self._walk(node) if item.type in {"extends_clause", "extends_type_clause", "implements_clause"}):
             for target in clause.named_children:
                 if target.type in {"identifier", "type_identifier", "generic_type", "member_expression", "nested_type_identifier"}:
-                    evidence = self._add_evidence(result, clause, "relation", source, symbol.id)
+                    evidence = self._add_evidence(
+                        result, clause, "relation", source, symbol.id,
+                        identity=(symbol.id, self._next_evidence_discriminator(symbol.id, "relation")),
+                    )
                     result.relations.append(Relation.create(
                         result.document, kind="inherits", source_id=symbol.id, target_id=None,
                         target_qualified_name=self._text(target, source), observed=True, inferred=False,
@@ -234,7 +244,10 @@ class JavaScriptTypeScriptParser(ParserAdapter):
                 callee = node.child_by_field_name("function")
                 target = self._direct_callee(callee, source)
                 if target:
-                    evidence = self._add_evidence(result, node, "call", source, caller.id)
+                    evidence = self._add_evidence(
+                        result, node, "call", source, caller.id,
+                        identity=(caller.id, self._next_evidence_discriminator(caller.id, "call")),
+                    )
                     result.relations.append(Relation.create(
                         result.document, kind="calls", source_id=caller.id, target_id=None,
                         target_qualified_name=target, observed=True, inferred=False, confidence=0.85,
@@ -289,6 +302,19 @@ class JavaScriptTypeScriptParser(ParserAdapter):
                 column=symbol.start_column,
             ))
         return symbol
+
+    def _next_evidence_discriminator(self, owner_id: str, kind: str) -> int:
+        """按 (owner_id, kind) 分配自增序号，避免同一符号下同类证据的 logical_id 相撞。
+
+        `_add_symbol` 已用 `_symbol_ordinals` 保证符号定义的 identity 唯一；
+        但 export/relation/call 证据默认的 structural_identity 只回退到裸 kind
+        字符串，同一模块/符号内出现第二条同类证据时就会与第一条拥有同样的
+        logical_id，撞上 evidence_units 的 UNIQUE(snapshot_id, identity_key)。
+        """
+        ordinal_key = (owner_id, kind)
+        ordinal = self._evidence_ordinals.get(ordinal_key, 0)
+        self._evidence_ordinals[ordinal_key] = ordinal + 1
+        return ordinal
 
     def _add_evidence(self, result: ParseResult, node: Any, kind: str, source: bytes, symbol_id: str,
                       identity: object | None = None) -> EvidenceUnit:

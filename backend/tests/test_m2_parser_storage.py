@@ -107,6 +107,22 @@ def test_config_parser_and_tree_sitter_fallback_are_honest(monkeypatch: pytest.M
     assert fallback.diagnostics[0].code == "tree_sitter_unavailable"
 
 
+def test_config_parser_handles_yaml_boolean_keys_like_github_workflow_on() -> None:
+    """YAML 1.1 把裸 on/off/yes/no 解析成布尔值；GitHub Actions workflow 几乎都有顶层 `on:`。
+
+    回归背景：`json.dumps(..., sort_keys=True)` 遇到同一个 dict 里混有 str 和
+    bool 类型的 key 时会抛 `TypeError: '<' not supported between instances of
+    'bool' and 'str'`，导致这类文件被判定为 status="failed"，进而让整个仓库
+    ingest 被拒绝发布（`解析器内部失败，拒绝发布`）。
+    """
+    content = "name: CI\non:\n  push:\n    branches: [main]\njobs:\n  build:\n    runs-on: ubuntu-latest\n"
+    result = ConfigParser().parse(
+        SourceDocument(snapshot_id="s", path=".github/workflows/ci.yml", content=content, language="yaml")
+    )
+    assert result.status == "parsed"
+    assert not result.diagnostics
+
+
 def test_v004_constraints_and_single_file_transaction_rollback() -> None:
     """v004 的非空/唯一约束必须生效，replace 冲突必须完整回滚。"""
     _seed()
@@ -189,6 +205,47 @@ def test_duplicate_symbol_definitions_are_distinct_and_persistable() -> None:
     assert len({item.id for item in definitions}) == len({item.logical_id for item in definitions}) == 2
     replace_all_snapshot_parse_results("repo", "snap", result.evidence, result.symbols, result.relations, result.diagnostics)
     assert len([item for item in list_symbols("repo", "snap") if item["name"] == "same"]) == 2
+
+
+def test_repeated_js_ts_export_call_and_heritage_evidence_have_distinct_identity_and_are_persistable() -> None:
+    """同一模块/符号下的多条 export、call、heritage 证据不能共享 logical_id。
+
+    回归背景：`_add_exports`/`_add_heritage`/`_add_calls` 原先都不传 `identity`，
+    这类证据的 structural_identity 会回退到裸 kind 字符串。同一模块内出现第二个
+    export 语句、同一函数内出现第二次直接调用、或同一符号有多条 heritage 目标时，
+    第二条证据会和第一条拥有完全相同的 logical_id，撞上 evidence_units 的
+    UNIQUE(snapshot_id, identity_key) 约束，导致整个仓库 ingest 被拒绝发布。
+    """
+    _seed()
+    document = SourceDocument(
+        repo_id="repo", snapshot_id="snap", file_id="file-a", path="src/f.ts",
+        content=(
+            "export const a = 1;\n"
+            "export const b = 2;\n"
+            "\n"
+            "function run() {\n"
+            "  foo();\n"
+            "  bar();\n"
+            "}\n"
+            "\n"
+            "class C implements A, B {}\n"
+        ),
+        language="typescript",
+    )
+    result = JavaScriptTypeScriptParser().parse(document)
+    if result.status == "fallback_text":
+        assert result.diagnostics[0].code == "tree_sitter_unavailable"
+        return
+
+    exports = [item for item in result.evidence if item.kind == "export"]
+    calls = [item for item in result.evidence if item.kind == "call"]
+    heritage = [item for item in result.evidence if item.kind == "relation"]
+    assert len(exports) == 2 and len({item.logical_id for item in exports}) == 2
+    assert len(calls) == 2 and len({item.logical_id for item in calls}) == 2
+    assert len(heritage) == 2 and len({item.logical_id for item in heritage}) == 2
+
+    replace_all_snapshot_parse_results("repo", "snap", result.evidence, result.symbols, result.relations, result.diagnostics)
+    assert len(list_evidence_units("repo", "snap")) == len(result.evidence)
 
 
 def test_python_syntax_error_is_publishable_fallback_but_internal_failure_is_not() -> None:
