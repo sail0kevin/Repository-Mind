@@ -10,10 +10,20 @@ $backendRoot = Join-Path $repoRoot "backend"
 $desktopRoot = Join-Path $repoRoot "desktop\app"
 $backendExe = Join-Path $repoRoot "backend-dist\repomind-backend.exe"
 $releaseRoot = Join-Path $desktopRoot "release"
+$currentStage = "initialization"
 
+trap {
+    $message = $_.Exception.Message
+    $annotation = $message.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+    Write-Host "::error title=RepoMind package stage failed ($currentStage)::$annotation"
+    throw
+}
+
+$currentStage = "identity contract"
 & (Join-Path $scriptRoot "verify_identity_contract.ps1")
 if (-not $?) { throw "Identity verification failed" }
 
+$currentStage = "Python FTS5 capability"
 $ftsCheckPath = Join-Path ([System.IO.Path]::GetTempPath()) ("repomind-fts5-check-" + [guid]::NewGuid().ToString("N") + ".py")
 $ftsCheck = @'
 import sqlite3
@@ -34,6 +44,7 @@ finally {
     Remove-Item -LiteralPath $ftsCheckPath -Force -ErrorAction SilentlyContinue
 }
 
+$currentStage = "backend tests"
 Push-Location $backendRoot
 try {
     & $PythonCommand -m pytest -q
@@ -43,8 +54,11 @@ finally {
     Pop-Location
 }
 
+$currentStage = "frozen backend build"
 & (Join-Path $scriptRoot "build_backend.ps1") -PythonCommand $PythonCommand
+$currentStage = "frozen backend HTTP smoke"
 & (Join-Path $scriptRoot "smoke_backend.ps1") -ExePath $backendExe
+$currentStage = "frozen backend MCP smoke"
 & (Join-Path $scriptRoot "smoke_mcp.ps1") -ExePath $backendExe -PythonCommand $PythonCommand
 
 function Invoke-NativeBuildStep {
@@ -69,9 +83,13 @@ function Invoke-NativeBuildStep {
 
 Push-Location $desktopRoot
 try {
+    $currentStage = "desktop dependency install"
     Invoke-NativeBuildStep { npm ci } "npm ci failed"
+    $currentStage = "desktop tests"
     Invoke-NativeBuildStep { npm test } "Desktop tests failed"
+    $currentStage = "desktop build"
     Invoke-NativeBuildStep { npm run build } "Desktop build failed"
+    $currentStage = "Electron directory package"
     if (Test-Path $releaseRoot) { Remove-Item -Recurse -Force $releaseRoot }
     if ($env:REPOMIND_SKIP_WINDOWS_EXE_METADATA -eq "1") {
         # 网络受限的本地/CI 环境可跳过 PE 元数据编辑，避免下载 winCodeSign；正式 Release 不使用此开关。
@@ -83,14 +101,18 @@ try {
         Invoke-NativeBuildStep { npm run package:dir } "Electron directory package failed"
     }
 
+    $currentStage = "packaged backend integrity"
     $packagedBackend = Join-Path $releaseRoot "win-unpacked\resources\backend\repomind-backend.exe"
     if (-not (Test-Path $packagedBackend -PathType Leaf)) { throw "Packaged backend is missing" }
     $sourceHash = (Get-FileHash $backendExe -Algorithm SHA256).Hash
     $packagedHash = (Get-FileHash $packagedBackend -Algorithm SHA256).Hash
     if ($sourceHash -ne $packagedHash) { throw "Packaged backend does not match the current build" }
+    $currentStage = "packaged backend HTTP smoke"
     & (Join-Path $scriptRoot "smoke_backend.ps1") -ExePath $packagedBackend
+    $currentStage = "packaged backend MCP smoke"
     & (Join-Path $scriptRoot "smoke_mcp.ps1") -ExePath $packagedBackend -PythonCommand $PythonCommand
 
+    $currentStage = "packaged Demo integrity"
     $packagedDemo = Join-Path $releaseRoot "win-unpacked\resources\demo\repomind-demo"
     if (-not (Test-Path $packagedDemo -PathType Container)) { throw "Packaged demo is missing" }
 
@@ -113,6 +135,7 @@ try {
     }
 
     if ($Release) {
+        $currentStage = "Windows release package"
         Invoke-NativeBuildStep { npm run package:release } "Windows release package failed"
     }
 }
@@ -120,6 +143,7 @@ finally {
     Pop-Location
 }
 
+$currentStage = "release hashes"
 $hashLines = Get-ChildItem $releaseRoot -File -ErrorAction SilentlyContinue | ForEach-Object {
     $fileHash = Get-FileHash $_.FullName -Algorithm SHA256
     "$($fileHash.Hash)  $($_.Name)"
