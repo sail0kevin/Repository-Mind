@@ -92,7 +92,10 @@ function Invoke-LocationRun([string]$Mode, $Task) {
     $common = "Read-only code-location task. Do not load skills or project instruction files. At commit $Commit, $($Task.query) Do not modify files. You must complete the task with a final answer after any search or MCP tool returns; never end the turn immediately after a tool call. Return only one or more locations in the form PATH:START_LINE-END_LINE, one per line."
     if ($Mode -eq "baseline") {
         $prompt = "$common Use only git grep or PowerShell search/read commands in this repository; RepoMind MCP is disabled and rg.exe is unavailable."
-        $extra = @("-c", "mcp_servers.$McpName.enabled=false")
+        # Isolated benchmark runs do not load the temporary MCP profile in the
+        # baseline cohort. Adding an `enabled = false` override without a server
+        # definition makes current Codex CLI versions reject the config.
+        $extra = @()
     } else {
         if (-not $resolvedMcpDatabasePath) {
             throw "Treatment runs require -McpDatabasePath and -McpDataDir. Refusing to use an implicit user-level MCP index."
@@ -126,7 +129,14 @@ function Invoke-LocationRun([string]$Mode, $Task) {
         -WindowStyle Hidden -PassThru
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        Add-Content -LiteralPath $errorPath -Value "Codex run timed out after $TimeoutSeconds seconds."
+        # A killed Codex process can briefly retain the redirected stderr handle
+        # on Windows. The timeout outcome is still valid even when the note
+        # cannot be appended, so never let diagnostic logging abort the cohort.
+        try {
+            Add-Content -LiteralPath $errorPath -Value "Codex run timed out after $TimeoutSeconds seconds." -ErrorAction Stop
+        } catch {
+            Write-Warning "Timed out and could not append stderr log: $Mode/$($Task.id)"
+        }
         Write-Warning "Timed out: $Mode/$($Task.id)"
         return
     }
