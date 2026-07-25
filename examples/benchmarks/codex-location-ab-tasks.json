@@ -1,6 +1,6 @@
 {
   "benchmark_id": "codex-location-ab-v1",
-  "repository_commit": "a22a8895de2682aa87735efcb1777f0b38b3769a",
+  "repository_commit": "540ec0aac47fd648d1c31edd620a3860a5d515ef",
   "definition": "A task passes only when the final answer contains every expected repository-relative path and a reported line range covering each gold start line. The benchmark measures the cost of locating source evidence, not writing a full implementation answer.",
   "tasks": [
     {

@@ -2,7 +2,11 @@ param(
     [Parameter(Mandatory = $true)][string]$RepoId,
     [Parameter(Mandatory = $true)][string]$SnapshotId,
     [string]$McpName = "repomind",
-    [string]$Commit = "a22a8895de2682aa87735efcb1777f0b38b3769a",
+    [string]$McpPythonExe,
+    [string]$McpBackendPath,
+    [string]$McpDatabasePath,
+    [string]$McpDataDir,
+    [string]$Commit = "540ec0aac47fd648d1c31edd620a3860a5d515ef",
     [string]$RepositoryPath = ".",
     [string]$OutputDir = "e2e-artifacts/codex-location-ab-v2",
     [string]$CodexExe,
@@ -18,6 +22,44 @@ $root = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $root $OutputDir
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 $targetRepository = (Resolve-Path $RepositoryPath).Path
+$resolvedMcpPythonExe = $McpPythonExe
+if ([string]::IsNullOrWhiteSpace($resolvedMcpPythonExe)) {
+    $resolvedMcpPythonExe = (Get-Command python -ErrorAction Stop).Source
+}
+$resolvedMcpBackendPath = if ([string]::IsNullOrWhiteSpace($McpBackendPath)) {
+    Join-Path $root "backend"
+} else {
+    (Resolve-Path $McpBackendPath).Path
+}
+$resolvedMcpDatabasePath = if ([string]::IsNullOrWhiteSpace($McpDatabasePath)) { $null } else {
+    (Resolve-Path $McpDatabasePath).Path
+}
+$resolvedMcpDataDir = if ([string]::IsNullOrWhiteSpace($McpDataDir)) { $null } else {
+    (Resolve-Path $McpDataDir).Path
+}
+if (($resolvedMcpDatabasePath -and -not $resolvedMcpDataDir) -or (-not $resolvedMcpDatabasePath -and $resolvedMcpDataDir)) {
+    throw "-McpDatabasePath and -McpDataDir must be provided together so the MCP server uses an isolated index."
+}
+$mcpProfileName = $null
+$mcpProfilePath = $null
+if ($resolvedMcpDatabasePath) {
+    # Codex parses command-line -c values as scalar values on Windows. A short
+    # temporary profile preserves arrays and environment maps as real TOML.
+    $mcpProfileName = "repomind-location-ab-$PID"
+    $mcpProfilePath = Join-Path $env:USERPROFILE ".codex\$mcpProfileName.config.toml"
+    $toml = @"
+[mcp_servers."$McpName"]
+command = '$resolvedMcpPythonExe'
+args = ["-m", "service.mcp_server"]
+
+[mcp_servers."$McpName".env]
+PYTHONIOENCODING = "utf-8"
+PYTHONPATH = '$resolvedMcpBackendPath'
+REPOMIND_PATHS__DATABASE_PATH = '$resolvedMcpDatabasePath'
+REPOMIND_PATHS__DATA_DIR = '$resolvedMcpDataDir'
+"@
+    [System.IO.File]::WriteAllText($mcpProfilePath, $toml, [System.Text.UTF8Encoding]::new($false))
+}
 $resolvedCodexExe = $CodexExe
 if ([string]::IsNullOrWhiteSpace($resolvedCodexExe)) {
     $resolvedCodexExe = Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter codex.exe -ErrorAction SilentlyContinue |
@@ -52,8 +94,13 @@ function Invoke-LocationRun([string]$Mode, $Task) {
         $prompt = "$common Use only git grep or PowerShell search/read commands in this repository; RepoMind MCP is disabled and rg.exe is unavailable."
         $extra = @("-c", "mcp_servers.$McpName.enabled=false")
     } else {
+        if (-not $resolvedMcpDatabasePath) {
+            throw "Treatment runs require -McpDatabasePath and -McpDataDir. Refusing to use an implicit user-level MCP index."
+        }
         $prompt = "$common Do not use shell or local file reads. Use only the $McpName MCP tools with repo_id $RepoId and snapshot $SnapshotId."
-        $extra = @()
+        # The profile defines an MCP server that is bound to this exact index.
+        # It is deleted when the benchmark ends and never changes global config.
+        $extra = @("-p", $mcpProfileName)
     }
     $path = Join-Path $output "$Mode-$($Task.id).jsonl"
     if (-not $Force -and (Test-CompletedRun $path)) {
@@ -93,15 +140,21 @@ function Invoke-LocationRun([string]$Mode, $Task) {
     }
 }
 
-Push-Location $targetRepository
 try {
-    foreach ($task in $selectedTasks) {
-        foreach ($selectedMode in $selectedModes) {
-            Invoke-LocationRun $selectedMode $task
+    Push-Location $targetRepository
+    try {
+        foreach ($task in $selectedTasks) {
+            foreach ($selectedMode in $selectedModes) {
+                Invoke-LocationRun $selectedMode $task
+            }
         }
+    } finally {
+        Pop-Location
     }
 } finally {
-    Pop-Location
+    if ($mcpProfilePath -and (Test-Path -LiteralPath $mcpProfilePath -PathType Leaf)) {
+        Remove-Item -LiteralPath $mcpProfilePath -Force
+    }
 }
 
 $rows = @()
