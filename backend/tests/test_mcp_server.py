@@ -250,6 +250,63 @@ def test_symbol_disambiguation_and_impact_evidence_tiers(tmp_path: Path) -> None
     _assert_envelope(impact, repo_id, snapshot_id)
 
 
+def test_symbol_query_returns_static_call_candidates(tmp_path: Path) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        file_rows = connection.execute(
+            "SELECT id, relative_path FROM files WHERE snapshot_id = ?", (snapshot_id,)
+        ).fetchall()
+    file_id = {row["relative_path"]: row["id"] for row in file_rows}
+    evidence = [
+        {
+            "id": "wrapper_ev", "logical_id": "wrapper_logical", "identity_key": "wrapper_identity",
+            "snapshot_id": snapshot_id, "file_id": file_id["src/login.py"], "unit_type": "function",
+            "language": "python", "title": "public_search", "start_line": 10, "end_line": 11,
+            "content": "def public_search(query):\n    return implementation(query)",
+            "parser_name": "test", "parser_version": "1", "metadata": {"symbol_name": "public_search"},
+        },
+        {
+            "id": "impl_ev", "logical_id": "impl_logical", "identity_key": "impl_identity",
+            "snapshot_id": snapshot_id, "file_id": file_id["src/auth.py"], "unit_type": "function",
+            "language": "python", "title": "implementation", "start_line": 10, "end_line": 11,
+            "content": "def implementation(query):\n    return query", "parser_name": "test", "parser_version": "1",
+            "metadata": {"symbol_name": "implementation"},
+        },
+    ]
+    symbols = [
+        {
+            "id": "wrapper_sym", "logical_id": "wrapper_symbol_logical", "identity_key": "wrapper_symbol_identity",
+            "snapshot_id": snapshot_id, "file_id": file_id["src/login.py"], "evidence_id": "wrapper_ev",
+            "qualified_name": "api.public_search", "name": "public_search", "symbol_kind": "function",
+            "start_line": 10, "end_line": 11,
+        },
+        {
+            "id": "impl_sym", "logical_id": "impl_symbol_logical", "identity_key": "impl_symbol_identity",
+            "snapshot_id": snapshot_id, "file_id": file_id["src/auth.py"], "evidence_id": "impl_ev",
+            "qualified_name": "core.implementation", "name": "implementation", "symbol_kind": "function",
+            "start_line": 10, "end_line": 11,
+        },
+    ]
+    relations = [
+        {
+            "id": "call_rel", "snapshot_id": snapshot_id, "file_id": file_id["src/login.py"],
+            "source_symbol_id": "wrapper_sym", "target_symbol_id": "impl_sym", "relation_type": "calls",
+            "identity_key": "wrapper_calls", "observed": True, "inferred": True,
+            "resolver_status": "resolved", "evidence_id": "wrapper_ev", "line": 11,
+            "extractor": "test", "extractor_version": "1",
+        },
+    ]
+    replace_all_snapshot_parse_results(repo_id, snapshot_id, evidence, symbols, relations, [])
+
+    result = get_symbol(repo_id, "api.public_search")
+
+    assert result["data"]["static_call_candidates"] == [{
+        "name": "implementation", "qualified_name": "core.implementation", "file_path": "src/auth.py",
+        "start_line": 10, "relation_type": "calls", "resolution": "static",
+    }]
+    assert any(item["evidence_id"] == "impl_ev" for item in result["evidence"])
+
+
 def test_mcp_payloads_are_compact_but_keep_location_and_snapshot_proof(tmp_path: Path) -> None:
     repo_id, snapshot_id, _ = _seed_repo(tmp_path)
 

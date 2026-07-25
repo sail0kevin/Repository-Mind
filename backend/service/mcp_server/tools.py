@@ -237,6 +237,25 @@ def get_symbol(repo_id: str, symbol_query: str, snapshot_id: str | None = None) 
         }
         for item in ranked[:5]
     ]
+    static_call_candidates = []
+    for relation in related:
+        if relation.get("relation_type") != "calls" or relation.get("source_symbol_id") != target.get("id"):
+            continue
+        if relation.get("resolver_status") != "resolved" or not relation.get("target_symbol_id"):
+            continue
+        called_symbol = symbol_by_id.get(relation["target_symbol_id"])
+        if not called_symbol:
+            continue
+        static_call_candidates.append({
+            **compact_symbol(relation["target_symbol_id"]),
+            "relation_type": "calls",
+            "resolution": "static",
+        })
+        called_evidence = get_evidence_unit(
+            repo_id, called_symbol.get("evidence_id") or "", guard.snapshot["id"]
+        )
+        if called_evidence:
+            evidence.append(evidence_item(called_evidence, reason="静态解析到的调用目标"))
     match_method = (
         "精确限定名匹配" if str(target.get("qualified_name") or "").casefold() == normalized_query.casefold()
         else "限定名后缀匹配" if str(target.get("qualified_name") or "").casefold().endswith(f".{normalized_query.casefold()}")
@@ -273,6 +292,7 @@ def get_symbol(repo_id: str, symbol_query: str, snapshot_id: str | None = None) 
                 }
                 for item in related[:10]
             ],
+            "static_call_candidates": static_call_candidates,
             "candidates": candidates,
             "candidate_count": len(ranked),
         },

@@ -2,9 +2,15 @@ param(
     [Parameter(Mandatory = $true)][string]$RepoId,
     [Parameter(Mandatory = $true)][string]$SnapshotId,
     [string]$McpName = "repomind",
-    [string]$Commit = "32fd00f0c2b212e04de890d928722717766cd670",
+    [string]$Commit = "904ac6a7cbcfdce4a0b992d99966da54af09061a",
     [string]$RepositoryPath = ".",
-    [string]$OutputDir = "e2e-artifacts/codex-location-ab"
+    [string]$OutputDir = "e2e-artifacts/codex-location-ab-v2",
+    [string]$CodexExe,
+    [bool]$BypassSandbox = $true,
+    [ValidateSet("all", "baseline", "treatment")][string]$Mode = "all",
+    [string[]]$TaskId,
+    [int]$TimeoutSeconds = 120,
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +18,16 @@ $root = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $root $OutputDir
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 $targetRepository = (Resolve-Path $RepositoryPath).Path
+$resolvedCodexExe = $CodexExe
+if ([string]::IsNullOrWhiteSpace($resolvedCodexExe)) {
+    $resolvedCodexExe = Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter codex.exe -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -like "*codex-win32-x64*" } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1 -ExpandProperty FullName
+}
+if ([string]::IsNullOrWhiteSpace($resolvedCodexExe) -or -not (Test-Path -LiteralPath $resolvedCodexExe -PathType Leaf)) {
+    throw "Codex CLI executable was not found. Run 'npm exec --yes --package=@openai/codex -- codex --version' once or pass -CodexExe."
+}
 $actualCommit = (git -C $targetRepository rev-parse HEAD).Trim()
 if ($actualCommit -ne $Commit) {
     throw "Expected repository commit $Commit, found $actualCommit. Use a clean fixed-commit clone."
@@ -19,28 +35,70 @@ if ($actualCommit -ne $Commit) {
 
 $taskFile = Join-Path $root "examples/benchmarks/codex-location-ab-tasks.json"
 $tasks = Get-Content -LiteralPath $taskFile -Raw -Encoding utf8 | ConvertFrom-Json
+$selectedTasks = @($tasks.tasks | Where-Object { -not $TaskId -or $TaskId -contains $_.id })
+if ($selectedTasks.Count -eq 0) { throw "No benchmark task matched -TaskId." }
+$selectedModes = if ($Mode -eq "all") { @("baseline", "treatment") } else { @($Mode) }
+
+function Test-CompletedRun([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    $hasUsage = Select-String -LiteralPath $Path -SimpleMatch '"type":"turn.completed"' -Quiet
+    $hasAnswer = Select-String -LiteralPath $Path -SimpleMatch '"type":"agent_message"' -Quiet
+    return [bool]($hasUsage -and $hasAnswer)
+}
 
 function Invoke-LocationRun([string]$Mode, $Task) {
-    $common = "Read-only code-location task. Do not load skills or project instruction files. At commit $Commit, $($Task.query) Do not modify files."
+    $common = "Read-only code-location task. Do not load skills or project instruction files. At commit $Commit, $($Task.query) Do not modify files. You must complete the task with a final answer after any search or MCP tool returns; never end the turn immediately after a tool call. Return only one or more locations in the form PATH:START_LINE-END_LINE, one per line."
     if ($Mode -eq "baseline") {
-        $prompt = "$common Use only shell search/read commands in this repository; RepoMind MCP is disabled. Return only PATH:START_LINE-END_LINE."
+        $prompt = "$common Use only git grep or PowerShell search/read commands in this repository; RepoMind MCP is disabled and rg.exe is unavailable."
         $extra = @("-c", "mcp_servers.$McpName.enabled=false")
     } else {
-        $prompt = "$common Do not use shell or local file reads. Use only the $McpName MCP tools with repo_id $RepoId and snapshot $SnapshotId. Return only PATH:START_LINE-END_LINE."
+        $prompt = "$common Do not use shell or local file reads. Use only the $McpName MCP tools with repo_id $RepoId and snapshot $SnapshotId."
         $extra = @()
     }
     $path = Join-Path $output "$Mode-$($Task.id).jsonl"
-    $args = @("-y", "@openai/codex", "--disable", "plugins", "--disable", "remote_plugin", "--disable", "multi_agent") +
-        $extra + @("exec", "--ephemeral", "--json", "--sandbox", "read-only", $prompt)
-    & npx @args | Set-Content -LiteralPath $path -Encoding utf8
-    if ($LASTEXITCODE -ne 0) { throw "Codex $Mode run failed for $($Task.id)." }
+    if (-not $Force -and (Test-CompletedRun $path)) {
+        Write-Host "Skipping completed run: $Mode/$($Task.id)"
+        return
+    }
+    $promptPath = Join-Path $output "$Mode-$($Task.id).prompt.txt"
+    $errorPath = Join-Path $output "$Mode-$($Task.id).stderr.log"
+    Set-Content -LiteralPath $promptPath -Value $prompt -Encoding utf8
+    $args = @("--disable", "plugins", "--disable", "remote_plugin", "--disable", "multi_agent") +
+        $extra + @("exec", "--ephemeral", "--json")
+    # The Windows read-only sandbox cancels local stdio MCP child processes.
+    # Both cohorts use the same process mode; their available tools remain
+    # constrained by the prompt and the baseline MCP disable override.
+    if ($BypassSandbox) {
+        $args += "--dangerously-bypass-approvals-and-sandbox"
+    } else {
+        $args += @("--sandbox", "read-only")
+    }
+    $args += "-"
+    $process = Start-Process -FilePath $resolvedCodexExe -ArgumentList $args -WorkingDirectory $targetRepository `
+        -RedirectStandardInput $promptPath -RedirectStandardOutput $path -RedirectStandardError $errorPath `
+        -WindowStyle Hidden -PassThru
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        Add-Content -LiteralPath $errorPath -Value "Codex run timed out after $TimeoutSeconds seconds."
+        Write-Warning "Timed out: $Mode/$($Task.id)"
+        return
+    }
+    $process.Refresh()
+    if ($process.ExitCode -ne 0) {
+        if (Test-CompletedRun $path) {
+            Write-Warning "Codex exited with code $($process.ExitCode) after a complete turn: $Mode/$($Task.id)"
+        } else {
+            Write-Warning "Incomplete Codex run: $Mode/$($Task.id); see $errorPath."
+        }
+    }
 }
 
 Push-Location $targetRepository
 try {
-    foreach ($task in $tasks.tasks) {
-        Invoke-LocationRun "baseline" $task
-        Invoke-LocationRun "treatment" $task
+    foreach ($task in $selectedTasks) {
+        foreach ($selectedMode in $selectedModes) {
+            Invoke-LocationRun $selectedMode $task
+        }
     }
 } finally {
     Pop-Location
@@ -50,6 +108,7 @@ $rows = @()
 foreach ($task in $tasks.tasks) {
     foreach ($mode in @("baseline", "treatment")) {
         $path = Join-Path $output "$mode-$($task.id).jsonl"
+        if (-not (Test-CompletedRun $path)) { continue }
         $events = Get-Content -LiteralPath $path -Encoding utf8 | ForEach-Object {
             try { $_ | ConvertFrom-Json } catch { $null }
         }
@@ -57,15 +116,58 @@ foreach ($task in $tasks.tasks) {
         $messages = @($events | Where-Object { $_.type -eq "item.completed" -and $_.item.type -eq "agent_message" })
         $text = ($messages | Select-Object -Last 1).item.text
         $normalized = ($text -replace "`r|`n", " ").Trim()
-        $passed = $normalized.Contains($task.expected_path) -and
-            [regex]::IsMatch($normalized, "(?<!\d)$($task.line_start)(?:\s*[-:]\s*\d+)?")
+        $expectedLocations = @($task.expected_locations)
+        if ($expectedLocations.Count -eq 0 -and $task.expected_path) {
+            $expectedLocations = @([pscustomobject]@{
+                path = $task.expected_path
+                line_start = $task.line_start
+                line_end = $task.line_end
+            })
+        }
+        $locationChecks = @()
+        foreach ($expected in $expectedLocations) {
+            $pathPattern = [regex]::Escape([string]$expected.path)
+            $locationMatch = [regex]::Match(
+                $normalized,
+                "(?i)$pathPattern\s*:\s*(\d+)(?:\s*[-:]\s*(\d+))?"
+            )
+            $reportedStart = if ($locationMatch.Success) { [int]$locationMatch.Groups[1].Value } else { 0 }
+            $reportedEnd = if ($locationMatch.Success -and $locationMatch.Groups[2].Success) {
+                [int]$locationMatch.Groups[2].Value
+            } elseif ($locationMatch.Success) {
+                $reportedStart
+            } else {
+                0
+            }
+            $locationChecks += [ordered]@{
+                path = $expected.path
+                gold_start = [int]$expected.line_start
+                gold_end = [int]$expected.line_end
+                reported_start = $reportedStart
+                reported_end = $reportedEnd
+                passed = $locationMatch.Success -and $reportedStart -le [int]$expected.line_start -and $reportedEnd -ge [int]$expected.line_start
+            }
+        }
+        $passed = $locationChecks.Count -gt 0 -and (@($locationChecks | Where-Object { -not $_.passed }).Count -eq 0)
+        $sourceCharacters = 0
+        foreach ($event in $events) {
+            if ($event.type -eq "item.completed" -and $event.item.type -eq "command_execution") {
+                $sourceCharacters += ([string]$event.item.aggregated_output).Length
+            }
+            if ($event.type -eq "item.completed" -and $event.item.type -eq "mcp_tool_call") {
+                $content = $event.item.result.content
+                foreach ($part in @($content)) { $sourceCharacters += ([string]$part.text).Length }
+            }
+        }
         $rows += [ordered]@{
             task_id = $task.id
             mode = $mode
             input_tokens = [int]($usage.input_tokens)
             cached_input_tokens = [int]($usage.cached_input_tokens)
             output_tokens = [int]($usage.output_tokens)
+            source_characters_received = $sourceCharacters
             answer = $normalized
+            location_checks = $locationChecks
             passed = $passed
         }
     }

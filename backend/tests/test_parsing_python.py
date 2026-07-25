@@ -77,6 +77,38 @@ def test_dynamic_and_ambiguous_calls_do_not_create_maybe_call_edges(python_docum
     assert not any(target.endswith(".duplicate") for target in call_targets)
 
 
+def test_actual_mcp_impact_wrapper_has_a_resolved_static_call_to_the_specialist() -> None:
+    """真实 MCP 工具可导航至其静态解析到的 Specialist Tool 调用。"""
+    backend_root = Path(__file__).resolve().parents[1]
+    documents = [
+        SourceDocument(
+            snapshot_id="snap", path="service/mcp_server/tools.py",
+            content=(backend_root / "service/mcp_server/tools.py").read_text(encoding="utf-8"),
+            language="python",
+        ),
+        SourceDocument(
+            snapshot_id="snap", path="service/core/agent/tools.py",
+            content=(backend_root / "service/core/agent/tools.py").read_text(encoding="utf-8"),
+            language="python",
+        ),
+    ]
+
+    mcp_result = next(
+        item for item in default_registry().parse_all(documents)
+        if item.document.path == "service/mcp_server/tools.py"
+    )
+    mcp_symbol = next(item for item in mcp_result.symbols if item.name == "analyze_impact")
+    specialist_call = next(
+        item for item in mcp_result.relations
+        if item.kind == "calls"
+        and item.source_id == mcp_symbol.id
+        and item.target_qualified_name == "service.core.agent.tools.dependency_impact"
+    )
+
+    assert specialist_call.target_id is not None
+    assert specialist_call.resolver_status == "resolved"
+
+
 def test_syntax_error_is_isolated_to_one_file(python_documents) -> None:
     """坏文件只返回自己的诊断，其他文件继续解析和跨文件后处理。"""
     broken = SourceDocument(

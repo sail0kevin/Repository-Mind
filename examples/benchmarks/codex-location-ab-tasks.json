@@ -1,63 +1,135 @@
 {
   "benchmark_id": "codex-location-ab-v1",
-  "repository_commit": "32fd00f0c2b212e04de890d928722717766cd670",
-  "definition": "A task passes when the final answer contains the expected repository-relative path and a start line within the inclusive gold range.",
+  "repository_commit": "904ac6a7cbcfdce4a0b992d99966da54af09061a",
+  "definition": "A task passes only when the final answer contains every expected repository-relative path and a reported line range covering each gold start line. The benchmark measures the cost of locating source evidence, not writing a full implementation answer.",
   "tasks": [
     {
       "id": "evidence-budget",
-      "query": "Find the exact definition of the Python class EvidenceBudget. Return only PATH:START_LINE-END_LINE.",
-      "expected_path": "backend/service/core/evidence/budget.py",
-      "line_start": 18,
-      "line_end": 18
+      "query": "A coding agent needs to limit how much retrieved source code enters its context. Find the two definitions that declare the evidence limits and apply those limits while assembling the final evidence bundle. Return both locations.",
+      "expected_locations": [
+        {
+          "path": "backend/service/core/evidence/budget.py",
+          "line_start": 18,
+          "line_end": 18
+        },
+        {
+          "path": "backend/service/core/evidence/assembler.py",
+          "line_start": 119,
+          "line_end": 119
+        }
+      ]
     },
     {
       "id": "evidence-assembler",
-      "query": "Find the exact definition of the Python class EvidenceAssembler. Return only PATH:START_LINE-END_LINE.",
-      "expected_path": "backend/service/core/evidence/assembler.py",
-      "line_start": 56,
-      "line_end": 56
+      "query": "Find where the code prevents one Specialist Tool from flooding the final answer with too many evidence items, and where the final evidence budget is applied after tool evidence is merged. Return both locations.",
+      "expected_locations": [
+        {
+          "path": "backend/service/core/agent/main_agent.py",
+          "line_start": 32,
+          "line_end": 32
+        },
+        {
+          "path": "backend/service/core/agent/main_agent.py",
+          "line_start": 186,
+          "line_end": 186
+        }
+      ]
     },
     {
       "id": "route-question",
-      "query": "Find the exact definition of the Python function route_question. Return only PATH:START_LINE-END_LINE.",
-      "expected_path": "backend/service/core/agent/router.py",
-      "line_start": 19,
-      "line_end": 19
+      "query": "Find the two places that decide an incoming question's intent and persist that route decision into the Agent execution trace before retrieval begins. Return both locations.",
+      "expected_locations": [
+        {
+          "path": "backend/service/core/agent/router.py",
+          "line_start": 19,
+          "line_end": 19
+        },
+        {
+          "path": "backend/service/core/agent/main_agent.py",
+          "line_start": 128,
+          "line_end": 128
+        }
+      ]
     },
     {
       "id": "main-agent",
-      "query": "Find the exact definition of the Python function run_main_agent. Return only PATH:START_LINE-END_LINE.",
-      "expected_path": "backend/service/core/agent/main_agent.py",
-      "line_start": 128,
-      "line_end": 128
+      "query": "A user asks an impact question. Find the MCP tool that exposes static dependency impact results, and the underlying Specialist Tool implementation that builds those results. Return both locations.",
+      "expected_locations": [
+        {
+          "path": "backend/service/mcp_server/tools.py",
+          "line_start": 284,
+          "line_end": 284
+        },
+        {
+          "path": "backend/service/core/agent/tools.py",
+          "line_start": 142,
+          "line_end": 142
+        }
+      ]
     },
     {
       "id": "mcp-search",
-      "query": "Find the exact definition of the Python function search_code in the MCP server tools. Return only PATH:START_LINE-END_LINE.",
-      "expected_path": "backend/service/mcp_server/tools.py",
-      "line_start": 105,
-      "line_end": 105
+      "query": "Find the MCP implementation that searches an indexed repository and the core retrieval entry point it invokes. Return both locations.",
+      "expected_locations": [
+        {
+          "path": "backend/service/mcp_server/tools.py",
+          "line_start": 105,
+          "line_end": 105
+        },
+        {
+          "path": "backend/service/core/retrieval/service.py",
+          "line_start": 44,
+          "line_end": 44
+        }
+      ]
     },
     {
       "id": "mcp-symbol",
-      "query": "Find the exact definition of the Python function get_symbol in the MCP server tools. Return only PATH:START_LINE-END_LINE.",
-      "expected_path": "backend/service/mcp_server/tools.py",
-      "line_start": 167,
-      "line_end": 167
+      "query": "Find the MCP implementation that resolves a symbol and the storage query used to obtain candidate symbols from the snapshot. Return both locations.",
+      "expected_locations": [
+        {
+          "path": "backend/service/mcp_server/tools.py",
+          "line_start": 167,
+          "line_end": 167
+        },
+        {
+          "path": "backend/service/storage/evidence_store.py",
+          "line_start": 302,
+          "line_end": 302
+        }
+      ]
     },
     {
       "id": "mcp-impact",
-      "query": "Find the exact definition of the Python function analyze_impact in the MCP server tools. Return only PATH:START_LINE-END_LINE.",
-      "expected_path": "backend/service/mcp_server/tools.py",
-      "line_start": 284,
-      "line_end": 284
+      "query": "Find the code that keeps resolved calls separate from reference candidates in static impact analysis, and the MCP response builder that returns those groups. Return both locations.",
+      "expected_locations": [
+        {
+          "path": "backend/service/core/agent/tools.py",
+          "line_start": 142,
+          "line_end": 142
+        },
+        {
+          "path": "backend/service/mcp_server/tools.py",
+          "line_start": 284,
+          "line_end": 284
+        }
+      ]
     },
     {
       "id": "mcp-tests",
-      "query": "Find the exact definition of the Python function find_related_tests in the MCP server tools. Return only PATH:START_LINE-END_LINE.",
-      "expected_path": "backend/service/mcp_server/tools.py",
-      "line_start": 369,
-      "line_end": 369
+      "query": "Find the MCP tool that locates related tests without executing the target repository and the underlying Specialist Tool that gathers test/runtime candidates. Return both locations.",
+      "expected_locations": [
+        {
+          "path": "backend/service/mcp_server/tools.py",
+          "line_start": 369,
+          "line_end": 369
+        },
+        {
+          "path": "backend/service/core/agent/tools.py",
+          "line_start": 213,
+          "line_end": 213
+        }
+      ]
     }
   ]
 }
