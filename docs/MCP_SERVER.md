@@ -165,7 +165,7 @@ Codex 等支持标准 `stdio` MCP Server 的客户端可使用与“通用 MCP �
 
 - `ok`：调用成功且主要能力可用。
 - `degraded`：调用成功，但某一路能力不可用，例如 Embedding 不可用时退化为纯关键词检索。
-- `not_found`：仓库、Snapshot 或目标符号不存在，或 Snapshot 尚不可查询。
+- `not_found`：仓库、Snapshot 或目标符号不存在、Snapshot 尚不可查询，或 `search_code` 没有返回可验证的代码证据。外部 Agent 应改用更具体的符号名、路径或配置键，不能把空结果当作代码事实。
 - `error`：参数无效或内部调用失败。
 
 外部 Agent 应同时检查 `status` 和 `limitations`，不能把引用候选、降级结果或证据不足当作已确认事实。

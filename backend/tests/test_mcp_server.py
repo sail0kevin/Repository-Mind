@@ -191,6 +191,19 @@ def test_active_snapshot_and_lexical_search_envelope(tmp_path: Path) -> None:
     assert any("关键词" in item for item in result["limitations"])
 
 
+def test_search_with_no_evidence_returns_not_found_and_next_step(tmp_path: Path) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+
+    result = search_code(repo_id, "qzjxvwpnkrmtafud")
+
+    _assert_envelope(result, repo_id, snapshot_id)
+    assert result["status"] == "not_found"
+    assert result["evidence"] == []
+    assert result["data"]["query"] == "qzjxvwpnkrmtafud"
+    assert result["data"]["evidence_budget"]["item_count"] == 0
+    assert any("get_symbol" in item for item in result["limitations"])
+
+
 def test_real_hybrid_search_uses_stored_vectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_id, snapshot_id, evidence = _seed_repo(tmp_path)
     run = embed_snapshot_evidence(repo_id, snapshot_id, evidence, provider=FakeProvider())
@@ -408,6 +421,9 @@ async def test_real_stdio_server_lists_six_tools_and_calls_four(
                 await session.call_tool("search_code", {"repo_id": repo_id, "query": "authenticate"}),
                 await session.call_tool("get_symbol", {"repo_id": repo_id, "symbol_query": "authenticate"}),
             ]
+            missing_search = await session.call_tool(
+                "search_code", {"repo_id": repo_id, "query": "qzjxvwpnkrmtafud"}
+            )
 
     assert not discovery.isError
     discovery_payload = discovery.structuredContent or json.loads(discovery.content[0].text)
@@ -417,3 +433,7 @@ async def test_real_stdio_server_lists_six_tools_and_calls_four(
         assert not call.isError
         payload = call.structuredContent or json.loads(call.content[0].text)
         _assert_envelope(payload, repo_id, snapshot_id)
+    missing_payload = missing_search.structuredContent or json.loads(missing_search.content[0].text)
+    _assert_envelope(missing_payload, repo_id, snapshot_id)
+    assert missing_payload["status"] == "not_found"
+    assert missing_payload["evidence"] == []

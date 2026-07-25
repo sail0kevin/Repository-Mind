@@ -149,6 +149,23 @@ def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit:
         )
         for item in bundle.items
     ]
+    if not evidence:
+        limitations.append(
+            "当前 Snapshot 中没有检索到可返回的代码证据；请改用更具体的符号名、文件路径或配置键，"
+            "也可先调用 get_symbol 确认符号是否存在。"
+        )
+        return envelope(
+            repo_id=repo_id,
+            snapshot_id=guard.snapshot["id"],
+            commit=guard.snapshot["commit_hash"],
+            status="not_found",
+            data={
+                "query": normalized_query,
+                "retrieval_mode": mode,
+                "evidence_budget": bundle.stats,
+            },
+            limitations=limitations,
+        )
     return envelope(
         repo_id=repo_id,
         snapshot_id=guard.snapshot["id"],

@@ -17,6 +17,7 @@ mcp = FastMCP(
         "先调用 list_repositories 发现可用 repo_id 和索引状态；其他工具都需要显式的 repo_id。"
         "未显式提供 snapshot_id 时，默认使用该仓库当前 active 的 succeeded 快照。"
         "返回结果统一包含 repo_id/snapshot_id/commit/status/data/evidence/limitations 字段。"
+        "search_code 返回 not_found 时表示没有可验证证据，外部 Agent 不应据此推断代码事实。"
     ),
 )
 
@@ -44,7 +45,7 @@ def repo_overview(repo_id: str, snapshot_id: str | None = None) -> dict:
 
 @mcp.tool()
 def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit: int | None = None) -> dict:
-    """在已索引仓库中做混合检索（关键词+可选语义），返回带文件路径/行号/证据 ID 的代码片段，而不是整份文件。
+    """在已索引仓库中做混合检索（关键词+可选语义），返回带文件路径/行号/证据 ID 的代码片段，而不是整份文件。没有证据时返回 not_found，不能据此推断代码事实。
 
     Args:
         repo_id: RepoMind 中已注册仓库的 ID。
