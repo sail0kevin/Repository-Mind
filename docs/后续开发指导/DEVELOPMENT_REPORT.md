@@ -51,7 +51,7 @@ RepoMind 是一个面向 Windows 的本地 Git 仓库知识助手。它把仓库
 
 ### 验证结果
 
-- 当前完整后端回归见第 9 节“本地验证与发布边界”：122 passed，60 warnings。
+- 当前完整后端回归为 `python -m pytest backend -q`：176 passed，60 warnings；第 9 节中的 122 passed 是 2026-07-17 的历史记录。
 - 健康接口测试确认实际数据库 Schema 7，而不是只报告代码支持版本。
 - 临时数据库验证通过 SQLite integrity、foreign key 和迁移序列检查。
 
@@ -157,7 +157,7 @@ Evidence Bundle 记录选择原因、检索信号和裁剪原因，并限制总�
 - 安全、认证、密钥、权限问题：调用 Security Review Tool；
 - 测试与运行问题：调用 Test Runtime Tool；
 - 宽泛导航或证据不足：调用 Repository Navigator Tool；
-- 单次请求最多调用两个工具；
+- 当前规则 Router 每次选择 0 或 1 个工具；执行器仍以最多两个工具作为硬上限；
 - 工具超时或失败时返回带 limitation 的部分回答，不直接返回 500。
 
 ### Trace
@@ -253,9 +253,9 @@ scripts/package_windows.ps1
 - Chat 和 Embedding 均无 Key；
 - 认证关闭后进程退出且 EXE 文件锁释放；若无法确认退出则记录失败，不强杀或扫描进程。
 
-### 2026-07-17 本地验证与发布边界
+### 2026-07-17 历史本地验证与发布边界
 
-以下是当前工作区的本地验证结果，不是 GitHub Actions 远端运行记录：
+以下是 2026-07-17 的历史本地验证结果，不是当前提交或 GitHub Actions 远端运行记录：
 
 - 后端：`python -m pytest -q backend/tests` → **122 passed**，60 warnings；
 - 桌面端：`npm test -- --run` → **53 passed**，覆盖 6 个测试文件；

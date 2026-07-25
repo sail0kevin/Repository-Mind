@@ -23,7 +23,7 @@ RepoMind 的目标不是默认让多个角色重复分析同一个仓库，而�
 | Embedding | 独立、可选的 OpenAI-compatible Embedding Provider；默认关闭，失败时 lexical-only | 增加更多 Provider 和大规模向量索引优化 | 默认模式不是必然启用语义向量 |
 | 检索 | SQLite FTS5/BM25 + 可选 Embedding + RRF + 结构扩展 + Evidence Bundle | 扩充评测集、调优召回与重排 | 静态检索质量不等于完全理解仓库 |
 | 仓库摘要 | 已实现符号、文件、目录和仓库层级的规则优先 Catalog | 增强子系统聚类和可选 LLM 摘要质量 | Catalog 不是源码真相的替代品 |
-| Agent | Main Agent 条件路由 Specialist Tools，单次最多调用两个工具，并持久化 Trace | 增强证据充分度判断和工具评测 | 当前不是无限自主循环或并行自治 Agent 群 |
+| Agent | Main Agent 条件路由 Specialist Tools；当前 Router 每次选 0/1 个工具，执行器保留最多 2 个工具的硬上限，并持久化 Trace | 增强证据充分度判断和工具评测 | 当前不是无限自主循环或并行自治 Agent 群 |
 | 代码结构 | 多语言 symbols/relations、静态调用、import、继承、测试和配置关系 | 扩展跨语言 linker 与关系准确率评测 | 静态关系不是运行时精确调用图 |
 | 分析报告 | 规则优先并绑定 Snapshot/Evidence，Legacy 多角色保留为高级入口 | 提升证据覆盖和报告评测 | 静态安全线索不等于完整安全审计 |
 
@@ -217,7 +217,7 @@ M4 出现以下需求时再评估 LangGraph：
 
 - 将普通问答接入 Main Agent；
 - 使用确定性 Router 条件调用 Specialist Tools；
-- 单次请求最多调用两个工具；
+- 当前 Router 每次只选择 0 或 1 个工具；执行器仍以最多两个工具作为硬上限；
 - 保存路由、检索、工具和综合 Trace；
 - Legacy 多角色协作保留为高级入口。
 
@@ -230,7 +230,7 @@ M4 出现以下需求时再评估 LangGraph：
 - 生成并验证 `win-unpacked`、NSIS Setup 和 Portable；
 - 配置 Windows CI 与 Release workflow。
 
-**验收结果：** 本地后端 87 项测试、桌面端 22 项测试、冻结后端 smoke 和 Windows 发布物验证通过；GitHub Actions 仍需推送后在远端实际运行。
+**验收结果：** 当前提交本地后端 176 项测试、桌面端 63 项测试通过；冻结后端 smoke 和 Windows 发布物保留历史本地验证记录。GitHub Actions 是否通过仍需以远端实际运行结果为准。
 
 ## 11. 当前实现地图
 

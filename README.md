@@ -148,7 +148,7 @@ RepoMind 默认不会把整个仓库塞进 Prompt。Repo Map 先缩小范围，B
 
 以下是当前提交的可复现验证结果：
 
-- Backend：`cd backend; python -m pytest -q` → **168 passed**，其中 MCP 专项 **9 passed**
+- Backend：`cd backend; python -m pytest -q` → **176 passed**，其中 MCP 专项 **12 passed**
 - Desktop：`npm test -- --run` → **63 passed**（11 个测试文件）
 - Desktop build：`npm run build` → Vite renderer 与 Electron TypeScript 构建通过
 - Frozen MCP：打包后端以 `--mcp` 启动，列出 6 个只读工具并完成仓库发现调用
@@ -159,7 +159,7 @@ Windows CI 会从干净环境重建冻结后端和 Electron 包，并运行打�
 ## 安全与限制
 
 - 默认只读目标仓库，不执行其中的代码，不修改文件，不自动 commit、push 或创建 PR。
-- Main Agent 每次最多选择一个窄边界只读 Specialist Tool，不是自由无边界的 Multi-Agent 聊天室。
+- 当前规则路由每次选择 0 或 1 个窄边界只读 Specialist Tool；执行器额外保留最多 2 个工具的硬上限，不是自由无边界的 Multi-Agent 聊天室。
 - 开启远程 Chat/Embedding Provider 后，当前请求检索到的 Evidence 可能发送到用户配置的 Base URL；自定义 Endpoint 属于用户主动选择的信任边界。
 - Python parser 尚未完整解析局部实例变量的类型传播；静态关系和安全线索不等于运行时事实或完整安全审计。
 - 当前评测集规模很小，尚无大型真实仓库 benchmark 和受控延迟数据。

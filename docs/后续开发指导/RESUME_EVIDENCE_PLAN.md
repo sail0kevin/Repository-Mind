@@ -5,7 +5,7 @@
 ## 当前已经可以对外说明的事实
 
 - 内置 Demo 固定在 commit `8c5ac33542fbed5e117bfee19af1457e60bd166c`，无 Chat Key、无 Embedding Key 时可完成 Snapshot/Catalog/词法检索/规则问答、安全审查、依赖影响、Evidence 与 Trace。
-- 后端本地测试 136 项通过，桌面端本地测试 63 项通过（11 个测试文件）；桌面端 renderer 与 Electron TypeScript 构建通过。
+- 后端本地测试 176 项通过，桌面端本地测试 63 项通过（11 个测试文件）；桌面端 renderer 与 Electron TypeScript 构建通过。
 - 检索测试已覆盖 Recall@5、Recall@10、MRR、FTS5 能力检查、Snapshot 隔离、RRF 去重、结构关系扩展和 Evidence Budget 约束。
 - Demo 的无 Key 降级路径已验证：Embedding 不可用时仍可完成 lexical-only 检索和规则回答。
 
@@ -95,7 +95,7 @@
 
 ## 简历回填规则
 
-当前只使用“136 项后端测试、63 项桌面测试、无 Key synthetic Demo 三问可复现”等工程事实。
+当前只使用“176 项后端测试、63 项桌面测试、无 Key synthetic Demo 三问可复现”等工程事实。
 
 完成 P0 后，可加入 Recall@5、Recall@10、MRR，但必须写明“在 X 条标注查询上的本地评测”。
 

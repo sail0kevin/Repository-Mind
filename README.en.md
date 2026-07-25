@@ -142,7 +142,7 @@ Repo Map narrows scope; BM25/optional Embedding retrieve candidates; RRF and str
 
 ## Verification
 
-- Backend: `cd backend; python -m pytest -q` → **168 passed**, including **9 MCP tests**
+- Backend: `cd backend; python -m pytest -q` → **176 passed**, including **12 MCP tests**
 - Desktop: `npm test -- --run` → **63 passed** across 11 test files
 - Desktop: `npm run build` → Vite renderer and Electron TypeScript passed
 - Frozen MCP: the packaged backend starts with `--mcp`, lists six read-only tools, and completes repository discovery
@@ -153,7 +153,7 @@ Windows CI rebuilds the frozen backend and Electron package in a clean environme
 ## Safety and limitations
 
 - Target repositories stay read-only: no code execution, edits, commits, pushes, or PRs.
-- Each request uses at most one narrow read-only Specialist Tool.
+- The current rule router selects zero or one narrow read-only Specialist Tool per request; the executor retains a hard cap of two tools.
 - Remote Chat/Embedding can send retrieved Evidence to the configured Base URL; custom endpoints are user-selected trust boundaries.
 - Local-instance type propagation and some call edges remain incomplete; static clues are not runtime facts or a full audit.
 - There is no large-repository benchmark or controlled latency study yet.
