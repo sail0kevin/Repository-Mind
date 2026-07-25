@@ -104,18 +104,11 @@ python scripts/capture_demo_evidence.py
 python scripts/report_retrieval_metrics.py examples/benchmarks/demo-evidence-capture-post-fix.json --format markdown
 ```
 
-## Codex Token A/B
+## Codex 代码定位 A/B
 
-在固定 Commit、模型和答案长度下，使用 3 条真实代码理解任务比较“Codex 自行搜索/读取文件”和“仅使用 RepoMind MCP”：
+在固定 Commit 的隔离仓库中，对每题需要定位两处源码的任务比较“Codex 自行搜索/读取文件”和“仅使用 RepoMind MCP”。8 条人工标注代码导航任务中，普通搜索通过 4/8，RepoMind MCP 通过 7/8。
 
-| 路径 | 输入 Token | 操作 | 任务通过 |
-| --- | ---: | ---: | ---: |
-| 普通搜索与读取 | 130,936 | 19 次 Shell/文件读取 | 3/3 |
-| RepoMind MCP | 148,193 | 11 次 MCP 调用 | 3/3 |
-
-这组小样本中，MCP 消除了盲目文件读取并保持答案要点，但输入 Token **增加 13.2%**，因此当前不能宣称 RepoMind 普遍节省 Token。工具说明、重复调用和 Evidence 返回本身也占用上下文；另一条仅作校准的 RRF 查询下降 29.2%，说明收益与任务复杂度高度相关。
-
-完整实验边界、逐题数据和复现入口见 [Codex Token A/B 报告](examples/benchmarks/codex-token-ab-report.md)、[原始汇总](examples/benchmarks/codex-token-ab-capture.json) 与 [运行脚本](scripts/run_codex_token_ab.ps1)。
+仅在两条路径都通过的 4 条任务上比较，MCP 接收的源码/证据文本少 83.5%，总输入 Token 少 29.8%。这只是初步的代码定位实验，不代表完整开发任务或普遍节省 Token：可比较样本只有 4 条，源码文本量是上下文体积代理值而非计费 Token，且 Windows 下的工具限制由提示词约束。完整条件、逐题结果和复现入口见 [Codex 代码定位 A/B v2 报告](examples/benchmarks/codex-location-ab-v2-report.md) 与 [运行脚本](scripts/run_codex_location_ab.ps1)。
 
 ## 工作流程
 

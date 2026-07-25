@@ -100,11 +100,11 @@ python scripts/capture_demo_evidence.py
 python scripts/report_retrieval_metrics.py examples/benchmarks/demo-evidence-capture-post-fix.json --format markdown
 ```
 
-## Codex Token A/B
+## Codex code-location A/B
 
-Three fixed-commit code-understanding tasks compared normal Codex search/file reads with RepoMind-only MCP access. Both paths passed 3/3 tasks. Baseline input was 130,936 Tokens across 19 Shell/file-read actions; MCP input was 148,193 Tokens across 11 MCP calls, an **increase of 13.2%**.
+An isolated fixed-commit experiment compares direct Codex search/file reads with RepoMind-only MCP access for locating two annotated source locations per task. On eight manually annotated navigation tasks, direct search passed 4/8 and RepoMind MCP passed 7/8.
 
-The current evidence supports bounded, traceable context acquisition, not a universal Token-saving claim. See the [full report](examples/benchmarks/codex-token-ab-report.md), [aggregate capture](examples/benchmarks/codex-token-ab-capture.json), and [runner](scripts/run_codex_token_ab.ps1).
+For the four tasks both paths passed, MCP received 83.5% less source/evidence text and used 29.8% fewer total input tokens. This is an initial code-location result, not a general Token-saving or feature-development claim: the common-success set contains only four tasks, source-text volume is a proxy rather than billed Token usage, and Windows restrictions were prompt-enforced. See the [full v2 report](examples/benchmarks/codex-location-ab-v2-report.md) and [runner](scripts/run_codex_location_ab.ps1).
 
 ## Architecture
 
