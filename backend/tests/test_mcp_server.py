@@ -239,12 +239,37 @@ def test_symbol_disambiguation_and_impact_evidence_tiers(tmp_path: Path) -> None
     same_name = [item for item in symbol["data"]["candidates"] if item["name"] == "authenticate"]
     assert len(same_name) == 2
     assert symbol["data"]["symbol"]["file_path"] == "src/auth.py"
+    assert symbol["evidence"][0]["snippet"]
+    assert symbol["data"]["candidate_count"] == 3
+    assert symbol["data"]["relation_count"] == 1
     assert impact["status"] == "ok"
-    assert [item["file_path"] for item in impact["data"]["resolved_caller_evidence"]] == ["src/login.py"]
-    assert [item["file_path"] for item in impact["data"]["reference_candidate_evidence"]] == ["tests/test_auth.py"]
-    assert impact["data"]["definition_evidence"][0]["file_path"] == "src/auth.py"
+    assert impact["data"]["evidence_groups"]["resolved_callers"] == ["mcp_fixture_ev_login"]
+    assert impact["data"]["evidence_groups"]["reference_candidates"] == ["mcp_fixture_ev_test_auth"]
+    assert impact["evidence"][0]["file_path"] == "src/auth.py"
     assert impact["data"]["resolved_relations"][0]["relation_type"] == "calls"
     _assert_envelope(impact, repo_id, snapshot_id)
+
+
+def test_mcp_payloads_are_compact_but_keep_location_and_snapshot_proof(tmp_path: Path) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+
+    search = search_code(repo_id, "authenticate")
+    symbol = get_symbol(repo_id, "authenticate")
+    impact = analyze_impact(repo_id, "authenticate")
+
+    for payload in (search, symbol, impact):
+        serialized = json.dumps(payload, ensure_ascii=False)
+        assert len(serialized) < 9000
+        assert payload["repo_id"] == repo_id
+        assert payload["snapshot_id"] == snapshot_id
+        assert payload["commit"] == "a" * 40
+        assert all("absolute_path" not in item for item in payload["evidence"])
+        assert all(item["file_path"] and item["start_line"] is not None for item in payload["evidence"])
+
+    assert symbol["evidence"][0]["snippet"]
+    assert set(impact["data"]["evidence_groups"]) == {
+        "definition", "resolved_callers", "reference_candidates"
+    }
 
 
 def test_related_tests_is_read_only_and_explains_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -286,7 +311,7 @@ def test_invalid_empty_and_oversized_parameters_are_bounded(tmp_path: Path) -> N
     negative_limit = search_code(repo_id, "authenticate", limit=-12)
     assert len(oversized["data"]["query"]) == MAX_QUERY_CHARS
     assert oversized["status"] in {"ok", "degraded"}
-    assert len(invalid_limit["evidence"]) <= 10
+    assert len(invalid_limit["evidence"]) <= 6
     assert len(negative_limit["evidence"]) <= 1
 
 

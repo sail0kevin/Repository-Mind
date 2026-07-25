@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from service.core.agent.models import AgentContext
 from service.core.agent.tools import _rank_target_symbols, dependency_impact, test_runtime
-from service.core.evidence import EvidenceAssembler
+from service.core.evidence import EvidenceAssembler, EvidenceBudget
 from service.core.repo_map import build_repo_map, build_repo_summary
 from service.core.retrieval import HybridRetriever
 from service.mcp_server.envelope import (
@@ -18,7 +18,7 @@ from service.mcp_server.envelope import (
 )
 from service.mcp_server.snapshot_guard import SnapshotGuardError, resolve_repo_and_snapshot
 from service.storage.chunk_store import count_chunks
-from service.storage.evidence_store import list_evidence_units, list_relations, list_symbols
+from service.storage.evidence_store import get_evidence_unit, list_evidence_units, list_relations, list_symbols
 from service.storage.repository_store import list_file_records, list_repo_records
 
 
@@ -110,15 +110,19 @@ def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit:
     normalized_query = clamp_text(query)
     if not normalized_query:
         return error_envelope(repo_id, "query 不能为空。", status="error", snapshot_id=guard.snapshot["id"])
-    normalized_limit = clamp_limit(limit, default=10)
+    normalized_limit = clamp_limit(limit, default=6, maximum=20)
 
     try:
         retrieval = HybridRetriever().retrieve(
             repo_id, guard.snapshot["id"], normalized_query, normalized_limit
         )
-        bundle = EvidenceAssembler().assemble(
-            retrieval.items, commit=guard.snapshot["commit_hash"], limit=normalized_limit
-        )
+        bundle = EvidenceAssembler(EvidenceBudget(
+            total_tokens=1200,
+            max_file_ratio=0.5,
+            max_evidence_tokens=320,
+            min_sources=2,
+            max_items=6,
+        )).assemble(retrieval.items, commit=guard.snapshot["commit_hash"], limit=normalized_limit)
     except Exception as exc:  # noqa: BLE001
         return error_envelope(repo_id, f"检索失败：{exc}", snapshot_id=guard.snapshot["id"])
 
@@ -170,7 +174,7 @@ def get_symbol(repo_id: str, symbol_query: str, snapshot_id: str | None = None) 
         return error_envelope(repo_id, "symbol_query 不能为空。", snapshot_id=guard.snapshot["id"])
 
     try:
-        symbols = list_symbols(repo_id, guard.snapshot["id"], query=normalized_query, limit=50)
+        symbols = list_symbols(repo_id, guard.snapshot["id"], query=normalized_query, limit=20)
         ranked = _rank_target_symbols(symbols, normalized_query)
     except Exception as exc:  # noqa: BLE001
         return error_envelope(repo_id, f"符号查询失败：{exc}", snapshot_id=guard.snapshot["id"])
@@ -194,8 +198,9 @@ def get_symbol(repo_id: str, symbol_query: str, snapshot_id: str | None = None) 
 
     evidence = []
     if target.get("evidence_id"):
+        definition = get_evidence_unit(repo_id, target["evidence_id"], guard.snapshot["id"])
         evidence.append(evidence_item(
-            {
+            definition or {
                 "chunk_id": target.get("evidence_id"),
                 "file_path": target.get("file_path"),
                 "start_line": target.get("start_line"),
@@ -203,6 +208,22 @@ def get_symbol(repo_id: str, symbol_query: str, snapshot_id: str | None = None) 
             },
             reason="符号定义",
         ))
+
+    symbol_by_id = {
+        item.get("id"): item
+        for item in list_symbols(repo_id, guard.snapshot["id"], limit=None)
+    }
+
+    def compact_symbol(symbol_id: str | None) -> dict:
+        symbol = symbol_by_id.get(symbol_id)
+        if not symbol:
+            return {"symbol_id": symbol_id}
+        return {
+            "name": symbol.get("name"),
+            "qualified_name": symbol.get("qualified_name"),
+            "file_path": symbol.get("file_path"),
+            "start_line": symbol.get("start_line"),
+        }
 
     candidates = [
         {
@@ -214,7 +235,7 @@ def get_symbol(repo_id: str, symbol_query: str, snapshot_id: str | None = None) 
             "start_line": item.get("start_line"),
             "end_line": item.get("end_line"),
         }
-        for item in ranked
+        for item in ranked[:5]
     ]
     match_method = (
         "精确限定名匹配" if str(target.get("qualified_name") or "").casefold() == normalized_query.casefold()
@@ -223,7 +244,7 @@ def get_symbol(repo_id: str, symbol_query: str, snapshot_id: str | None = None) 
     )
     limitations = []
     if len(ranked) > 1:
-        limitations.append(f"找到 {len(ranked)} 个同名/相似符号，已按 {match_method} 排序，data.candidates 中给出全部候选。")
+        limitations.append(f"找到 {len(ranked)} 个同名/相似符号，已按 {match_method} 排序，仅返回前 5 个候选；如需进一步区分，请提供限定名或路径。")
 
     return envelope(
         repo_id=repo_id,
@@ -241,17 +262,19 @@ def get_symbol(repo_id: str, symbol_query: str, snapshot_id: str | None = None) 
                 "start_line": target.get("start_line"),
                 "end_line": target.get("end_line"),
             },
+            "relation_count": len(related),
             "relations": [
                 {
-                    "relation_type": item.get("relation_type"),
-                    "source_symbol_id": item.get("source_symbol_id"),
-                    "target_symbol_id": item.get("target_symbol_id"),
+                    "type": item.get("relation_type"),
+                    "source": compact_symbol(item.get("source_symbol_id")),
+                    "target": compact_symbol(item.get("target_symbol_id")),
                     "observed": bool(item.get("observed")),
                     "resolver_status": item.get("resolver_status"),
                 }
-                for item in related[:100]
+                for item in related[:10]
             ],
             "candidates": candidates,
+            "candidate_count": len(ranked),
         },
         evidence=evidence,
         limitations=limitations,
@@ -305,6 +328,12 @@ def analyze_impact(repo_id: str, symbol_query: str, snapshot_id: str | None = No
     status = "ok" if target else "not_found"
     limitations = [result.limitation] if result.limitation else []
     limitations.append("静态分析无法覆盖动态调用、反射或无法确定类型的实例调用；引用候选仅表示源码中出现了同名调用，未必是真实调用边。")
+    all_impact_evidence = definition_evidence + resolved_evidence + reference_evidence
+    evidence_groups = {
+        "definition": [item["evidence_id"] for item in definition_evidence],
+        "resolved_callers": [item["evidence_id"] for item in resolved_evidence],
+        "reference_candidates": [item["evidence_id"] for item in reference_evidence],
+    }
 
     return envelope(
         repo_id=repo_id,
@@ -326,14 +355,13 @@ def analyze_impact(repo_id: str, symbol_query: str, snapshot_id: str | None = No
                     "source_symbol_id": item.get("source_symbol_id"),
                     "target_symbol_id": item.get("target_symbol_id"),
                 }
-                for item in result.metadata.get("resolved_relations", [])
+                for item in result.metadata.get("resolved_relations", [])[:10]
             ],
-            "definition_evidence": definition_evidence,
-            "resolved_caller_evidence": resolved_evidence,
-            "reference_candidate_evidence": reference_evidence,
+            "evidence_groups": evidence_groups,
+            "evidence_count": len(all_impact_evidence),
             "summary": result.summary,
         },
-        evidence=definition_evidence + resolved_evidence + reference_evidence,
+        evidence=all_impact_evidence,
         limitations=limitations,
     )
 
@@ -367,7 +395,7 @@ def find_related_tests(repo_id: str, symbol_query: str | None = None, snapshot_i
         ]
         return envelope(
             repo_id=repo_id, snapshot_id=guard.snapshot["id"], commit=guard.snapshot["commit_hash"],
-            status="ok", data={"files": base_result.metadata.get("files", [])},
+            status="ok", data={"files": [file.get("relative_path") for file in base_result.metadata.get("files", [])]},
             evidence=evidence, limitations=limitations,
         )
 
@@ -406,7 +434,7 @@ def find_related_tests(repo_id: str, symbol_query: str | None = None, snapshot_i
         data={
             "symbol_query": normalized_query,
             "matched_test_files": sorted({item["file_path"] for item in related_evidence}),
-            "all_test_files": base_result.metadata.get("files", []),
+            "all_test_files": sorted(test_paths),
         },
         evidence=related_evidence or [
             evidence_item({"chunk_id": "", "file_path": item, "start_line": None, "end_line": None},

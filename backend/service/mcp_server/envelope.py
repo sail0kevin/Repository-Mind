@@ -6,10 +6,10 @@ from __future__ import annotations
 
 from typing import Any
 
-MAX_SNIPPET_CHARS = 800
+MAX_SNIPPET_CHARS = 360
 MAX_QUERY_CHARS = 400
 MAX_LIMIT = 50
-MAX_EVIDENCE_ITEMS = 30
+MAX_EVIDENCE_ITEMS = 12
 
 
 def build_snippet(content: str, max_length: int = MAX_SNIPPET_CHARS) -> str:

@@ -50,7 +50,7 @@ def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit:
         repo_id: RepoMind 中已注册仓库的 ID。
         query: 检索关键词或问题描述。
         snapshot_id: 可选，指定要查询的快照 ID；省略时使用该仓库当前 active 快照。
-        limit: 可选，返回证据条数上限（默认 10，最大 50）。
+        limit: 可选，返回证据条数上限（默认 6，最大 20）。
     """
     return impl.search_code(repo_id, query, snapshot_id, limit)
 

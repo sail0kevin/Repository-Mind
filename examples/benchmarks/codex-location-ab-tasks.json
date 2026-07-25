@@ -1,0 +1,63 @@
+{
+  "benchmark_id": "codex-location-ab-v1",
+  "repository_commit": "32fd00f0c2b212e04de890d928722717766cd670",
+  "definition": "A task passes when the final answer contains the expected repository-relative path and a start line within the inclusive gold range.",
+  "tasks": [
+    {
+      "id": "evidence-budget",
+      "query": "Find the exact definition of the Python class EvidenceBudget. Return only PATH:START_LINE-END_LINE.",
+      "expected_path": "backend/service/core/evidence/budget.py",
+      "line_start": 18,
+      "line_end": 18
+    },
+    {
+      "id": "evidence-assembler",
+      "query": "Find the exact definition of the Python class EvidenceAssembler. Return only PATH:START_LINE-END_LINE.",
+      "expected_path": "backend/service/core/evidence/assembler.py",
+      "line_start": 56,
+      "line_end": 56
+    },
+    {
+      "id": "route-question",
+      "query": "Find the exact definition of the Python function route_question. Return only PATH:START_LINE-END_LINE.",
+      "expected_path": "backend/service/core/agent/router.py",
+      "line_start": 19,
+      "line_end": 19
+    },
+    {
+      "id": "main-agent",
+      "query": "Find the exact definition of the Python function run_main_agent. Return only PATH:START_LINE-END_LINE.",
+      "expected_path": "backend/service/core/agent/main_agent.py",
+      "line_start": 128,
+      "line_end": 128
+    },
+    {
+      "id": "mcp-search",
+      "query": "Find the exact definition of the Python function search_code in the MCP server tools. Return only PATH:START_LINE-END_LINE.",
+      "expected_path": "backend/service/mcp_server/tools.py",
+      "line_start": 105,
+      "line_end": 105
+    },
+    {
+      "id": "mcp-symbol",
+      "query": "Find the exact definition of the Python function get_symbol in the MCP server tools. Return only PATH:START_LINE-END_LINE.",
+      "expected_path": "backend/service/mcp_server/tools.py",
+      "line_start": 167,
+      "line_end": 167
+    },
+    {
+      "id": "mcp-impact",
+      "query": "Find the exact definition of the Python function analyze_impact in the MCP server tools. Return only PATH:START_LINE-END_LINE.",
+      "expected_path": "backend/service/mcp_server/tools.py",
+      "line_start": 284,
+      "line_end": 284
+    },
+    {
+      "id": "mcp-tests",
+      "query": "Find the exact definition of the Python function find_related_tests in the MCP server tools. Return only PATH:START_LINE-END_LINE.",
+      "expected_path": "backend/service/mcp_server/tools.py",
+      "line_start": 369,
+      "line_end": 369
+    }
+  ]
+}
