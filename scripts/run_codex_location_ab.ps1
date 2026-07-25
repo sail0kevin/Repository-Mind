@@ -1,6 +1,8 @@
 param(
-    [Parameter(Mandatory = $true)][string]$RepoId,
-    [Parameter(Mandatory = $true)][string]$SnapshotId,
+    [string]$RepoId,
+    [string]$SnapshotId,
+    [string]$Manifest,
+    [string]$TaskFile,
     [string]$McpName = "repomind",
     [string]$McpPythonExe,
     [string]$McpBackendPath,
@@ -21,11 +23,31 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $root $OutputDir
 New-Item -ItemType Directory -Force -Path $output | Out-Null
-$targetRepository = (Resolve-Path $RepositoryPath).Path
 $resolvedMcpPythonExe = $McpPythonExe
 if ([string]::IsNullOrWhiteSpace($resolvedMcpPythonExe)) {
     $resolvedMcpPythonExe = (Get-Command python -ErrorAction Stop).Source
 }
+
+if (-not [string]::IsNullOrWhiteSpace($Manifest)) {
+    $resolvedManifest = (Resolve-Path $Manifest).Path
+    $preflightScript = Join-Path $root "scripts\validate_location_benchmark.py"
+    $preflightOutput = & $resolvedMcpPythonExe $preflightScript --manifest $resolvedManifest
+    if ($LASTEXITCODE -ne 0) {
+        throw "Benchmark manifest preflight failed. The target checkout and MCP index were not used."
+    }
+    $preflight = ($preflightOutput | ConvertFrom-Json)
+    $RepoId = $preflight.repo_id
+    $SnapshotId = $preflight.snapshot_id
+    $Commit = $preflight.commit
+    $RepositoryPath = $preflight.repository_path
+    $McpDatabasePath = $preflight.database_path
+    $McpDataDir = $preflight.data_dir
+    $TaskFile = $preflight.task_file
+    Write-Host "Validated isolated benchmark '$($preflight.benchmark_id)' with $($preflight.task_count) tasks."
+} elseif ([string]::IsNullOrWhiteSpace($RepoId) -or [string]::IsNullOrWhiteSpace($SnapshotId)) {
+    throw "Provide -RepoId and -SnapshotId, or provide a validated -Manifest."
+}
+$targetRepository = (Resolve-Path $RepositoryPath).Path
 $resolvedMcpBackendPath = if ([string]::IsNullOrWhiteSpace($McpBackendPath)) {
     Join-Path $root "backend"
 } else {
@@ -75,7 +97,11 @@ if ($actualCommit -ne $Commit) {
     throw "Expected repository commit $Commit, found $actualCommit. Use a clean fixed-commit clone."
 }
 
-$taskFile = Join-Path $root "examples/benchmarks/codex-location-ab-tasks.json"
+$taskFile = if ([string]::IsNullOrWhiteSpace($TaskFile)) {
+    Join-Path $root "examples/benchmarks/codex-location-ab-tasks.json"
+} else {
+    (Resolve-Path $TaskFile).Path
+}
 $tasks = Get-Content -LiteralPath $taskFile -Raw -Encoding utf8 | ConvertFrom-Json
 $selectedTasks = @($tasks.tasks | Where-Object { -not $TaskId -or $TaskId -contains $_.id })
 if ($selectedTasks.Count -eq 0) { throw "No benchmark task matched -TaskId." }

@@ -1,0 +1,14 @@
+{
+  "benchmark_id": "external-code-location-example",
+  "repository": {
+    "path": "C:/benchmarks/example-repository",
+    "commit": "0000000000000000000000000000000000000000"
+  },
+  "index": {
+    "repo_id": "repo_replace_after_isolated_ingest",
+    "snapshot_id": "snap_replace_after_isolated_ingest",
+    "data_dir": "C:/benchmarks/repomind-example-data",
+    "database_path": "C:/benchmarks/repomind-example-data/repomind.sqlite3"
+  },
+  "task_file": "C:/benchmarks/external-location-tasks.json"
+}

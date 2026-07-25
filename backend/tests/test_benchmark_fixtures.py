@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import sqlite3
 import subprocess
 from types import ModuleType
 
@@ -15,6 +16,15 @@ ROOT = Path(__file__).parents[2]
 def _load_capture_script() -> ModuleType:
     path = ROOT / "scripts" / "capture_demo_evidence.py"
     spec = importlib.util.spec_from_file_location("repomind_capture_demo_evidence", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_location_preflight_script() -> ModuleType:
+    path = ROOT / "scripts" / "validate_location_benchmark.py"
+    spec = importlib.util.spec_from_file_location("repomind_location_benchmark_preflight", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -171,3 +181,94 @@ def test_generic_capture_rejects_unsafe_relative_paths(raw_path: str) -> None:
 
     with pytest.raises(RuntimeError, match="无效的相对路径"):
         normalize_relative_path(raw_path)
+
+
+def _create_pinned_benchmark_fixture(tmp_path: Path) -> tuple[Path, str]:
+    repository = tmp_path / "target-repository"
+    repository.mkdir()
+    (repository / "src").mkdir()
+    (repository / "src" / "service.py").write_text("def locate_me():\n    return 1\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=repository, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "add", "."], cwd=repository, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "-c", "user.name=RepoMind Test", "-c", "user.email=test@example.com", "commit", "-m", "fixture"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repository, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    data_dir = tmp_path / "isolated-index"
+    data_dir.mkdir()
+    database = data_dir / "repomind.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE repos (id TEXT PRIMARY KEY, repo_path TEXT)")
+        connection.execute(
+            "CREATE TABLE repository_snapshots (id TEXT PRIMARY KEY, repo_id TEXT, commit_hash TEXT, status TEXT)"
+        )
+        connection.execute("INSERT INTO repos VALUES (?, ?)", ("repo_fixture", str(repository)))
+        connection.execute(
+            "INSERT INTO repository_snapshots VALUES (?, ?, ?, ?)",
+            ("snap_fixture", "repo_fixture", commit, "succeeded"),
+        )
+    tasks = tmp_path / "tasks.json"
+    tasks.write_text(
+        json.dumps(
+            {
+                "repository_commit": commit,
+                "tasks": [
+                    {
+                        "id": "locate-service",
+                        "query": "Find the definition and its return statement.",
+                        "expected_locations": [
+                            {"path": "src/service.py", "line_start": 1, "line_end": 1},
+                            {"path": "src/service.py", "line_start": 2, "line_end": 2},
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "benchmark.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "benchmark_id": "fixture",
+                "repository": {"path": str(repository), "commit": commit},
+                "index": {
+                    "repo_id": "repo_fixture",
+                    "snapshot_id": "snap_fixture",
+                    "data_dir": str(data_dir),
+                    "database_path": str(database),
+                },
+                "task_file": str(tasks),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest, commit
+
+
+def test_location_benchmark_preflight_accepts_pinned_isolated_index(tmp_path: Path) -> None:
+    preflight = _load_location_preflight_script()
+    manifest, commit = _create_pinned_benchmark_fixture(tmp_path)
+
+    result = preflight.validate_manifest(manifest)
+
+    assert result["commit"] == commit
+    assert result["repo_id"] == "repo_fixture"
+    assert result["task_count"] == 1
+
+
+def test_location_benchmark_preflight_rejects_index_for_other_checkout(tmp_path: Path) -> None:
+    preflight = _load_location_preflight_script()
+    manifest, _commit = _create_pinned_benchmark_fixture(tmp_path)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    with sqlite3.connect(payload["index"]["database_path"]) as connection:
+        connection.execute("UPDATE repos SET repo_path = ? WHERE id = ?", (str(tmp_path / "other"), "repo_fixture"))
+
+    with pytest.raises(preflight.BenchmarkValidationError, match="indexed repo_path does not match"):
+        preflight.validate_manifest(manifest)
