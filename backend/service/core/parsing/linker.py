@@ -28,11 +28,36 @@ class RepositoryLinker:
                     updated.append(relation)
                     continue
                 candidates = list(by_qname.get(relation.target_ref, []))
+                resolution_method = "exact"
+                if (not candidates and result.document.language in {"python", "py"}
+                        and "." in relation.target_ref):
+                    # Python source roots are often nested below the repository root
+                    # (for example backend/service imports as service). Keep the
+                    # source import text, but bind it when exactly one indexed
+                    # symbol has that import-qualified suffix.
+                    suffix = f".{relation.target_ref}"
+                    candidates = [
+                        symbol for qualified_name, values in by_qname.items()
+                        if qualified_name.endswith(suffix)
+                        for symbol in values
+                    ]
+                    if candidates:
+                        resolution_method = "source_root_suffix"
                 if relation.kind == "imports":
                     module_names = self._module_candidates(result.document.path, relation.target_ref)
                     candidates = [symbol for name in module_names for symbol in modules.get(name, [])]
                     if not candidates:
                         candidates = list(by_qname.get(relation.target_ref, []))
+                    if (not candidates and result.document.language in {"python", "py"}
+                            and "." in relation.target_ref):
+                        suffix = f".{relation.target_ref}"
+                        candidates = [
+                            symbol for qualified_name, values in modules.items()
+                            if qualified_name.endswith(suffix)
+                            for symbol in values
+                        ]
+                        if candidates:
+                            resolution_method = "source_root_suffix"
                 elif relation.kind in {"calls", "inherits", "references", "exports"} and not candidates:
                     # 裸名只能绑定同文件定义。全仓唯一不代表源码有可见性依据。
                     if "." not in relation.target_ref and relation.target_ref not in {"this", "super"}:
@@ -42,7 +67,11 @@ class RepositoryLinker:
                     updated.append(replace(relation.resolved(candidates[0].id, max(relation.confidence, 0.9)),
                                            inferred=True,
                                            resolver_status="resolved",
-                                           metadata={**relation.metadata, "resolver_status": "resolved"}))
+                                           metadata={
+                                               **relation.metadata,
+                                               "resolver_status": "resolved",
+                                               "resolution_method": resolution_method,
+                                           }))
                 else:
                     status = "ambiguous" if len(candidates) > 1 else "unresolved"
                     updated.append(replace(relation, resolver_status=status,

@@ -82,12 +82,12 @@ def test_actual_mcp_impact_wrapper_has_a_resolved_static_call_to_the_specialist(
     backend_root = Path(__file__).resolve().parents[1]
     documents = [
         SourceDocument(
-            snapshot_id="snap", path="service/mcp_server/tools.py",
+            snapshot_id="snap", path="backend/service/mcp_server/tools.py",
             content=(backend_root / "service/mcp_server/tools.py").read_text(encoding="utf-8"),
             language="python",
         ),
         SourceDocument(
-            snapshot_id="snap", path="service/core/agent/tools.py",
+            snapshot_id="snap", path="backend/service/core/agent/tools.py",
             content=(backend_root / "service/core/agent/tools.py").read_text(encoding="utf-8"),
             language="python",
         ),
@@ -95,7 +95,7 @@ def test_actual_mcp_impact_wrapper_has_a_resolved_static_call_to_the_specialist(
 
     mcp_result = next(
         item for item in default_registry().parse_all(documents)
-        if item.document.path == "service/mcp_server/tools.py"
+        if item.document.path == "backend/service/mcp_server/tools.py"
     )
     mcp_symbol = next(item for item in mcp_result.symbols if item.name == "analyze_impact")
     specialist_call = next(
@@ -107,6 +107,38 @@ def test_actual_mcp_impact_wrapper_has_a_resolved_static_call_to_the_specialist(
 
     assert specialist_call.target_id is not None
     assert specialist_call.resolver_status == "resolved"
+    assert specialist_call.metadata["resolution_method"] == "source_root_suffix"
+
+
+def test_source_root_suffix_resolution_stays_unresolved_when_multiple_modules_match() -> None:
+    """不同源码根下存在同一导入路径时，不能凭后缀猜测调用目标。"""
+    documents = [
+        SourceDocument(
+            snapshot_id="snap", path="backend/app.py",
+            content="from service.worker import run\n\ndef caller():\n    return run()\n",
+            language="python",
+        ),
+        SourceDocument(
+            snapshot_id="snap", path="backend/service/worker.py",
+            content="def run():\n    return 'backend'\n",
+            language="python",
+        ),
+        SourceDocument(
+            snapshot_id="snap", path="tools/service/worker.py",
+            content="def run():\n    return 'tools'\n",
+            language="python",
+        ),
+    ]
+
+    caller_result = next(
+        item for item in default_registry().parse_all(documents)
+        if item.document.path == "backend/app.py"
+    )
+    call = next(item for item in caller_result.relations if item.kind == "calls")
+
+    assert call.target_qualified_name == "service.worker.run"
+    assert call.target_id is None
+    assert call.resolver_status == "ambiguous"
 
 
 def test_syntax_error_is_isolated_to_one_file(python_documents) -> None:

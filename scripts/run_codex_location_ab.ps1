@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)][string]$RepoId,
     [Parameter(Mandatory = $true)][string]$SnapshotId,
     [string]$McpName = "repomind",
-    [string]$Commit = "904ac6a7cbcfdce4a0b992d99966da54af09061a",
+    [string]$Commit = "a22a8895de2682aa87735efcb1777f0b38b3769a",
     [string]$RepositoryPath = ".",
     [string]$OutputDir = "e2e-artifacts/codex-location-ab-v2",
     [string]$CodexExe,

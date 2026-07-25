@@ -1,6 +1,6 @@
 {
   "benchmark_id": "codex-location-ab-v1",
-  "repository_commit": "904ac6a7cbcfdce4a0b992d99966da54af09061a",
+  "repository_commit": "a22a8895de2682aa87735efcb1777f0b38b3769a",
   "definition": "A task passes only when the final answer contains every expected repository-relative path and a reported line range covering each gold start line. The benchmark measures the cost of locating source evidence, not writing a full implementation answer.",
   "tasks": [
     {
@@ -57,8 +57,8 @@
       "expected_locations": [
         {
           "path": "backend/service/mcp_server/tools.py",
-          "line_start": 284,
-          "line_end": 284
+          "line_start": 304,
+          "line_end": 304
         },
         {
           "path": "backend/service/core/agent/tools.py",
@@ -110,8 +110,8 @@
         },
         {
           "path": "backend/service/mcp_server/tools.py",
-          "line_start": 284,
-          "line_end": 284
+          "line_start": 304,
+          "line_end": 304
         }
       ]
     },
@@ -121,8 +121,8 @@
       "expected_locations": [
         {
           "path": "backend/service/mcp_server/tools.py",
-          "line_start": 369,
-          "line_end": 369
+          "line_start": 389,
+          "line_end": 389
         },
         {
           "path": "backend/service/core/agent/tools.py",
