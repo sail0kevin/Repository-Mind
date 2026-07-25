@@ -110,6 +110,80 @@ def test_actual_mcp_impact_wrapper_has_a_resolved_static_call_to_the_specialist(
     assert specialist_call.metadata["resolution_method"] == "source_root_suffix"
 
 
+def test_imported_class_constructor_method_resolves_through_package_reexport() -> None:
+    """MCP wrappers can navigate from a package re-export to the actual method."""
+    documents = [
+        SourceDocument(
+            snapshot_id="snap", path="backend/mcp.py",
+            content="from service.retrieval import Retriever\n\ndef search():\n    return Retriever().retrieve()\n",
+            language="python",
+        ),
+        SourceDocument(
+            snapshot_id="snap", path="backend/service/retrieval/__init__.py",
+            content="from service.retrieval.impl import Retriever\n",
+            language="python",
+        ),
+        SourceDocument(
+            snapshot_id="snap", path="backend/service/retrieval/impl.py",
+            content="class Retriever:\n    def retrieve(self):\n        return []\n",
+            language="python",
+        ),
+        SourceDocument(
+            snapshot_id="snap", path="backend/factory.py",
+            content="from service.retrieval import make_retriever\n\ndef search():\n    return make_retriever().retrieve()\n",
+            language="python",
+        ),
+    ]
+
+    results = default_registry().parse_all(documents)
+    mcp_result = next(item for item in results if item.document.path == "backend/mcp.py")
+    search = next(item for item in mcp_result.symbols if item.name == "search")
+    call = next(item for item in mcp_result.relations if item.kind == "calls" and item.source_id == search.id)
+
+    assert call.target_qualified_name == "service.retrieval.Retriever.retrieve"
+    assert call.target_id is not None
+    assert call.resolver_status == "resolved"
+    assert call.metadata["resolution_method"] == "imported_constructor_method"
+
+    factory_result = next(item for item in results if item.document.path == "backend/factory.py")
+    factory_call = next(item for item in factory_result.relations if item.kind == "calls")
+    assert factory_call.target_id is None
+    assert factory_call.resolver_status == "unresolved"
+
+
+def test_actual_mcp_search_wrapper_resolves_to_hybrid_retrieval_entry_point() -> None:
+    """真实 MCP 搜索工具应能导航到 HybridRetriever 的实际方法入口。"""
+    backend_root = Path(__file__).resolve().parents[1]
+    documents = [
+        SourceDocument(
+            snapshot_id="snap", path=path,
+            content=(backend_root / relative_path).read_text(encoding="utf-8"),
+            language="python",
+        )
+        for path, relative_path in [
+            ("backend/service/mcp_server/tools.py", "service/mcp_server/tools.py"),
+            ("backend/service/core/retrieval/__init__.py", "service/core/retrieval/__init__.py"),
+            ("backend/service/core/retrieval/service.py", "service/core/retrieval/service.py"),
+        ]
+    ]
+
+    mcp_result = next(
+        item for item in default_registry().parse_all(documents)
+        if item.document.path == "backend/service/mcp_server/tools.py"
+    )
+    search = next(item for item in mcp_result.symbols if item.name == "search_code")
+    retrieval_call = next(
+        item for item in mcp_result.relations
+        if item.kind == "calls"
+        and item.source_id == search.id
+        and item.target_qualified_name == "service.core.retrieval.HybridRetriever.retrieve"
+    )
+
+    assert retrieval_call.target_id is not None
+    assert retrieval_call.resolver_status == "resolved"
+    assert retrieval_call.metadata["resolution_method"] == "imported_constructor_method"
+
+
 def test_source_root_suffix_resolution_stays_unresolved_when_multiple_modules_match() -> None:
     """不同源码根下存在同一导入路径时，不能凭后缀猜测调用目标。"""
     documents = [

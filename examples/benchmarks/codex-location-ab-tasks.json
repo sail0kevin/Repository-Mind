@@ -78,8 +78,8 @@
         },
         {
           "path": "backend/service/core/retrieval/service.py",
-          "line_start": 44,
-          "line_end": 44
+          "line_start": 62,
+          "line_end": 62
         }
       ]
     },

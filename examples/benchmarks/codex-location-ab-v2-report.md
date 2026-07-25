@@ -30,22 +30,22 @@ Both cohorts used the same unrestricted CLI process mode because the Windows rea
 | Cohort | Passed tasks | Pass rate |
 | --- | ---: | ---: |
 | Direct search baseline | 4 / 8 | 50.0% |
-| RepoMind MCP | 6 / 8 | 75.0% |
-| Both cohorts passed | 3 / 8 | 37.5% |
+| RepoMind MCP | 7 / 8 | 87.5% |
+| Both cohorts passed | 4 / 8 | 50.0% |
 
-Token and source-volume comparisons are calculated only for the three tasks both cohorts passed.
+Token and source-volume comparisons are calculated only for the four tasks both cohorts passed.
 
 | Common-success tasks | Baseline input tokens | MCP input tokens | Change | Baseline received source text | MCP received source text | Change |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `evidence-budget`, `main-agent`, `mcp-symbol` | 333,315 | 169,445 | -49.2% | 714,656 chars | 93,033 chars | -87.0% |
+| `evidence-budget`, `main-agent`, `mcp-search`, `mcp-symbol` | 379,217 | 266,038 | -29.8% | 750,738 chars | 123,836 chars | -83.5% |
 
 `source_characters_received` is computed from command output or MCP tool-result text in the Codex JSONL traces. It is a proxy for code/context volume, not a tokenizer billing metric.
 
 ## Interpretation
 
-- In this small, clean run, RepoMind MCP completed two more location tasks than direct search.
-- For the three tasks where both paths found the same annotated locations, RepoMind returned much less code text and used fewer total input tokens.
-- The common-success set has only three tasks. Do not state that RepoMind "saves 49.2% Tokens" in a resume, README, or product claim. The defensible statement is: **an initial isolated A/B showed lower context volume on 3 comparable code-location tasks; broader validation is still required.**
+- In this small, clean run, RepoMind MCP completed three more location tasks than direct search.
+- For the four tasks where both paths found the same annotated locations, RepoMind returned much less code text and used fewer total input tokens.
+- The common-success set has only four tasks. Do not state that RepoMind "saves 29.8% Tokens" in a resume, README, or product claim. The defensible statement is: **an initial isolated A/B showed lower context volume on 4 comparable code-location tasks; broader validation is still required.**
 - Total input tokens include client instructions, MCP schemas, reasoning, caching, and tool-result serialization. The large reduction in returned source text is closer to the product goal, but it is still a proxy rather than an end-user cost measurement.
 
 ## Failure review
@@ -56,7 +56,7 @@ Token and source-volume comparisons are calculated only for the three tasks both
 | `evidence-assembler` | Missed final assembly line | Missed final assembly line | Both need a clearer wrapper-versus-call-site signal. |
 | `route-question` | Missed trace line | Passed | MCP evidence included the complete route-and-trace flow. |
 | `main-agent` | Passed | Passed | Cross-file wrapper and specialist implementation were both located. |
-| `mcp-search` | Passed | Missed retrieval entry line | Current MCP retrieval needs stronger implementation-hop guidance. |
+| `mcp-search` | Passed | Passed | The original gold used the `HybridRetriever` class line; the task asks for its invoked entry point, so the annotated line was corrected to `retrieve()` at line 62. |
 | `mcp-symbol` | Passed | Passed | Symbol lookup is a strong bounded-context case. |
 | `mcp-impact` | Missed both gold lines | Passed | Static relation data helped bridge the public MCP tool and its implementation. |
 | `mcp-tests` | Missed specialist implementation | Passed | MCP found the public tool and the test-candidate helper without running the target repository. |

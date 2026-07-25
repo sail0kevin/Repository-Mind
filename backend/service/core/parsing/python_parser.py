@@ -285,6 +285,13 @@ class _PythonCollector(ast.NodeVisitor):
                 return self.local_symbols[node.id].qualified_name
             return self.imports.get(node.id)
         if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+                # An imported class constructor followed by a method call is a
+                # statically navigable relationship. Other factory calls remain
+                # unresolved because their runtime return type is not provable.
+                constructor = self.imports.get(node.value.func.id)
+                if constructor:
+                    return f"{constructor}.{node.attr}"
             return self._resolve_expr(node)
         return None
 

@@ -43,6 +43,12 @@ class RepositoryLinker:
                     ]
                     if candidates:
                         resolution_method = "source_root_suffix"
+                if not candidates and relation.kind == "calls" and result.document.language in {"python", "py"}:
+                    candidates = self._reexported_constructor_method_candidates(
+                        relation.target_ref, by_qname, modules, results
+                    )
+                    if candidates:
+                        resolution_method = "imported_constructor_method"
                 if relation.kind == "imports":
                     module_names = self._module_candidates(result.document.path, relation.target_ref)
                     candidates = [symbol for name in module_names for symbol in modules.get(name, [])]
@@ -84,6 +90,64 @@ class RepositoryLinker:
             result.relations = updated
             result.sort_facts()
         return results
+
+    @staticmethod
+    def _reexported_constructor_method_candidates(
+        target: str,
+        by_qname: dict[str, list[Symbol]],
+        modules: dict[str, list[Symbol]],
+        results: list[ParseResult],
+    ) -> list[Symbol]:
+        """Resolve ``from package import Class; Class().method()`` conservatively.
+
+        The package must have an indexed ``__init__.py`` that explicitly imports
+        one unique class with the requested name, and that class must expose one
+        unique method. This deliberately excludes ordinary factory functions.
+        """
+        parts = target.split(".")
+        if len(parts) < 3:
+            return []
+        package_name = ".".join(parts[:-2])
+        class_name, method_name = parts[-2:]
+        package_modules = list(modules.get(package_name, []))
+        if not package_modules:
+            suffix = f".{package_name}"
+            package_modules = [
+                symbol for qualified_name, values in modules.items()
+                if qualified_name.endswith(suffix)
+                for symbol in values
+            ]
+        if len(package_modules) != 1:
+            return []
+
+        relations_by_source = {
+            symbol.id: result.relations
+            for result in results
+            for symbol in result.symbols
+            if symbol.kind == "module"
+        }
+        exported_classes: list[Symbol] = []
+        for imported in relations_by_source.get(package_modules[0].id, []):
+            if imported.kind != "imports" or not imported.target_ref:
+                continue
+            if imported.target_ref.rsplit(".", 1)[-1] != class_name:
+                continue
+            class_candidates = list(by_qname.get(imported.target_ref, []))
+            if not class_candidates:
+                suffix = f".{imported.target_ref}"
+                class_candidates = [
+                    symbol for qualified_name, values in by_qname.items()
+                    if qualified_name.endswith(suffix)
+                    for symbol in values
+                ]
+            exported_classes.extend(symbol for symbol in class_candidates if symbol.kind == "class")
+        exported_classes = list({symbol.id: symbol for symbol in exported_classes}.values())
+        if len(exported_classes) != 1:
+            return []
+
+        method_qname = f"{exported_classes[0].qualified_name}.{method_name}"
+        methods = [symbol for symbol in by_qname.get(method_qname, []) if symbol.kind == "method"]
+        return methods if len(methods) == 1 else []
 
     @staticmethod
     def _module_candidates(path: str, target: str) -> list[str]:
