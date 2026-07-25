@@ -119,7 +119,9 @@ claude --mcp-config C:\path\to\repomind-mcp.json --strict-mcp-config
 
 Codex 等支持标准 `stdio` MCP Server 的客户端可使用与“通用 MCP 配置”相同的命令、参数和环境变量。配置后应先确认客户端能够看到以下 6 个工具，调用 `list_repositories` 取得已完成 ingest 的 `repo_id`，再进行查询。
 
-当前开发环境中的 Codex CLI 因本机执行权限问题无法启动，因此本项目尚未完成 Codex 客户端的真实端到端验证。这里说明的是基于标准 MCP 协议的配置方式，不将其表述为已验证兼容。
+本项目已使用 Codex CLI `0.145.0` 完成真实 `stdio` MCP 调用：Codex 能发现工具，并通过 `search_code`、`get_symbol` 等工具取得固定 Snapshot 的代码证据。验证使用本地索引和只读任务，不代表所有 Codex 版本、模型供应商或编辑器环境均已兼容。
+
+项目还提供了 3 条小样本 Token A/B。RepoMind 路径保持 3/3 任务通过并消除了 Shell/文件读取，但总输入 Token 比普通读取高 13.2%，因此不宣称普遍节省 Token。详见 [Codex Token A/B 报告](../examples/benchmarks/codex-token-ab-report.md)。
 
 ## 只读工具
 
@@ -196,4 +198,4 @@ Codex 等支持标准 `stdio` MCP Server 的客户端可使用与“通用 MCP �
 
 ## 兼容性说明
 
-RepoMind MCP Server 使用官方 MCP Python SDK 和标准 `stdio` 传输。它可供遵循该协议并支持相应配置方式的客户端接入，但这不等于已验证所有编辑器或所有客户端版本。当前已真实验证 Claude Code；Codex 的当前环境验证限制见上文。
+RepoMind MCP Server 使用官方 MCP Python SDK 和标准 `stdio` 传输。它可供遵循该协议并支持相应配置方式的客户端接入，但这不等于已验证所有编辑器或所有客户端版本。当前已真实验证 Claude Code 与 Codex CLI，具体版本和验证边界见上文。

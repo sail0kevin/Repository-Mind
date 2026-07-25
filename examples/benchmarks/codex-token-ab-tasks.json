@@ -1,0 +1,34 @@
+{
+  "benchmark_id": "codex-token-ab-v1",
+  "repository_commit": "32fd00f0c2b212e04de890d928722717766cd670",
+  "tasks": [
+    {
+      "id": "evidence-budget",
+      "category": "implementation explanation",
+      "question": "Explain how EvidenceBudget constrains evidence and name the two most relevant implementation files.",
+      "required_evidence": [
+        "backend/service/core/evidence/budget.py",
+        "backend/service/core/evidence/assembler.py"
+      ],
+      "required_points": ["total token budget", "per-file or per-item limit", "truncate or drop"]
+    },
+    {
+      "id": "main-agent-flow",
+      "category": "execution flow",
+      "question": "Summarize the Main Agent route-retrieve-tool-synthesis flow and its maximum specialist-tool calls.",
+      "required_evidence": ["backend/service/core/agent/main_agent.py"],
+      "required_points": ["route", "retrieve", "at most two tools", "synthesis"]
+    },
+    {
+      "id": "route-impact",
+      "category": "cross-file impact",
+      "question": "Identify the code and tests most likely affected if route_question behavior changes.",
+      "required_evidence": [
+        "backend/service/core/agent/router.py",
+        "backend/service/core/agent/main_agent.py",
+        "backend/tests/test_m4_main_agent.py"
+      ],
+      "required_points": ["routing rules", "main-agent execution path", "router regression tests"]
+    }
+  ]
+}

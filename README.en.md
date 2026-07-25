@@ -7,13 +7,13 @@
 ![Read-only](https://img.shields.io/badge/repository-read--only-6A1B9A)
 ![Evidence-first](https://img.shields.io/badge/answers-evidence--first-C62828)
 
-**A local, read-only, evidence-first Git repository understanding agent.** RepoMind binds analysis to an immutable commit Snapshot, uses structured parsing and hybrid retrieval, and answers repository questions with file, source-line, Evidence ID, and Main Agent Trace references.
+**A local, read-only code-context service for Codex, Claude Code, and other Coding Agents.** RepoMind parses an unfamiliar repository into searchable symbols, relations, and source Evidence, then serves bounded context through MCP. The external Agent still plans, edits, and tests.
 
 | What is different | RepoMind's approach |
 | --- | --- |
 | Version consistency | Catalog, symbols, relations, Evidence, and answers stay on one Commit Snapshot |
 | Traceable answers | Every answer can link back to source files, line ranges, Evidence IDs, and a persisted Trace |
-| Bounded agent behavior | Direct explanations use zero tools; security or impact questions use at most one read-only Specialist Tool |
+| Bounded context | MCP returns budgeted Evidence with paths and lines, and exposes no Shell or file-writing capability |
 
 ![RepoMind question answering, source Evidence, and repository catalog](docs/assets/screenshots/qa-evidence-inspector.png)
 
@@ -53,7 +53,7 @@ cd backend
 python -m service.mcp_server
 ```
 
-The MCP process does not require FastAPI to remain running, does not execute target-repository code, and exposes no file-editing or shell tools. Claude Code has been verified with a real client. Codex can use the standard `stdio` MCP configuration, but has not completed end-to-end validation in the current environment. See the [MCP Server guide](docs/MCP_SERVER.md).
+The MCP process does not require FastAPI to remain running, does not execute target-repository code, and exposes no file-editing or shell tools. Both Claude Code and Codex CLI have completed real client calls. See the [MCP Server guide](docs/MCP_SERVER.md) for scope and limitations.
 
 The Windows Setup build can use the bundled `resources\backend\repomind-backend.exe --mcp` directly, without a separate Python installation. Call `list_repositories` first to discover indexed repositories, then use the other five code-context tools.
 
@@ -99,6 +99,12 @@ A separate benchmark contains **40 human-labeled code-understanding tasks across
 python scripts/capture_demo_evidence.py
 python scripts/report_retrieval_metrics.py examples/benchmarks/demo-evidence-capture-post-fix.json --format markdown
 ```
+
+## Codex Token A/B
+
+Three fixed-commit code-understanding tasks compared normal Codex search/file reads with RepoMind-only MCP access. Both paths passed 3/3 tasks. Baseline input was 130,936 Tokens across 19 Shell/file-read actions; MCP input was 148,193 Tokens across 11 MCP calls, an **increase of 13.2%**.
+
+The current evidence supports bounded, traceable context acquisition, not a universal Token-saving claim. See the [full report](examples/benchmarks/codex-token-ab-report.md), [aggregate capture](examples/benchmarks/codex-token-ab-capture.json), and [runner](scripts/run_codex_token_ab.ps1).
 
 ## Architecture
 
@@ -162,4 +168,4 @@ See [SECURITY.md](SECURITY.md) for the complete data boundary.
 - [RAG versus bounded agent responsibilities](docs/后续开发指导/RAG_VS_AGENTIC.md)
 - [MCP Server guide](docs/MCP_SERVER.md)
 
-Next: expand real-repository evaluation and Coding Agent Token A/B comparisons → create a Tag/Release only after explicit approval → add a production icon and Windows code signing.
+Next: expand the Codex/Claude Code A/B across repositories and reduce MCP context overhead → create a Tag/Release only after explicit approval → add a production icon and Windows code signing.

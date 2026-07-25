@@ -1,0 +1,53 @@
+{
+  "benchmark_id": "codex-token-ab-v1",
+  "measured_at": "2026-07-25",
+  "codex_cli": "0.145.0",
+  "model": "gpt-5.6-terra",
+  "reasoning_effort": "low",
+  "repository_commit": "32fd00f0c2b212e04de890d928722717766cd670",
+  "controls": {
+    "fresh_ephemeral_session_per_run": true,
+    "same_prompt_answer_limit": true,
+    "baseline": "Shell search and bounded file reads; RepoMind MCP disabled",
+    "treatment": "RepoMind MCP tools only; Shell and local file reads prohibited",
+    "embedding_mode": "lexical fallback because no Embedding provider was configured"
+  },
+  "results": [
+    {
+      "task_id": "evidence-budget",
+      "baseline": {"input_tokens": 27742, "cached_input_tokens": 14336, "output_tokens": 522, "commands": 4, "mcp_calls": 0, "passed": true},
+      "treatment": {"input_tokens": 44117, "cached_input_tokens": 0, "output_tokens": 512, "commands": 0, "mcp_calls": 3, "passed": true}
+    },
+    {
+      "task_id": "main-agent-flow",
+      "baseline": {"input_tokens": 51842, "cached_input_tokens": 14336, "output_tokens": 826, "commands": 6, "mcp_calls": 0, "passed": true},
+      "treatment": {"input_tokens": 56487, "cached_input_tokens": 8192, "output_tokens": 768, "commands": 0, "mcp_calls": 5, "passed": true}
+    },
+    {
+      "task_id": "route-impact",
+      "baseline": {"input_tokens": 51352, "cached_input_tokens": 14336, "output_tokens": 1273, "commands": 9, "mcp_calls": 0, "passed": true},
+      "treatment": {"input_tokens": 47589, "cached_input_tokens": 7680, "output_tokens": 467, "commands": 0, "mcp_calls": 3, "passed": true}
+    }
+  ],
+  "aggregate": {
+    "sample_size": 3,
+    "baseline_input_tokens": 130936,
+    "treatment_input_tokens": 148193,
+    "input_token_change_percent": 13.18,
+    "baseline_commands": 19,
+    "treatment_commands": 0,
+    "treatment_mcp_calls": 11,
+    "baseline_passed": 3,
+    "treatment_passed": 3
+  },
+  "calibration_smoke": {
+    "task": "RRF implementation lookup",
+    "baseline_input_tokens": 72431,
+    "treatment_input_tokens": 51270,
+    "input_token_change_percent": -29.21,
+    "baseline_passed": true,
+    "treatment_passed": true,
+    "included_in_aggregate": false,
+    "reason": "Diagnostic run used a less strictly controlled prompt and is retained only to show task-dependent variance."
+  }
+}

@@ -7,13 +7,13 @@
 ![Read-only](https://img.shields.io/badge/repository-read--only-6A1B9A)
 ![Evidence-first](https://img.shields.io/badge/answers-evidence--first-C62828)
 
-**本地、只读、证据优先的 Git 仓库代码理解 Agent。** RepoMind 将指定 commit 固定为不可变 Snapshot，通过结构化解析、混合检索和受约束工具回答“代码做什么、风险在哪里、改动影响谁”，并把结论追溯到文件、源码行与完整 Trace。
+**面向 Codex、Claude Code 等 Coding Agent 的本地只读代码上下文服务。** RepoMind 先把陌生仓库解析为可检索的符号、关系和代码证据，再通过 MCP 按需返回关键上下文，减少 Agent 反复搜索和整文件读取；外部 Agent 仍负责规划、改代码和运行测试。
 
 | 核心差异 | RepoMind 的做法 |
 | --- | --- |
 | 版本一致性 | Catalog、符号、关系、Evidence 与回答全部绑定同一 Commit Snapshot |
 | 证据可追溯 | 每个回答保留文件路径、源码行、Evidence ID 和 Main Agent Trace |
-| Agent 有边界 | 普通解释使用 0 工具；安全或影响问题至多调用一个只读 Specialist Tool |
+| 上下文有边界 | MCP 只返回带路径和行号的预算化 Evidence，不提供 Shell 或写文件能力 |
 
 ![RepoMind 问答、源码证据与知识目录](docs/assets/screenshots/qa-evidence-inspector.png)
 
@@ -53,7 +53,7 @@ cd backend
 python -m service.mcp_server
 ```
 
-MCP Server 不依赖 FastAPI 常驻，不执行目标仓库代码，也不提供文件修改或 Shell 工具。Claude Code 已完成真实客户端验证；Codex 可使用标准 `stdio` MCP 配置，但当前环境尚未完成端到端实测。配置与限制见 [MCP Server 使用指南](docs/MCP_SERVER.md)。
+MCP Server 不依赖 FastAPI 常驻，不执行目标仓库代码，也不提供文件修改或 Shell 工具。Claude Code 与 Codex CLI 均已完成真实客户端调用验证；配置、验证范围与限制见 [MCP Server 使用指南](docs/MCP_SERVER.md)。
 
 Windows Setup 安装版可直接使用内置的 `resources\backend\repomind-backend.exe --mcp`，不需要另装 Python。连接后先调用 `list_repositories` 发现已索引仓库，再按需调用另外 5 个代码上下文工具。
 
@@ -103,6 +103,19 @@ pip install -r backend/requirements-build.txt
 python scripts/capture_demo_evidence.py
 python scripts/report_retrieval_metrics.py examples/benchmarks/demo-evidence-capture-post-fix.json --format markdown
 ```
+
+## Codex Token A/B
+
+在固定 Commit、模型和答案长度下，使用 3 条真实代码理解任务比较“Codex 自行搜索/读取文件”和“仅使用 RepoMind MCP”：
+
+| 路径 | 输入 Token | 操作 | 任务通过 |
+| --- | ---: | ---: | ---: |
+| 普通搜索与读取 | 130,936 | 19 次 Shell/文件读取 | 3/3 |
+| RepoMind MCP | 148,193 | 11 次 MCP 调用 | 3/3 |
+
+这组小样本中，MCP 消除了盲目文件读取并保持答案要点，但输入 Token **增加 13.2%**，因此当前不能宣称 RepoMind 普遍节省 Token。工具说明、重复调用和 Evidence 返回本身也占用上下文；另一条仅作校准的 RRF 查询下降 29.2%，说明收益与任务复杂度高度相关。
+
+完整实验边界、逐题数据和复现入口见 [Codex Token A/B 报告](examples/benchmarks/codex-token-ab-report.md)、[原始汇总](examples/benchmarks/codex-token-ab-capture.json) 与 [运行脚本](scripts/run_codex_token_ab.ps1)。
 
 ## 工作流程
 
@@ -168,4 +181,4 @@ Windows CI 会从干净环境重建冻结后端和 Electron 包，并运行打�
 - [RAG 与受约束 Agent 的分工](docs/后续开发指导/RAG_VS_AGENTIC.md)
 - [MCP Server 使用指南](docs/MCP_SERVER.md)
 
-下一步：扩充真实仓库评测和 Coding Agent Token A/B 对比 → 经明确批准后创建 Tag/Release → 增加正式图标与 Windows 代码签名。
+下一步：扩大 Codex/Claude Code 多仓库 A/B 样本并压缩 MCP 上下文开销 → 经明确批准后创建 Tag/Release → 增加正式图标与 Windows 代码签名。
