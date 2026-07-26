@@ -14,7 +14,7 @@ mcp = FastMCP(
     instructions=(
         "For natural-language code-location questions, unknown symbols, cross-file behavior, or questions that need multiple locations, call locate_code first. "
         "Use get_symbol only when you already know the exact function, class, or qualified symbol name. "
-        "Use search_code when you need supporting snippets after locating candidates. "
+        "Use search_code only when you need supporting snippets beyond the candidate locations. "
         "In your final answer, report every independently relevant location as PATH:START_LINE-END_LINE on its own line; do not merge separate locations into one broad file range. "
         "RepoMind 是一个只读的代码上下文服务，供 Claude Code/Codex 等编码 Agent 查询已索引仓库。"
         "它不会执行目标仓库代码、不会修改文件、不会安装依赖。"

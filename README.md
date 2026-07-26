@@ -55,7 +55,7 @@ python -m service.mcp_server
 
 MCP Server 不依赖 FastAPI 常驻，不执行目标仓库代码，也不提供文件修改或 Shell 工具。Claude Code 与 Codex CLI 均已完成真实客户端调用验证；配置、验证范围与限制见 [MCP Server 使用指南](docs/MCP_SERVER.md)。
 
-Windows Setup 安装版可直接使用内置的 `resources\backend\repomind-backend.exe --mcp`，不需要另装 Python。连接后先调用 `list_repositories` 发现已索引仓库，再按需调用另外 5 个代码上下文工具。
+Windows Setup 安装版可直接使用内置的 `resources\backend\repomind-backend.exe --mcp`，不需要另装 Python。连接后先调用 `list_repositories` 发现已索引仓库；自然语言代码定位优先使用 `locate_code`，再按需调用其余只读工具。
 
 <details>
 <summary><strong>构建 Windows Setup / Portable</strong></summary>
@@ -106,9 +106,9 @@ python scripts/report_retrieval_metrics.py examples/benchmarks/demo-evidence-cap
 
 ## Codex 代码定位 A/B
 
-在固定 Commit 的隔离仓库中，对每题需要定位两处源码的任务比较“Codex 自行搜索/读取文件”和“仅使用 RepoMind MCP”。8 条人工标注代码导航任务中，普通搜索通过 4/8，RepoMind MCP 通过 7/8。
+在固定 Commit 的隔离本地 AgentForge 检出中，对每题需要定位两处源码的任务比较“Codex 自行搜索/读取文件”和“仅使用 RepoMind MCP”。当前一轮 5 条人工标注代码导航任务中，普通搜索通过 2/5，RepoMind MCP 通过 3/5。
 
-仅在两条路径都通过的 4 条任务上比较，MCP 接收的源码/证据文本少 83.5%，总输入 Token 少 29.8%。这只是初步的代码定位实验，不代表完整开发任务或普遍节省 Token：可比较样本只有 4 条，源码文本量是上下文体积代理值而非计费 Token，且 Windows 下的工具限制由提示词约束。完整条件、逐题结果和复现入口见 [Codex 代码定位 A/B v2 报告](examples/benchmarks/codex-location-ab-v2-report.md) 与 [运行脚本](scripts/run_codex_location_ab.ps1)。
+该轮中，MCP 工具结果携带的源码字符总量从 `1,032,948` 降至 `112,971`；但由于外部 Agent 会进行工具选择、重复调用和推理，总输入 Token 只从 `422,444` 降至 `399,563`。这说明 RepoMind 已初步验证“压缩找代码时读取的源码量”，尚不能写成“普遍节省 Token”：样本只有 5 条，目标是一个本地检出，源码文本量是上下文体积代理值而非计费 Token，且 Windows 下的工具限制由提示词约束。完整条件、逐题结果和复现入口见 [外部代码定位 A/B v3 报告](examples/benchmarks/external-location-ab-v3-report.md) 与 [运行脚本](scripts/run_codex_location_ab.ps1)。旧的 [v2 报告](examples/benchmarks/codex-location-ab-v2-report.md) 仅保留为历史实验记录。
 
 ## 工作流程
 
@@ -148,10 +148,10 @@ RepoMind 默认不会把整个仓库塞进 Prompt。Repo Map 先缩小范围，B
 
 以下是当前提交的可复现验证结果：
 
-- Backend：`cd backend; python -m pytest -q` → **176 passed**，其中 MCP 专项 **12 passed**
+- Backend：`cd backend; python -m pytest -q` → **181 passed**，其中 MCP 专项 **14 passed**
 - Desktop：`npm test -- --run` → **63 passed**（11 个测试文件）
 - Desktop build：`npm run build` → Vite renderer 与 Electron TypeScript 构建通过
-- Frozen MCP：打包后端以 `--mcp` 启动，列出 6 个只读工具并完成仓库发现调用
+- Frozen MCP：打包后端以 `--mcp` 启动，完成仓库发现调用；当前源码 MCP 提供 7 个只读工具
 - Packaged Demo：真实 Electron 流程覆盖索引、0/1 Tool 路由、Evidence、Trace 和导出，并验证包内 MCP 复用桌面索引数据库完成仓库发现
 
 Windows CI 会从干净环境重建冻结后端和 Electron 包，并运行打包应用 E2E；当前提交的真实状态以 GitHub Actions 页面为准。二进制尚未签名，也尚未发布 GitHub Release。

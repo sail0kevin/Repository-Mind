@@ -117,11 +117,11 @@ claude --mcp-config C:\path\to\repomind-mcp.json --strict-mcp-config
 
 ## Codex
 
-Codex 等支持标准 `stdio` MCP Server 的客户端可使用与“通用 MCP 配置”相同的命令、参数和环境变量。配置后应先确认客户端能够看到以下 6 个工具，调用 `list_repositories` 取得已完成 ingest 的 `repo_id`，再进行查询。
+Codex 等支持标准 `stdio` MCP Server 的客户端可使用与“通用 MCP 配置”相同的命令、参数和环境变量。配置后应先确认客户端能够看到以下 7 个工具，调用 `list_repositories` 取得已完成 ingest 的 `repo_id`；自然语言代码定位优先调用 `locate_code`，再进行补充查询。
 
 本项目已使用 Codex CLI `0.145.0` 完成真实 `stdio` MCP 调用：Codex 能发现工具，并通过 `search_code`、`get_symbol` 等工具取得固定 Snapshot 的代码证据。验证使用本地索引和只读任务，不代表所有 Codex 版本、模型供应商或编辑器环境均已兼容。
 
-项目还提供了固定 Commit 的代码定位 A/B：每题要求定位两处人工标注源码，8 条任务中普通搜索通过 4/8，RepoMind MCP 通过 7/8。仅在两条路径都通过的 4 条任务上，MCP 接收的源码/证据文本少 83.5%，总输入 Token 少 29.8%。该结果仅说明初步的代码定位上下文收益，不代表完整开发任务或普遍节省 Token；样本量、计量方式和 Windows 提示词约束等限制见 [Codex 代码定位 A/B v2 报告](../examples/benchmarks/codex-location-ab-v2-report.md)。
+项目还提供固定 Commit 的代码定位 A/B。当前一轮在一个隔离的本地 AgentForge 检出上运行 5 条人工标注任务：普通搜索通过 2/5，RepoMind MCP 通过 3/5；MCP 工具结果中的源码字符从 `1,032,948` 降至 `112,971`，但总输入 Token 仅从 `422,444` 降至 `399,563`。这只说明初步的代码定位上下文收益，不代表完整开发任务或普遍节省 Token；样本量、计量方式和 Windows 提示词约束等限制见 [外部代码定位 A/B v3 报告](../examples/benchmarks/external-location-ab-v3-report.md)。
 
 ## 只读工具
 
@@ -129,6 +129,7 @@ Codex 等支持标准 `stdio` MCP Server 的客户端可使用与“通用 MCP �
 | --- | --- | --- |
 | `list_repositories` | 发现仓库 ID、索引状态和活动 Snapshot，不返回本机绝对路径 | `limit?` |
 | `repo_overview` | 获取文件统计、语言分布、关键文件和推荐阅读顺序 | `repo_id`, `snapshot_id?` |
+| `locate_code` | 根据自然语言问题返回独立的候选位置与行号；未知符号、跨文件行为或多位置问题优先使用 | `repo_id`, `question`, `snapshot_id?`, `limit?` |
 | `search_code` | 关键词与可选语义混合检索，返回有界代码证据 | `repo_id`, `query`, `snapshot_id?`, `limit?` |
 | `get_symbol` | 按名称或限定名查询符号定义、关系和同名候选 | `repo_id`, `symbol_query`, `snapshot_id?` |
 | `analyze_impact` | 查询目标定义、已解析调用关系和引用候选 | `repo_id`, `symbol_query`, `snapshot_id?` |
@@ -160,6 +161,8 @@ Codex 等支持标准 `stdio` MCP Server 的客户端可使用与“通用 MCP �
   "limitations": []
 }
 ```
+
+`locate_code.data.locations` 的每一项包含 `file_path`、`start_line`、`end_line`、`evidence_id` 和 `reason`。它适合先给出多个独立位置；只有需要验证具体语义时再调用 `search_code` 获取补充片段，避免把同一段源码反复传给外部 Agent。
 
 `status` 可能为：
 
