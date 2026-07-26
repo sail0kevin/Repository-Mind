@@ -54,8 +54,8 @@ def _location_terms(question: str) -> set[str]:
     }
 
 
-def _location_rank(location: dict) -> tuple[float, float, str, int]:
-    """Prefer locations that cover several specific question clues over generic hits."""
+def _location_rank(location: dict) -> tuple[float, float, float, float, float, float, str, int]:
+    """Prefer executable source evidence before equally relevant prose mentions."""
     coverage = len(set(location.get("matched_terms") or []))
     path = str(location["file_path"]).replace("\\", "/").casefold()
     source_rank = 2.0 if any(path.endswith(suffix) for suffix in _SOURCE_SUFFIXES) else 0.0
@@ -63,11 +63,72 @@ def _location_rank(location: dict) -> tuple[float, float, str, int]:
         source_rank = 1.0
     return (
         source_rank,
-        float(coverage),
+        float(location.get("exact_symbol_match") or 0.0),
         float(location.get("score") or 0.0),
+        float(location.get("executable_matches") or 0.0),
+        float(location.get("symbol_compactness") or 0.0),
+        float(coverage),
         path,
         -int(location["start_line"]),
     )
+
+
+def _structural_location(candidate: dict, terms: set[str], *, allow_class: bool = False) -> dict | None:
+    """Keep a retrieved function, method, or class as one usable code location."""
+    path = str(candidate.get("file_path") or candidate.get("path") or "").replace("\\", "/")
+    start_line, end_line = candidate.get("start_line"), candidate.get("end_line")
+    unit_type = str(candidate.get("chunk_type") or candidate.get("unit_type") or "")
+    if (
+        unit_type not in ({"function", "method", "class"} if allow_class else {"function", "method"})
+        or not path
+        or not isinstance(start_line, int)
+        or not isinstance(end_line, int)
+    ):
+        return None
+    lines = str(candidate.get("content") or "").splitlines()
+    executable_matches = sum(_executable_match_count(lines, terms).values())
+    return {
+        "file_path": path,
+        "start_line": start_line,
+        "end_line": end_line,
+        "evidence_id": candidate.get("chunk_id") or candidate.get("id") or "",
+        "reason": "Retrieved parsed code definition for the complete question",
+        "score": float(candidate.get("score") or 0.0),
+        "matched_terms": sorted(_identifier_terms(str(candidate.get("content") or "")) & terms),
+        "executable_matches": executable_matches,
+    }
+
+
+def _executable_match_count(lines: list[str], terms: set[str]) -> dict[int, int]:
+    """Count term hits on executable lines while ignoring ordinary comments and docstrings."""
+    counts: dict[int, int] = {}
+    in_triple_quoted_string = False
+    triple_quote = ""
+    in_block_comment = False
+    for offset, line in enumerate(lines):
+        stripped = line.strip()
+        is_non_code = not stripped or stripped.startswith(("#", "//", "*"))
+        if in_triple_quoted_string:
+            is_non_code = True
+            if triple_quote in stripped:
+                in_triple_quoted_string = False
+                triple_quote = ""
+        elif stripped.startswith(("'''", '\"\"\"')):
+            is_non_code = True
+            quote = stripped[:3]
+            if stripped.count(quote) < 2:
+                in_triple_quoted_string = True
+                triple_quote = quote
+        elif stripped.startswith("/*"):
+            is_non_code = True
+            in_block_comment = "*/" not in stripped[2:]
+        elif in_block_comment:
+            is_non_code = True
+            if "*/" in stripped:
+                in_block_comment = False
+        if not is_non_code:
+            counts[offset] = len(_identifier_terms(line) & terms)
+    return counts
 
 
 def _location_windows(candidate: dict, terms: set[str]) -> list[dict]:
@@ -77,12 +138,14 @@ def _location_windows(candidate: dict, terms: set[str]) -> list[dict]:
     if not content or not isinstance(start_line, int) or not terms:
         return []
 
-    scored_lines: list[tuple[int, int]] = []
-    for offset, line in enumerate(content.splitlines()):
+    lines = content.splitlines()
+    executable_matches = _executable_match_count(lines, terms)
+    scored_lines: list[tuple[int, int, int]] = []
+    for offset, line in enumerate(lines):
         words = _identifier_terms(line)
         score = len(words & terms)
         if score:
-            scored_lines.append((score, start_line + offset))
+            scored_lines.append((score, executable_matches.get(offset, 0), start_line + offset))
     if not scored_lines:
         return []
 
@@ -101,14 +164,15 @@ def _location_windows(candidate: dict, terms: set[str]) -> list[dict]:
             "end_line": end_line,
             "evidence_id": candidate.get("chunk_id") or candidate.get("id") or "",
             "reason": "Matched question terms in a parsed code definition",
-            "score": max(score for score, _ in scored_lines) * 100 + candidate_score,
+            "score": max(score for score, _, _ in scored_lines) * 100 + candidate_score,
             "matched_terms": matched_terms,
+            "executable_matches": sum(executable_matches.values()),
         }]
 
     # A line usually needs its condition/body context. Keep the best distinct windows,
     # not a single large enclosing function that obscures several separate locations.
     windows: list[dict] = []
-    for score, line in sorted(scored_lines, key=lambda item: (-item[0], item[1])):
+    for score, executable_count, line in sorted(scored_lines, key=lambda item: (-item[1], -item[0], item[2])):
         window_start = max(start_line, line - 6)
         window_end = min(start_line + len(content.splitlines()) - 1, line + 1)
         if any(
@@ -126,6 +190,7 @@ def _location_windows(candidate: dict, terms: set[str]) -> list[dict]:
             "matched_terms": sorted(_identifier_terms("\n".join(content.splitlines()[
                 max(0, window_start - start_line):window_end - start_line + 1
             ])) & terms),
+            "executable_matches": executable_count,
         })
     return windows
 
@@ -168,6 +233,47 @@ def _symbol_locations_for_windows(repo_id: str, snapshot_id: str, windows: list[
                 "score": float(window.get("score") or 0.0) + 50,
                 "matched_terms": list(window.get("matched_terms") or []),
             })
+    return locations
+
+
+def _symbol_locations_for_terms(repo_id: str, snapshot_id: str, terms: set[str]) -> list[dict]:
+    """Expose parsed definitions whose names are explicit clues in the question."""
+    locations: list[dict] = []
+    for symbol in list_symbols(repo_id, snapshot_id, limit=None):
+        kind = str(symbol.get("symbol_kind") or "")
+        start_line, end_line = symbol.get("start_line"), symbol.get("end_line")
+        path = str(symbol.get("file_path") or "").replace("\\", "/")
+        name_terms = _identifier_terms(str(symbol.get("name") or ""))
+        matched_terms = sorted(name_terms & terms)
+        if kind not in {"function", "method", "class"} or not path or not matched_terms:
+            continue
+        if not isinstance(start_line, int) or not isinstance(end_line, int):
+            continue
+        qualified_terms = _identifier_terms(str(symbol.get("qualified_name") or ""))
+        qualified_bonus = len((qualified_terms & terms) - set(matched_terms))
+        evidence = get_evidence_unit(repo_id, str(symbol.get("evidence_id") or ""), snapshot_id)
+        if evidence is not None:
+            for window in _location_windows(evidence, terms):
+                if not window.get("executable_matches"):
+                    continue
+                window.update({
+                    "evidence_id": symbol.get("evidence_id") or window.get("evidence_id") or "",
+                    "reason": "Executable source lines inside a parsed definition match the question",
+                    "exact_symbol_match": len(matched_terms) + qualified_bonus,
+                    "symbol_compactness": 1.0 / max(1, end_line - start_line + 1),
+                })
+                locations.append(window)
+        locations.append({
+            "file_path": path,
+            "start_line": start_line,
+            "end_line": end_line,
+            "evidence_id": symbol.get("evidence_id") or "",
+            "reason": "Parsed definition whose symbol name matches the question",
+            "score": 0.0,
+            "matched_terms": matched_terms,
+            "exact_symbol_match": len(matched_terms) + qualified_bonus,
+            "symbol_compactness": 1.0 / max(1, end_line - start_line + 1),
+        })
     return locations
 
 
@@ -345,56 +451,79 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
         retrieval = retriever.retrieve(
             repo_id, guard.snapshot["id"], normalized_question, max(normalized_limit * 2, 12)
         )
-        # Long behavioral questions contain several independent clues. Searching only the
-        # full sentence lets frequent words dominate a lexical index, so add a bounded
-        # recall pass for its meaningful terms and merge the resulting code blocks.
-        candidate_by_id: dict[str, dict] = {}
-        for candidate in retrieval.items:
-            identity = str(candidate.get("chunk_id") or candidate.get("id") or "")
-            if identity:
-                candidate_by_id[identity] = dict(candidate)
-        # The term pass is bounded so one request cannot fan out indefinitely, but it
-        # must cover every extracted clue. Alphabetical truncation can discard the
-        # most discriminative terms (for example, "exhausted" or "persisted").
-        for term in sorted(_location_terms(normalized_question))[:12]:
-            term_result = retriever.retrieve(repo_id, guard.snapshot["id"], term, 8)
-            for candidate in term_result.items:
-                identity = str(candidate.get("chunk_id") or candidate.get("id") or "")
-                if not identity:
-                    continue
-                current = candidate_by_id.get(identity)
-                if current is None:
-                    candidate_by_id[identity] = dict(candidate)
-                else:
-                    current["score"] = max(float(current.get("score") or 0.0), float(candidate.get("score") or 0.0))
-        candidates = list(candidate_by_id.values())
+        primary_candidates = [dict(candidate) for candidate in retrieval.items]
     except Exception as exc:  # noqa: BLE001
         return error_envelope(repo_id, f"Code location failed: {exc}", snapshot_id=guard.snapshot["id"])
 
     terms = _location_terms(normalized_question)
     locations: list[dict] = []
     seen: set[tuple[str, int, int]] = set()
-    for candidate in candidates:
-        for location in _location_windows(candidate, terms):
-            path = str(location.get("file_path") or "").replace("\\", "/")
-            start_line = location.get("start_line")
-            end_line = location.get("end_line")
-            if not path or not isinstance(start_line, int) or not isinstance(end_line, int):
-                continue
-            identity = (path, start_line, end_line)
-            if identity in seen:
-                continue
+    for candidate in primary_candidates:
+        location = _structural_location(candidate, terms)
+        if location is None:
+            continue
+        identity = (location["file_path"], location["start_line"], location["end_line"])
+        if identity not in seen:
             seen.add(identity)
             locations.append(location)
 
-    # Module evidence is useful for recall but often spans a whole file. Whenever a
-    # module-window overlaps a parsed definition, prefer that definition's real bounds.
-    for location in _symbol_locations_for_windows(repo_id, guard.snapshot["id"], locations):
-        identity = (str(location["file_path"]), int(location["start_line"]), int(location["end_line"]))
-        if identity in seen:
-            continue
-        seen.add(identity)
-        locations.append(location)
+    # Classes are much broader than methods and commonly match incidental words in
+    # a behavior question. They remain a fallback for class-only repositories.
+    if not locations:
+        for candidate in primary_candidates:
+            location = _structural_location(candidate, terms, allow_class=True)
+            if location is None:
+                continue
+            identity = (location["file_path"], location["start_line"], location["end_line"])
+            if identity not in seen:
+                seen.add(identity)
+                locations.append(location)
+
+    # Full-question retrieval is the normal path. Only use word-level recall when it
+    # did not yield enough parsed source definitions; otherwise words such as
+    # "request" and "session" overwhelm a behavioral question with unrelated hits.
+    if len(locations) < 2:
+        candidate_by_id = {
+            str(candidate.get("chunk_id") or candidate.get("id") or ""): candidate
+            for candidate in primary_candidates
+            if str(candidate.get("chunk_id") or candidate.get("id") or "")
+        }
+        try:
+            for term in sorted(terms, key=lambda value: (-len(value), value))[:12]:
+                term_result = retriever.retrieve(repo_id, guard.snapshot["id"], term, 8)
+                for candidate in term_result.items:
+                    identity = str(candidate.get("chunk_id") or candidate.get("id") or "")
+                    if identity:
+                        candidate_by_id.setdefault(identity, dict(candidate))
+        except Exception as exc:  # noqa: BLE001
+            return error_envelope(repo_id, f"Code location failed: {exc}", snapshot_id=guard.snapshot["id"])
+        candidates = list(candidate_by_id.values())
+        windows = [
+            location
+            for candidate in candidates
+            for location in _location_windows(candidate, terms)
+        ]
+        for location in windows:
+            path = str(location.get("file_path") or "").replace("\\", "/")
+            start_line, end_line = location.get("start_line"), location.get("end_line")
+            if not path or not isinstance(start_line, int) or not isinstance(end_line, int):
+                continue
+            identity = (path, start_line, end_line)
+            if identity not in seen:
+                seen.add(identity)
+                locations.append(location)
+        for location in _symbol_locations_for_windows(repo_id, guard.snapshot["id"], windows):
+            identity = (str(location["file_path"]), int(location["start_line"]), int(location["end_line"]))
+            if identity not in seen:
+                seen.add(identity)
+                locations.append(location)
+        for location in _symbol_locations_for_terms(repo_id, guard.snapshot["id"], terms):
+            identity = (str(location["file_path"]), int(location["start_line"]), int(location["end_line"]))
+            if identity not in seen:
+                seen.add(identity)
+                locations.append(location)
+    else:
+        candidates = primary_candidates
 
     # Some source formats do not expose useful line-level terms. Preserve the retrieved
     # structural boundary as a clearly marked fallback instead of inventing a precise line.
@@ -434,26 +563,18 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
             continue
         compact_locations.append(location)
     locations = compact_locations
-    # Prefer candidates that together cover the most specific clues. A high-frequency
-    # word such as "agent" or "result" must not consume the whole location budget.
+    # Return a small, diverse set. At most two locations from one file prevents a
+    # large module from consuming the caller's context budget.
     selected: list[dict] = []
-    selected_ids: set[tuple[str, int, int]] = set()
-    covered_terms: set[str] = set()
-    remaining = list(locations)
-    while remaining and len(selected) < normalized_limit:
-        item = max(
-            remaining,
-            key=lambda candidate: (
-                len(set(candidate.get("matched_terms") or []) - covered_terms),
-                *_location_rank(candidate),
-            ),
-        )
-        remaining.remove(item)
-        identity = (str(item["file_path"]), int(item["start_line"]), int(item["end_line"]))
-        if identity not in selected_ids:
-            selected.append(item)
-            selected_ids.add(identity)
-            covered_terms.update(item.get("matched_terms") or [])
+    selected_per_file: dict[str, int] = {}
+    for item in locations:
+        path = str(item["file_path"]).replace("\\", "/")
+        if selected_per_file.get(path, 0) >= 2:
+            continue
+        selected.append(item)
+        selected_per_file[path] = selected_per_file.get(path, 0) + 1
+        if len(selected) >= normalized_limit:
+            break
     mode = retrieval.run.mode
     status = "ok" if mode == "hybrid" else "degraded"
     limitations = [

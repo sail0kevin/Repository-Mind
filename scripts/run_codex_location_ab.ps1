@@ -116,6 +116,17 @@ function Test-CompletedRun([string]$Path) {
     return [bool]($hasUsage -and $hasAnswer)
 }
 
+function Get-RunStatus([string]$Path, [string]$ErrorPath) {
+    if (Test-CompletedRun $Path) { return "completed" }
+    if (Test-Path -LiteralPath $ErrorPath -PathType Leaf) {
+        if (Select-String -LiteralPath $ErrorPath -SimpleMatch "timed out" -Quiet) {
+            return "timeout"
+        }
+    }
+    if (Test-Path -LiteralPath $Path -PathType Leaf) { return "incomplete" }
+    return "not_run"
+}
+
 function Get-ReportedLocations([string]$Answer) {
     $locations = @()
     $pattern = [regex]::new("(?im)(?<path>[A-Za-z0-9_./\\-]+)\s*:\s*(?<start>\d+)(?:\s*[-:]\s*(?<end>\d+))?")
@@ -213,10 +224,26 @@ try {
 }
 
 $rows = @()
-foreach ($task in $tasks.tasks) {
+foreach ($task in $selectedTasks) {
     foreach ($mode in @("baseline", "treatment")) {
         $path = Join-Path $output "$mode-$($task.id).jsonl"
-        if (-not (Test-CompletedRun $path)) { continue }
+        $errorPath = Join-Path $output "$mode-$($task.id).stderr.log"
+        $status = Get-RunStatus $path $errorPath
+        if ($status -ne "completed") {
+            $rows += [ordered]@{
+                task_id = $task.id
+                mode = $mode
+                status = $status
+                input_tokens = 0
+                cached_input_tokens = 0
+                output_tokens = 0
+                source_characters_received = 0
+                answer = ""
+                location_checks = @()
+                passed = $false
+            }
+            continue
+        }
         $events = Get-Content -LiteralPath $path -Encoding utf8 | ForEach-Object {
             try { $_ | ConvertFrom-Json } catch { $null }
         }
@@ -237,16 +264,16 @@ foreach ($task in $tasks.tasks) {
         foreach ($expected in $expectedLocations) {
             $expectedPath = ([string]$expected.path).Replace("\\", "/")
             $goldStart = [int]$expected.line_start
-            # A path can be reported more than once. Match every annotation to one
-            # unused answer location so two gold locations in the same file do not
-            # both get scored against the first range in the answer.
+            # A complete method range legitimately covers multiple annotated behavior
+            # points inside that method. One reported location may therefore satisfy
+            # more than one gold location; this benchmark evaluates code location, not
+            # the number of lines repeated in the final answer.
             $reported = @(
                 $reportedLocations | Where-Object {
-                    -not $_.used -and $_.path -ieq $expectedPath -and $_.start -le $goldStart -and $_.end -ge $goldStart
+                    $_.path -ieq $expectedPath -and $_.start -le $goldStart -and $_.end -ge $goldStart
                 } | Select-Object -First 1
             )
             if ($reported.Count -gt 0) {
-                $reported[0].used = $true
                 $reportedStart = $reported[0].start
                 $reportedEnd = $reported[0].end
                 $locationPassed = $true
@@ -278,6 +305,7 @@ foreach ($task in $tasks.tasks) {
         $rows += [ordered]@{
             task_id = $task.id
             mode = $mode
+            status = "completed"
             input_tokens = [int]($usage.input_tokens)
             cached_input_tokens = [int]($usage.cached_input_tokens)
             output_tokens = [int]($usage.output_tokens)

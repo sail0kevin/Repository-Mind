@@ -251,6 +251,141 @@ def test_locate_code_merges_term_level_candidates(tmp_path: Path, monkeypatch: p
     assert result["snapshot_id"] == snapshot_id
 
 
+def test_locate_code_prefers_executable_match_over_docstring(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_id, _, _ = _seed_repo(tmp_path)
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, _query: str, _limit: int):
+            return type("Result", (), {"items": [{
+                "chunk_id": "session_factory",
+                "file_path": "src/api.py",
+                "start_line": 1,
+                "end_line": 6,
+                "content": (
+                    "def request(url):\n"
+                    "    \"\"\"Create a temporary session for the public request.\n"
+                    "    The session sends the request later.\n"
+                    "    \"\"\"\n"
+                    "    with Session() as session:\n"
+                    "        return session.request(url)\n"
+                ),
+                "score": 2.0,
+            }], "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    result = locate_code(repo_id, "Locate the temporary session for the public request", limit=1)
+
+    location = result["data"]["locations"][0]
+    assert location["file_path"] == "src/api.py"
+    assert location["start_line"] <= 5 <= location["end_line"]
+
+
+def test_locate_code_keeps_complete_question_definitions_before_word_recall(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_id, _, _ = _seed_repo(tmp_path)
+    queried_terms: list[str] = []
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, query: str, _limit: int):
+            queried_terms.append(query)
+            if query == "Locate public request session preparation":
+                items = [
+                    {
+                        "chunk_id": "public_request",
+                        "file_path": "src/api.py",
+                        "start_line": 20,
+                        "end_line": 28,
+                        "chunk_type": "function",
+                        "content": "def request():\n    with Session() as session:\n        return session.request()\n",
+                        "score": 2.0,
+                    },
+                    {
+                        "chunk_id": "session_request",
+                        "file_path": "src/sessions.py",
+                        "start_line": 100,
+                        "end_line": 110,
+                        "chunk_type": "method",
+                        "content": "def request(self):\n    prepared = self.prepare_request()\n    return self.send(prepared)\n",
+                        "score": 1.9,
+                    },
+                    {
+                        "chunk_id": "unrelated_class",
+                        "file_path": "src/adapter.py",
+                        "start_line": 1,
+                        "end_line": 200,
+                        "chunk_type": "class",
+                        "content": "class Adapter:\n    def request(self):\n        return None\n",
+                        "score": 99.0,
+                    },
+                ]
+            else:
+                items = []
+            return type("Result", (), {"items": items, "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    result = locate_code(repo_id, "Locate public request session preparation", limit=4)
+
+    assert queried_terms == ["Locate public request session preparation"]
+    assert [(item["file_path"], item["start_line"]) for item in result["data"]["locations"]] == [
+        ("src/api.py", 20), ("src/sessions.py", 100)
+    ]
+
+
+def test_locate_code_recalls_long_behavior_clues_before_common_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_id, _, _ = _seed_repo(tmp_path)
+    queried_terms: list[str] = []
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, query: str, _limit: int):
+            queried_terms.append(query)
+            return type("Result", (), {"items": [], "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    locate_code(
+        repo_id,
+        "Locate one temporary session before sending the public request through a method.",
+    )
+
+    assert "temporary" in queried_terms
+    assert queried_terms.index("temporary") < queried_terms.index("request")
+
+
+def test_locate_code_includes_exact_symbol_boundaries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_id, _, _ = _seed_repo(tmp_path)
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, _query: str, _limit: int):
+            return type("Result", (), {"items": [], "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    result = locate_code(repo_id, "Locate where login calls authenticate", limit=4)
+
+    locations = result["data"]["locations"]
+    assert any(item["file_path"] == "src/login.py" and item["start_line"] == 1 for item in locations)
+    assert any(item["file_path"] == "src/auth.py" and item["start_line"] == 1 for item in locations)
+    assert locations[0]["file_path"] == "src/login.py"
+
+
+def test_locate_code_prefers_qualified_method_over_same_named_symbol(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        connection.execute(
+            "UPDATE symbols SET qualified_name = ? WHERE qualified_name = ?",
+            ("src.auth.Session.authenticate", "src.auth.authenticate"),
+        )
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, _query: str, _limit: int):
+            return type("Result", (), {"items": [], "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    result = locate_code(repo_id, "Locate where Session authenticate is defined", snapshot_id, limit=1)
+
+    assert result["data"]["locations"][0]["file_path"] == "src/auth.py"
+    assert result["data"]["locations"][0]["start_line"] == 1
+
+
 def test_real_hybrid_search_uses_stored_vectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_id, snapshot_id, evidence = _seed_repo(tmp_path)
     run = embed_snapshot_evidence(repo_id, snapshot_id, evidence, provider=FakeProvider())

@@ -182,6 +182,21 @@ def test_python_import_aliases_have_distinct_stable_evidence_ids() -> None:
     assert [item.logical_id for item in left] == [item.logical_id for item in right]
 
 
+def test_repeated_python_imports_are_distinct_and_persistable() -> None:
+    """同一目标在多个 import 语句中出现时，证据仍须能共同写入一个快照。"""
+    _seed()
+    source = "from os import path\n\ndef first():\n    return path\n\nfrom os import path\n"
+    result = default_registry().parse(SourceDocument(
+        repo_id="repo", snapshot_id="snap", file_id="file-a", path="src/f.py",
+        content=source, language="python",
+    ))
+    imports = [item for item in result.evidence if item.kind == "relation:imports"]
+    assert len(imports) == 2
+    assert len({item.logical_id for item in imports}) == 2
+    replace_all_snapshot_parse_results("repo", "snap", result.evidence, result.symbols, result.relations, result.diagnostics)
+    assert len(list_evidence_units("repo", "snap")) == len(result.evidence)
+
+
 def test_unimported_unique_bare_name_is_not_linked_across_files() -> None:
     """全仓唯一裸名也不能越过文件作用域凭猜测绑定。"""
     documents = [

@@ -257,12 +257,17 @@ class _PythonCollector(ast.NodeVisitor):
         relation_key = (source.id, kind, target_qname)
         ordinal = self.relation_ordinals.get(relation_key, 0)
         self.relation_ordinals[relation_key] = ordinal + 1
+        identity = (
+            (evidence_identity, ordinal)
+            if evidence_identity is not None
+            else (source.logical_id, kind, target_qname, ordinal)
+        )
         evidence = EvidenceUnit.create(
             self.document, getattr(node, "lineno", source.start_line),
             getattr(node, "end_lineno", getattr(node, "lineno", source.end_line)),
             start_column=getattr(node, "col_offset", 0), end_column=getattr(node, "end_col_offset", 0),
             kind=f"relation:{kind}", content=content, symbol_id=source.id,
-            identity=evidence_identity or (source.logical_id, kind, target_qname, ordinal),
+            identity=identity,
         )
         self.result.evidence.append(evidence)
         self.result.relations.append(Relation.create(
