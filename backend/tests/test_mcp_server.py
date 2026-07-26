@@ -20,6 +20,7 @@ from service.mcp_server.tools import (
     find_related_tests,
     get_symbol,
     list_repositories,
+    locate_code,
     repo_overview,
     search_code,
 )
@@ -204,6 +205,52 @@ def test_search_with_no_evidence_returns_not_found_and_next_step(tmp_path: Path)
     assert any("get_symbol" in item for item in result["limitations"])
 
 
+def test_locate_code_returns_independent_compact_candidates(tmp_path: Path) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+
+    result = locate_code(
+        repo_id,
+        "Locate where authenticate is defined and where login calls authenticate.",
+        limit=4,
+    )
+
+    _assert_envelope(result, repo_id, snapshot_id)
+    assert result["status"] == "degraded"
+    locations = result["data"]["locations"]
+    assert locations
+    assert all(set(item) == {"file_path", "start_line", "end_line", "evidence_id", "reason"}
+               for item in locations)
+    assert any(item["file_path"] == "src/auth.py" for item in locations)
+    assert all(item["end_line"] - item["start_line"] <= 24 for item in locations)
+    assert any("independent" in item for item in result["limitations"])
+
+
+def test_locate_code_merges_term_level_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, query: str, _limit: int):
+            items = []
+            if query == "clarification approval":
+                items = [{"chunk_id": "overview", "file_path": "src/overview.py", "start_line": 1,
+                          "end_line": 1, "content": "# overview", "score": 1.0}]
+            elif query == "clarification":
+                items = [{"chunk_id": "clarify", "file_path": "src/workflow.py", "start_line": 10,
+                          "end_line": 12, "content": "if needs_clarification:\n    ask_user()\n", "score": 2.0}]
+            elif query == "approval":
+                items = [{"chunk_id": "approve", "file_path": "src/workflow.py", "start_line": 30,
+                          "end_line": 32, "content": "if needs_approval:\n    wait_for_human()\n", "score": 2.0}]
+            return type("Result", (), {"items": items, "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    result = locate_code(repo_id, "clarification approval", limit=4)
+
+    locations = result["data"]["locations"]
+    assert any(item["start_line"] == 10 for item in locations)
+    assert any(item["start_line"] == 30 for item in locations)
+    assert result["snapshot_id"] == snapshot_id
+
+
 def test_real_hybrid_search_uses_stored_vectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_id, snapshot_id, evidence = _seed_repo(tmp_path)
     run = embed_snapshot_evidence(repo_id, snapshot_id, evidence, provider=FakeProvider())
@@ -386,7 +433,7 @@ def test_invalid_empty_and_oversized_parameters_are_bounded(tmp_path: Path) -> N
 
 
 @pytest.mark.anyio
-async def test_real_stdio_server_lists_six_tools_and_calls_four(
+async def test_real_stdio_server_lists_seven_tools_and_calls_four(
     tmp_path: Path, temporary_database: Path
 ) -> None:
     from mcp import ClientSession, StdioServerParameters
@@ -413,12 +460,13 @@ async def test_real_stdio_server_lists_six_tools_and_calls_four(
             listed = await session.list_tools()
             assert {tool.name for tool in listed.tools} == {
                 "list_repositories", "repo_overview", "search_code", "get_symbol",
-                "analyze_impact", "find_related_tests"
+                "locate_code", "analyze_impact", "find_related_tests"
             }
             discovery = await session.call_tool("list_repositories", {})
             calls = [
                 await session.call_tool("repo_overview", {"repo_id": repo_id}),
                 await session.call_tool("search_code", {"repo_id": repo_id, "query": "authenticate"}),
+                await session.call_tool("locate_code", {"repo_id": repo_id, "question": "Locate authenticate"}),
                 await session.call_tool("get_symbol", {"repo_id": repo_id, "symbol_query": "authenticate"}),
             ]
             missing_search = await session.call_tool(

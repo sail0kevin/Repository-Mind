@@ -114,6 +114,22 @@ function Test-CompletedRun([string]$Path) {
     return [bool]($hasUsage -and $hasAnswer)
 }
 
+function Get-ReportedLocations([string]$Answer) {
+    $locations = @()
+    $pattern = [regex]::new("(?im)(?<path>[A-Za-z0-9_./\\-]+)\s*:\s*(?<start>\d+)(?:\s*[-:]\s*(?<end>\d+))?")
+    foreach ($match in $pattern.Matches($Answer)) {
+        $start = [int]$match.Groups["start"].Value
+        $end = if ($match.Groups["end"].Success) { [int]$match.Groups["end"].Value } else { $start }
+        $locations += [pscustomobject]@{
+            path = $match.Groups["path"].Value.Replace("\\", "/")
+            start = $start
+            end = $end
+            used = $false
+        }
+    }
+    return $locations
+}
+
 function Invoke-LocationRun([string]$Mode, $Task) {
     $common = "Read-only code-location task. Do not load skills or project instruction files. At commit $Commit, $($Task.query) Do not modify files. You must complete the task with a final answer after any search or MCP tool returns; never end the turn immediately after a tool call. Return only one or more locations in the form PATH:START_LINE-END_LINE, one per line."
     if ($Mode -eq "baseline") {
@@ -213,28 +229,36 @@ foreach ($task in $tasks.tasks) {
                 line_end = $task.line_end
             })
         }
+        $reportedLocations = @(Get-ReportedLocations $normalized)
         $locationChecks = @()
         foreach ($expected in $expectedLocations) {
-            $pathPattern = [regex]::Escape([string]$expected.path)
-            $locationMatch = [regex]::Match(
-                $normalized,
-                "(?i)$pathPattern\s*:\s*(\d+)(?:\s*[-:]\s*(\d+))?"
+            $expectedPath = ([string]$expected.path).Replace("\\", "/")
+            $goldStart = [int]$expected.line_start
+            # A path can be reported more than once. Match every annotation to one
+            # unused answer location so two gold locations in the same file do not
+            # both get scored against the first range in the answer.
+            $reported = @(
+                $reportedLocations | Where-Object {
+                    -not $_.used -and $_.path -ieq $expectedPath -and $_.start -le $goldStart -and $_.end -ge $goldStart
+                } | Select-Object -First 1
             )
-            $reportedStart = if ($locationMatch.Success) { [int]$locationMatch.Groups[1].Value } else { 0 }
-            $reportedEnd = if ($locationMatch.Success -and $locationMatch.Groups[2].Success) {
-                [int]$locationMatch.Groups[2].Value
-            } elseif ($locationMatch.Success) {
-                $reportedStart
+            if ($reported.Count -gt 0) {
+                $reported[0].used = $true
+                $reportedStart = $reported[0].start
+                $reportedEnd = $reported[0].end
+                $locationPassed = $true
             } else {
-                0
+                $reportedStart = 0
+                $reportedEnd = 0
+                $locationPassed = $false
             }
             $locationChecks += [ordered]@{
                 path = $expected.path
-                gold_start = [int]$expected.line_start
+                gold_start = $goldStart
                 gold_end = [int]$expected.line_end
                 reported_start = $reportedStart
                 reported_end = $reportedEnd
-                passed = $locationMatch.Success -and $reportedStart -le [int]$expected.line_start -and $reportedEnd -ge [int]$expected.line_start
+                passed = $locationPassed
             }
         }
         $passed = $locationChecks.Count -gt 0 -and (@($locationChecks | Where-Object { -not $_.passed }).Count -eq 0)

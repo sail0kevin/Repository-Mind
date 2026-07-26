@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import re
+
 from service.core.agent.models import AgentContext
 from service.core.agent.tools import _rank_target_symbols, dependency_impact, test_runtime
 from service.core.evidence import EvidenceAssembler, EvidenceBudget
@@ -20,6 +22,153 @@ from service.mcp_server.snapshot_guard import SnapshotGuardError, resolve_repo_a
 from service.storage.chunk_store import count_chunks
 from service.storage.evidence_store import get_evidence_unit, list_evidence_units, list_relations, list_symbols
 from service.storage.repository_store import list_file_records, list_repo_records
+
+
+_LOCATION_TERM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_LOCATION_STOP_WORDS = {
+    "a", "after", "an", "and", "another", "are", "as", "asks", "at", "be", "before", "by",
+    "code", "decide", "does", "for", "from", "function", "functions", "generates", "how", "in",
+    "into", "is", "it", "its", "locate", "location", "of", "on", "or", "proceeds", "report", "result",
+    "results", "successful", "that", "the", "this", "to", "two", "waits", "when", "whether", "where", "with",
+    "agent", "agents", "workflow", "workflows",
+}
+_SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cs", ".go", ".java", ".js", ".jsx", ".py", ".rb", ".rs", ".ts", ".tsx"}
+
+
+def _identifier_terms(value: str) -> set[str]:
+    """Split normal words plus snake_case/camelCase identifiers into comparable terms."""
+    terms: set[str] = set()
+    for raw in _LOCATION_TERM_RE.findall(value):
+        for part in re.split(r"_|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", raw):
+            if part:
+                terms.add(part.casefold())
+    return terms
+
+
+def _location_terms(question: str) -> set[str]:
+    """Keep meaningful English identifiers/words for narrow code-location windows."""
+    return {
+        term
+        for term in _identifier_terms(question)
+        if len(term) >= 3 and term.casefold() not in _LOCATION_STOP_WORDS
+    }
+
+
+def _location_rank(location: dict) -> tuple[float, float, str, int]:
+    """Prefer locations that cover several specific question clues over generic hits."""
+    coverage = len(set(location.get("matched_terms") or []))
+    path = str(location["file_path"]).replace("\\", "/").casefold()
+    source_rank = 2.0 if any(path.endswith(suffix) for suffix in _SOURCE_SUFFIXES) else 0.0
+    if source_rank and any(part in path for part in ("/test", ".test.", ".spec.", "/e2e/")):
+        source_rank = 1.0
+    return (
+        source_rank,
+        float(coverage),
+        float(location.get("score") or 0.0),
+        path,
+        -int(location["start_line"]),
+    )
+
+
+def _location_windows(candidate: dict, terms: set[str]) -> list[dict]:
+    """Turn a broad retrieved block into small line windows around question terms."""
+    content = str(candidate.get("content") or "")
+    start_line = candidate.get("start_line")
+    if not content or not isinstance(start_line, int) or not terms:
+        return []
+
+    scored_lines: list[tuple[int, int]] = []
+    for offset, line in enumerate(content.splitlines()):
+        words = _identifier_terms(line)
+        score = len(words & terms)
+        if score:
+            scored_lines.append((score, start_line + offset))
+    if not scored_lines:
+        return []
+
+    end_line = candidate.get("end_line")
+    span = end_line - start_line + 1 if isinstance(end_line, int) else 0
+    unit_type = str(candidate.get("chunk_type") or candidate.get("unit_type") or "")
+    candidate_score = float(candidate.get("score") or 0.0)
+    # A small parsed function/class is already a meaningful source boundary. Returning
+    # that boundary keeps its definition line, which a window centered on a later `if`
+    # would otherwise hide from the caller.
+    if unit_type in {"function", "method", "class"} and 0 < span <= 24:
+        matched_terms = sorted({term for term in terms if term in _identifier_terms(content)})
+        return [{
+            "file_path": candidate.get("file_path") or candidate.get("path"),
+            "start_line": start_line,
+            "end_line": end_line,
+            "evidence_id": candidate.get("chunk_id") or candidate.get("id") or "",
+            "reason": "Matched question terms in a parsed code definition",
+            "score": max(score for score, _ in scored_lines) * 100 + candidate_score,
+            "matched_terms": matched_terms,
+        }]
+
+    # A line usually needs its condition/body context. Keep the best distinct windows,
+    # not a single large enclosing function that obscures several separate locations.
+    windows: list[dict] = []
+    for score, line in sorted(scored_lines, key=lambda item: (-item[0], item[1])):
+        window_start = max(start_line, line - 6)
+        window_end = min(start_line + len(content.splitlines()) - 1, line + 1)
+        if any(
+            window_start <= item["end_line"] and item["start_line"] <= window_end
+            for item in windows
+        ):
+            continue
+        windows.append({
+            "file_path": candidate.get("file_path") or candidate.get("path"),
+            "start_line": window_start,
+            "end_line": window_end,
+            "evidence_id": candidate.get("chunk_id") or candidate.get("id") or "",
+            "reason": "Matched question terms near this source line",
+            "score": score * 100 + candidate_score,
+            "matched_terms": sorted(_identifier_terms("\n".join(content.splitlines()[
+                max(0, window_start - start_line):window_end - start_line + 1
+            ])) & terms),
+        })
+    return windows
+
+
+def _symbol_locations_for_windows(repo_id: str, snapshot_id: str, windows: list[dict]) -> list[dict]:
+    """Map text hits in a broad module block back to parsed function/class boundaries."""
+    symbols_by_path: dict[str, list[dict]] = {}
+    for symbol in list_symbols(repo_id, snapshot_id, limit=None):
+        path = str(symbol.get("file_path") or "").replace("\\", "/")
+        start_line, end_line = symbol.get("start_line"), symbol.get("end_line")
+        if not path or not isinstance(start_line, int) or not isinstance(end_line, int):
+            continue
+        if str(symbol.get("symbol_kind") or "") not in {"function", "method", "class"}:
+            continue
+        symbols_by_path.setdefault(path, []).append(symbol)
+
+    locations: list[dict] = []
+    for window in windows:
+        path = str(window.get("file_path") or "").replace("\\", "/")
+        start_line, end_line = window.get("start_line"), window.get("end_line")
+        if not path or not isinstance(start_line, int) or not isinstance(end_line, int):
+            continue
+        for symbol in symbols_by_path.get(path, []):
+            symbol_start, symbol_end = symbol["start_line"], symbol["end_line"]
+            if symbol_start > end_line or symbol_end < start_line:
+                continue
+            span = symbol_end - symbol_start + 1
+            if span <= 24:
+                location_start, location_end = symbol_start, symbol_end
+                reason = "Parsed definition containing matched source lines"
+            else:
+                location_start, location_end = start_line, end_line
+                reason = "Matched source lines inside a larger parsed definition"
+            locations.append({
+                "file_path": path,
+                "start_line": location_start,
+                "end_line": location_end,
+                "evidence_id": symbol.get("evidence_id") or window.get("evidence_id") or "",
+                "reason": reason,
+                "score": float(window.get("score") or 0.0) + 50,
+                "matched_terms": list(window.get("matched_terms") or []),
+            })
+    return locations
 
 
 def list_repositories(limit: int | None = None) -> dict:
@@ -177,6 +326,170 @@ def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit:
             "evidence_budget": bundle.stats,
         },
         evidence=evidence,
+        limitations=limitations,
+    )
+
+
+def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, limit: int | None = None) -> dict:
+    """Return compact, independent candidate locations for a natural-language code question."""
+    guard, failure = _guard_or_envelope(repo_id, snapshot_id)
+    if failure is not None:
+        return failure
+    normalized_question = clamp_text(question)
+    if not normalized_question:
+        return error_envelope(repo_id, "question cannot be empty.", snapshot_id=guard.snapshot["id"])
+    normalized_limit = clamp_limit(limit, default=6, maximum=12)
+
+    try:
+        retriever = HybridRetriever()
+        retrieval = retriever.retrieve(
+            repo_id, guard.snapshot["id"], normalized_question, max(normalized_limit * 2, 12)
+        )
+        # Long behavioral questions contain several independent clues. Searching only the
+        # full sentence lets frequent words dominate a lexical index, so add a bounded
+        # recall pass for its meaningful terms and merge the resulting code blocks.
+        candidate_by_id: dict[str, dict] = {}
+        for candidate in retrieval.items:
+            identity = str(candidate.get("chunk_id") or candidate.get("id") or "")
+            if identity:
+                candidate_by_id[identity] = dict(candidate)
+        # The term pass is bounded so one request cannot fan out indefinitely, but it
+        # must cover every extracted clue. Alphabetical truncation can discard the
+        # most discriminative terms (for example, "exhausted" or "persisted").
+        for term in sorted(_location_terms(normalized_question))[:12]:
+            term_result = retriever.retrieve(repo_id, guard.snapshot["id"], term, 8)
+            for candidate in term_result.items:
+                identity = str(candidate.get("chunk_id") or candidate.get("id") or "")
+                if not identity:
+                    continue
+                current = candidate_by_id.get(identity)
+                if current is None:
+                    candidate_by_id[identity] = dict(candidate)
+                else:
+                    current["score"] = max(float(current.get("score") or 0.0), float(candidate.get("score") or 0.0))
+        candidates = list(candidate_by_id.values())
+    except Exception as exc:  # noqa: BLE001
+        return error_envelope(repo_id, f"Code location failed: {exc}", snapshot_id=guard.snapshot["id"])
+
+    terms = _location_terms(normalized_question)
+    locations: list[dict] = []
+    seen: set[tuple[str, int, int]] = set()
+    for candidate in candidates:
+        for location in _location_windows(candidate, terms):
+            path = str(location.get("file_path") or "").replace("\\", "/")
+            start_line = location.get("start_line")
+            end_line = location.get("end_line")
+            if not path or not isinstance(start_line, int) or not isinstance(end_line, int):
+                continue
+            identity = (path, start_line, end_line)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            locations.append(location)
+
+    # Module evidence is useful for recall but often spans a whole file. Whenever a
+    # module-window overlaps a parsed definition, prefer that definition's real bounds.
+    for location in _symbol_locations_for_windows(repo_id, guard.snapshot["id"], locations):
+        identity = (str(location["file_path"]), int(location["start_line"]), int(location["end_line"]))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        locations.append(location)
+
+    # Some source formats do not expose useful line-level terms. Preserve the retrieved
+    # structural boundary as a clearly marked fallback instead of inventing a precise line.
+    if not locations:
+        for candidate in candidates:
+            path = str(candidate.get("file_path") or candidate.get("path") or "").replace("\\", "/")
+            start_line, end_line = candidate.get("start_line"), candidate.get("end_line")
+            if not path or not isinstance(start_line, int) or not isinstance(end_line, int):
+                continue
+            identity = (path, start_line, end_line)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            locations.append({
+                "file_path": path,
+                "start_line": start_line,
+                "end_line": end_line,
+                "evidence_id": candidate.get("chunk_id") or candidate.get("id") or "",
+                "reason": "Retrieved structural boundary; verify the exact statement before citing it",
+                "score": float(candidate.get("score") or 0.0),
+            })
+
+    locations.sort(key=_location_rank, reverse=True)
+    # Evidence is often projected into overlapping module, export, and function
+    # chunks. Keep the strongest window for one source region, so callers spend
+    # their limited context on separate locations rather than duplicate snippets.
+    compact_locations: list[dict] = []
+    for location in locations:
+        path = str(location["file_path"]).replace("\\", "/")
+        start_line, end_line = int(location["start_line"]), int(location["end_line"])
+        if any(
+            path == str(existing["file_path"]).replace("\\", "/")
+            and start_line <= int(existing["end_line"])
+            and int(existing["start_line"]) <= end_line
+            for existing in compact_locations
+        ):
+            continue
+        compact_locations.append(location)
+    locations = compact_locations
+    # Prefer candidates that together cover the most specific clues. A high-frequency
+    # word such as "agent" or "result" must not consume the whole location budget.
+    selected: list[dict] = []
+    selected_ids: set[tuple[str, int, int]] = set()
+    covered_terms: set[str] = set()
+    remaining = list(locations)
+    while remaining and len(selected) < normalized_limit:
+        item = max(
+            remaining,
+            key=lambda candidate: (
+                len(set(candidate.get("matched_terms") or []) - covered_terms),
+                *_location_rank(candidate),
+            ),
+        )
+        remaining.remove(item)
+        identity = (str(item["file_path"]), int(item["start_line"]), int(item["end_line"]))
+        if identity not in selected_ids:
+            selected.append(item)
+            selected_ids.add(identity)
+            covered_terms.update(item.get("matched_terms") or [])
+    mode = retrieval.run.mode
+    status = "ok" if mode == "hybrid" else "degraded"
+    limitations = [
+        "Candidate locations are retrieval evidence, not proof of behavior. Verify the returned line before making a factual claim.",
+        "Each location is independent. Report relevant locations separately instead of merging them into one broad range.",
+    ]
+    if mode != "hybrid":
+        limitations.insert(0, "Semantic retrieval is unavailable for this snapshot; locations use lexical retrieval only.")
+    if not selected:
+        return envelope(
+            repo_id=repo_id,
+            snapshot_id=guard.snapshot["id"],
+            commit=guard.snapshot["commit_hash"],
+            status="not_found",
+            data={"question": normalized_question, "retrieval_mode": mode, "locations": []},
+            limitations=limitations,
+        )
+    return envelope(
+        repo_id=repo_id,
+        snapshot_id=guard.snapshot["id"],
+        commit=guard.snapshot["commit_hash"],
+        status=status,
+        data={
+            "question": normalized_question,
+            "retrieval_mode": mode,
+            "locations": [
+                {
+                    "file_path": item["file_path"],
+                    "start_line": item["start_line"],
+                    "end_line": item["end_line"],
+                    "evidence_id": item["evidence_id"],
+                    "reason": item["reason"],
+                }
+                for item in selected
+            ],
+        },
         limitations=limitations,
     )
 

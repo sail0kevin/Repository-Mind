@@ -63,7 +63,10 @@ class MarkdownParser(ParserAdapter):
             evidence = EvidenceUnit.create(document, start + 1, end + 1, kind="section",
                                            content="\n".join(lines[start:end + 1]), symbol_id=symbol.id,
                                            parent_id=parent_evidence.id if parent_evidence else None,
-                                           title=title, metadata={"level": level, "heading_path": qualified})
+                                           title=title, metadata={"level": level, "heading_path": qualified},
+                                           # A document may intentionally repeat a heading title. Use the
+                                           # disambiguated section path, not the display title, as its identity.
+                                           identity=qualified)
             symbol = replace(symbol, evidence_id=evidence.id)
             result.symbols.append(symbol)
             result.evidence.append(evidence)

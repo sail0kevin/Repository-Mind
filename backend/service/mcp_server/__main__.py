@@ -12,6 +12,10 @@ from service.mcp_server import tools as impl
 mcp = FastMCP(
     name="repomind",
     instructions=(
+        "For natural-language code-location questions, unknown symbols, cross-file behavior, or questions that need multiple locations, call locate_code first. "
+        "Use get_symbol only when you already know the exact function, class, or qualified symbol name. "
+        "Use search_code when you need supporting snippets after locating candidates. "
+        "In your final answer, report every independently relevant location as PATH:START_LINE-END_LINE on its own line; do not merge separate locations into one broad file range. "
         "RepoMind 是一个只读的代码上下文服务，供 Claude Code/Codex 等编码 Agent 查询已索引仓库。"
         "它不会执行目标仓库代码、不会修改文件、不会安装依赖。"
         "先调用 list_repositories 发现可用 repo_id 和索引状态；其他工具都需要显式的 repo_id。"
@@ -54,6 +58,22 @@ def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit:
         limit: 可选，返回证据条数上限（默认 6，最大 20）。
     """
     return impl.search_code(repo_id, query, snapshot_id, limit)
+
+
+@mcp.tool()
+def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, limit: int | None = None) -> dict:
+    """Locate one or more code locations for a natural-language question.
+
+    Prefer this tool when the symbol name is unknown, the behavior crosses files, or the final
+    answer needs multiple independent locations. It returns compact candidate locations with
+    file paths and line ranges. Use get_symbol only for a known exact symbol name.
+    Args:
+        repo_id: Indexed repository ID from list_repositories.
+        question: Natural-language behavior, responsibility, or code-location question.
+        snapshot_id: Optional succeeded snapshot ID for this repository.
+        limit: Optional candidate-location limit (default 6, maximum 12).
+    """
+    return impl.locate_code(repo_id, question, snapshot_id, limit)
 
 
 @mcp.tool()
