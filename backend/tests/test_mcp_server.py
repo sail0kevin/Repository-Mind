@@ -332,6 +332,85 @@ def test_locate_code_keeps_complete_question_definitions_before_word_recall(
     ]
 
 
+def test_locate_code_retrieves_each_explicit_behavior_clause(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_id, _, _ = _seed_repo(tmp_path)
+    queries: list[str] = []
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, query: str, _limit: int):
+            queries.append(query)
+            if "first behavior" in query:
+                items = [{
+                    "chunk_id": "first", "file_path": "src/first.py", "start_line": 1, "end_line": 3,
+                    "chunk_type": "function", "content": "def first_behavior():\n    return True\n", "score": 2.0,
+                }]
+            elif "second behavior" in query:
+                items = [{
+                    "chunk_id": "second", "file_path": "src/second.py", "start_line": 10, "end_line": 12,
+                    "chunk_type": "function", "content": "def second_behavior():\n    return True\n", "score": 2.0,
+                }]
+            else:
+                items = []
+            return type("Result", (), {"items": items, "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    question = "Locate first behavior, and where second behavior is handled."
+    result = locate_code(repo_id, question, limit=4)
+
+    assert queries == [question, "where second behavior is handled"]
+    assert {(item["file_path"], item["start_line"]) for item in result["data"]["locations"]} == {
+        ("src/first.py", 1), ("src/second.py", 10),
+    }
+
+
+def test_locate_code_promotes_qualified_symbol_with_two_question_clues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        connection.execute(
+            "UPDATE symbols SET qualified_name = ? WHERE qualified_name = ?",
+            ("src.auth.Response.raise_for_status", "src.auth.authenticate"),
+        )
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, _query: str, _limit: int):
+            return type("Result", (), {"items": [{
+                "chunk_id": "weak", "file_path": "src/noise.py", "start_line": 1, "end_line": 3,
+                "chunk_type": "function", "content": "def status_report():\n    return None\n", "score": 99.0,
+            }], "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    result = locate_code(repo_id, "Locate Response status error logic", snapshot_id, limit=1)
+
+    assert result["data"]["locations"][0]["file_path"] == "src/auth.py"
+    assert result["data"]["locations"][0]["start_line"] == 1
+    assert result["data"]["locations"][0]["end_line"] == 2
+
+
+def test_locate_code_upgrades_duplicate_lexical_candidate_with_symbol_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        connection.execute(
+            "UPDATE symbols SET qualified_name = ? WHERE qualified_name = ?",
+            ("src.auth.Response.raise_for_status", "src.auth.authenticate"),
+        )
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, _query: str, _limit: int):
+            return type("Result", (), {"items": [{
+                "chunk_id": "ev_auth", "file_path": "src/auth.py", "start_line": 1, "end_line": 2,
+                "chunk_type": "function", "content": "def authenticate():\n    return True\n", "score": 1.0,
+            }], "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    result = locate_code(repo_id, "Locate Response status error logic", snapshot_id, limit=1)
+
+    assert result["data"]["locations"][0]["reason"] == "Parsed definition whose symbol name matches the question"
+
+
 def test_locate_code_recalls_long_behavior_clues_before_common_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_id, _, _ = _seed_repo(tmp_path)
     queried_terms: list[str] = []

@@ -54,6 +54,24 @@ def _location_terms(question: str) -> set[str]:
     }
 
 
+def _location_queries(question: str) -> list[str]:
+    """Keep the complete question and independently retrieve paired behavior clues.
+
+    Location questions commonly ask for two connected code sites. A lexical index
+    treats the complete sentence as an AND-heavy bag of words, which can hide both
+    targets behind generic words such as ``request`` or ``session``. Splitting only
+    explicit paired clauses retains the user's original wording without turning an
+    arbitrary prompt into an unbounded list of keyword searches.
+    """
+    normalized = " ".join(question.split())
+    clauses = [normalized]
+    for part in re.split(r"\s*,?\s+and\s+(?=(?:where|the|how|a|an)\b)", normalized, flags=re.IGNORECASE):
+        part = part.strip(" ,.;")
+        if len(_location_terms(part)) >= 3 and part not in clauses:
+            clauses.append(part)
+    return clauses[:3]
+
+
 def _location_rank(location: dict) -> tuple[float, float, float, float, float, float, str, int]:
     """Prefer executable source evidence before equally relevant prose mentions."""
     coverage = len(set(location.get("matched_terms") or []))
@@ -236,23 +254,33 @@ def _symbol_locations_for_windows(repo_id: str, snapshot_id: str, windows: list[
     return locations
 
 
-def _symbol_locations_for_terms(repo_id: str, snapshot_id: str, terms: set[str]) -> list[dict]:
-    """Expose parsed definitions whose names are explicit clues in the question."""
+def _symbol_locations_for_terms(
+    repo_id: str, snapshot_id: str, terms: set[str], *, minimum_matches: int = 1
+) -> list[dict]:
+    """Expose parsed definitions whose qualified names are explicit question clues."""
     locations: list[dict] = []
     for symbol in list_symbols(repo_id, snapshot_id, limit=None):
         kind = str(symbol.get("symbol_kind") or "")
         start_line, end_line = symbol.get("start_line"), symbol.get("end_line")
         path = str(symbol.get("file_path") or "").replace("\\", "/")
         name_terms = _identifier_terms(str(symbol.get("name") or ""))
-        matched_terms = sorted(name_terms & terms)
-        if kind not in {"function", "method", "class"} or not path or not matched_terms:
+        qualified_terms = _identifier_terms(str(symbol.get("qualified_name") or ""))
+        matched_terms = sorted((name_terms | qualified_terms) & terms)
+        if (
+            kind not in {"function", "method", "class"}
+            or not path
+            or len(matched_terms) < minimum_matches
+        ):
             continue
         if not isinstance(start_line, int) or not isinstance(end_line, int):
             continue
-        qualified_terms = _identifier_terms(str(symbol.get("qualified_name") or ""))
         qualified_bonus = len((qualified_terms & terms) - set(matched_terms))
         evidence = get_evidence_unit(repo_id, str(symbol.get("evidence_id") or ""), snapshot_id)
-        if evidence is not None:
+        # A two-term qualified match (for example, ``Response`` + ``status``)
+        # is already precise enough to return the parser's full method boundary.
+        # Do not let a small internal window outrank that boundary and force the
+        # caller to fetch the surrounding branch or definition separately.
+        if evidence is not None and minimum_matches < 2:
             for window in _location_windows(evidence, terms):
                 if not window.get("executable_matches"):
                     continue
@@ -269,7 +297,7 @@ def _symbol_locations_for_terms(repo_id: str, snapshot_id: str, terms: set[str])
             "end_line": end_line,
             "evidence_id": symbol.get("evidence_id") or "",
             "reason": "Parsed definition whose symbol name matches the question",
-            "score": 0.0,
+            "score": 1000.0 if minimum_matches >= 2 else 0.0,
             "matched_terms": matched_terms,
             "exact_symbol_match": len(matched_terms) + qualified_bonus,
             "symbol_compactness": 1.0 / max(1, end_line - start_line + 1),
@@ -448,10 +476,27 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
 
     try:
         retriever = HybridRetriever()
+        retrieval_queries = _location_queries(normalized_question)
         retrieval = retriever.retrieve(
-            repo_id, guard.snapshot["id"], normalized_question, max(normalized_limit * 2, 12)
+            repo_id, guard.snapshot["id"], retrieval_queries[0], max(normalized_limit * 2, 12)
         )
-        primary_candidates = [dict(candidate) for candidate in retrieval.items]
+        candidate_by_id: dict[str, dict] = {}
+        for query_index, query in enumerate(retrieval_queries):
+            result = retrieval if query_index == 0 else retriever.retrieve(
+                repo_id, guard.snapshot["id"], query, max(normalized_limit, 6)
+            )
+            for candidate in result.items:
+                identity = str(candidate.get("chunk_id") or candidate.get("id") or "")
+                if not identity:
+                    continue
+                current = candidate_by_id.get(identity)
+                if current is None:
+                    candidate_by_id[identity] = dict(candidate)
+                else:
+                    current["score"] = max(
+                        float(current.get("score") or 0.0), float(candidate.get("score") or 0.0)
+                    )
+        primary_candidates = list(candidate_by_id.values())
     except Exception as exc:  # noqa: BLE001
         return error_envelope(repo_id, f"Code location failed: {exc}", snapshot_id=guard.snapshot["id"])
 
@@ -464,6 +509,29 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
             continue
         identity = (location["file_path"], location["start_line"], location["end_line"])
         if identity not in seen:
+            seen.add(identity)
+            locations.append(location)
+
+    # A qualified symbol is strong structural evidence when the question names at
+    # least two of its class/module/method terms (for example, ``Response`` and
+    # ``status``). Keep these hints even if broad lexical retrieval already returned
+    # many weak candidates; otherwise a common-word query can hide the exact method.
+    for location in _symbol_locations_for_terms(
+        repo_id, guard.snapshot["id"], terms, minimum_matches=2
+    ):
+        identity = (str(location["file_path"]), int(location["start_line"]), int(location["end_line"]))
+        if identity in seen:
+            # The lexical pass can already contain this exact method. Preserve the
+            # stronger symbol evidence instead of treating it as a duplicate and
+            # leaving the weak lexical score in place.
+            for index, existing in enumerate(locations):
+                existing_identity = (
+                    str(existing["file_path"]), int(existing["start_line"]), int(existing["end_line"])
+                )
+                if existing_identity == identity:
+                    locations[index] = location
+                    break
+        else:
             seen.add(identity)
             locations.append(location)
 
