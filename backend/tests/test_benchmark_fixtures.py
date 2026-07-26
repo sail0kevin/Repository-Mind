@@ -31,6 +31,15 @@ def _load_location_preflight_script() -> ModuleType:
     return module
 
 
+def _load_location_batch_report_script() -> ModuleType:
+    path = ROOT / "scripts" / "report_external_location_batch.py"
+    spec = importlib.util.spec_from_file_location("repomind_location_batch_report", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_cross_file_gold_set_has_stable_snapshot_and_expected_evidence() -> None:
     path = Path(__file__).parents[2] / "examples" / "benchmarks" / "code-understanding-gold.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -272,3 +281,56 @@ def test_location_benchmark_preflight_rejects_index_for_other_checkout(tmp_path:
 
     with pytest.raises(preflight.BenchmarkValidationError, match="indexed repo_path does not match"):
         preflight.validate_manifest(manifest)
+
+
+def test_external_location_batch_only_compares_cost_for_both_passed_tasks(tmp_path: Path) -> None:
+    report_script = _load_location_batch_report_script()
+    results = [
+        {"task_id": "both", "mode": "baseline", "passed": True, "input_tokens": 100, "output_tokens": 10, "source_characters_received": 1000},
+        {"task_id": "both", "mode": "treatment", "passed": True, "input_tokens": 80, "output_tokens": 11, "source_characters_received": 200},
+        {"task_id": "treatment-only", "mode": "baseline", "passed": False, "input_tokens": 500, "output_tokens": 20, "source_characters_received": 5000},
+        {"task_id": "treatment-only", "mode": "treatment", "passed": True, "input_tokens": 50, "output_tokens": 21, "source_characters_received": 100},
+    ]
+    results_path = tmp_path / "results.json"
+    metadata_path = tmp_path / "metadata.json"
+    batch_path = tmp_path / "batch.json"
+    results_path.write_text(json.dumps(results), encoding="utf-8")
+    metadata_path.write_text(json.dumps({
+        "benchmark_id": "fixture", "codex_version": "0.1", "model": "test",
+        "reasoning_effort": "low", "bypass_sandbox": True,
+    }), encoding="utf-8")
+    batch_path.write_text(json.dumps({"runs": [{
+        "benchmark_id": "fixture", "results": str(results_path), "metadata": str(metadata_path),
+    }]}), encoding="utf-8")
+
+    report = report_script.build_report(batch_path)
+
+    assert report["aggregate"]["task_count"] == 2
+    assert report["aggregate"]["baseline_pass_rate"] == 0.5
+    assert report["aggregate"]["treatment_pass_rate"] == 1.0
+    assert report["aggregate"]["both_passed_count"] == 1
+    assert report["aggregate"]["baseline_input_tokens"] == 100
+    assert report["aggregate"]["treatment_input_tokens"] == 80
+    assert report["aggregate"]["input_token_change_percent"] == -20.0
+
+
+def test_external_location_batch_rejects_mixed_model_conditions(tmp_path: Path) -> None:
+    report_script = _load_location_batch_report_script()
+    entries = []
+    for benchmark_id, model in (("one", "model-a"), ("two", "model-b")):
+        results_path = tmp_path / f"{benchmark_id}-results.json"
+        metadata_path = tmp_path / f"{benchmark_id}-metadata.json"
+        results_path.write_text(json.dumps([
+            {"task_id": "task", "mode": "baseline", "passed": True, "input_tokens": 10, "output_tokens": 1, "source_characters_received": 10},
+            {"task_id": "task", "mode": "treatment", "passed": True, "input_tokens": 9, "output_tokens": 1, "source_characters_received": 9},
+        ]), encoding="utf-8")
+        metadata_path.write_text(json.dumps({
+            "benchmark_id": benchmark_id, "codex_version": "0.1", "model": model,
+            "reasoning_effort": "low", "bypass_sandbox": True,
+        }), encoding="utf-8")
+        entries.append({"benchmark_id": benchmark_id, "results": str(results_path), "metadata": str(metadata_path)})
+    batch_path = tmp_path / "mixed-batch.json"
+    batch_path.write_text(json.dumps({"runs": entries}), encoding="utf-8")
+
+    with pytest.raises(report_script.BatchReportError, match="incompatible conditions"):
+        report_script.build_report(batch_path)

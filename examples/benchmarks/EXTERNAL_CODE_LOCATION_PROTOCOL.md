@@ -45,8 +45,24 @@ Then run both cohorts:
   -Manifest C:\benchmarks\target.manifest.json `
   -McpBackendPath .\backend `
   -OutputDir e2e-artifacts\external-location-example `
+  -Model gpt-5.6-terra `
+  -ReasoningEffort low `
   -Mode all
 ```
+
+The runner writes `results.json` plus `run-metadata.json`. To aggregate completed
+runs from several repositories, create a batch file from
+`external-location-batch.example.json` and run:
+
+```powershell
+python .\scripts\report_external_location_batch.py `
+  --batch C:\benchmarks\external-location-batch.json `
+  --output C:\benchmarks\external-location-summary.json
+```
+
+The aggregator rejects runs with different Codex versions, models, reasoning effort,
+or sandbox mode. It reports task pass rates across all tasks, but calculates Token and
+source-text deltas only on tasks passed by both cohorts.
 
 The baseline may use repository search/read commands. The treatment may use only the
 temporary, manifest-bound RepoMind MCP profile. Both use one ephemeral Codex session per

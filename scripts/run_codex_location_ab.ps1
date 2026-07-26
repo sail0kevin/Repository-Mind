@@ -15,6 +15,8 @@ param(
     [bool]$BypassSandbox = $true,
     [ValidateSet("all", "baseline", "treatment")][string]$Mode = "all",
     [string[]]$TaskId,
+    [string]$Model = "gpt-5.6-terra",
+    [ValidateSet("minimal", "low", "medium", "high")][string]$ReasoningEffort = "low",
     [int]$TimeoutSeconds = 120,
     [switch]$Force
 )
@@ -155,7 +157,8 @@ function Invoke-LocationRun([string]$Mode, $Task) {
     $promptPath = Join-Path $output "$Mode-$($Task.id).prompt.txt"
     $errorPath = Join-Path $output "$Mode-$($Task.id).stderr.log"
     Set-Content -LiteralPath $promptPath -Value $prompt -Encoding utf8
-    $args = @("--disable", "plugins", "--disable", "remote_plugin", "--disable", "multi_agent") +
+    $args = @("--disable", "plugins", "--disable", "remote_plugin", "--disable", "multi_agent", "--model", $Model,
+        "--config", "model_reasoning_effort=`"$ReasoningEffort`"") +
         $extra + @("exec", "--ephemeral", "--json")
     # The Windows read-only sandbox cancels local stdio MCP child processes.
     # Both cohorts use the same process mode; their available tools remain
@@ -286,4 +289,18 @@ foreach ($task in $tasks.tasks) {
     }
 }
 $rows | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $output "results.json") -Encoding utf8
+$codexVersion = (& $resolvedCodexExe --version 2>$null | Select-Object -First 1).Trim()
+$metadata = [ordered]@{
+    benchmark_id = if ($preflight) { $preflight.benchmark_id } else { $null }
+    codex_version = $codexVersion
+    model = $Model
+    reasoning_effort = $ReasoningEffort
+    bypass_sandbox = $BypassSandbox
+    timeout_seconds = $TimeoutSeconds
+    modes = $selectedModes
+    commit = $Commit
+    repository_path = $targetRepository
+    generated_at = (Get-Date).ToUniversalTime().ToString("o")
+}
+$metadata | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $output "run-metadata.json") -Encoding utf8
 Write-Host "Location A/B raw runs and results written to $output"

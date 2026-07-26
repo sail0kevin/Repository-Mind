@@ -1,0 +1,15 @@
+{
+  "batch_id": "external-location-v1",
+  "runs": [
+    {
+      "benchmark_id": "repository-one",
+      "results": "C:/benchmarks/repository-one/results.json",
+      "metadata": "C:/benchmarks/repository-one/run-metadata.json"
+    },
+    {
+      "benchmark_id": "repository-two",
+      "results": "C:/benchmarks/repository-two/results.json",
+      "metadata": "C:/benchmarks/repository-two/run-metadata.json"
+    }
+  ]
+}
