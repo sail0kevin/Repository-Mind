@@ -453,6 +453,7 @@ Source-character 总量仅作为上下文体积 proxy，不能替代外部 Agent
 - 离线 `scripts/report_retrieval_metrics.py` 继续只重算冻结 benchmark capture；它与在线 MCP 使用遥测保持职责隔离。新增字段用于决定后续应优先处理低分召回、降级比例还是 provider 延迟，不构成新的离线质量指标。
 - 当前态复核（2026-08-01）：`python -m pytest tests/test_retrieval_metrics.py tests/test_mcp_server.py tests/test_desktop_security.py tests/test_migrations.py tests/test_m0_contract.py -q` 为 `60 passed, 20 warnings`；完整后端 `python -m pytest -q` 为 `262 passed, 72 warnings`。固定 capture 门禁 `python scripts/verify_retrieval_regression.py` 重算 BM25 `Recall@5=0.2666666667`、`Recall@10=0.3791666667`、`MRR=0.2450297619`，与冻结基线一致。验证仅使用临时独立数据库，未读取或修改用户索引数据库。
 - 隐私最小化补强（2026-08-01）：新增 `v009_redact_retrieval_metric_queries.py`，将升级前本地 `retrieval_metrics.query` 的历史内容统一改为 `[redacted]`；后续 MCP 调用也只写入该固定标记，原始查询文本不再持久化。`/api/v1/metrics` 的计数、分数、延迟及工具/模式聚合不依赖此列，行为保持不变。桌面后端兼容门槛和冻结后端 smoke 已同步要求 schema `9`；历史数据迁移、运行时写入、MCP telemetry 容错和桌面 schema 契约均通过隔离测试验证，不代表真实 MCP 使用数据。
+- 最新复核（2026-08-02）：重新执行 python -m pytest backend/tests -q，结果为 281 passed, 72 warnings；执行 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_release_hashes.ps1，发布 checksum 校验及其测试均通过。该结果更新当前回归状态，不改变上述冻结 benchmark 指标，也不代表已经完成锁定运行时的 v009 桌面重建或真实桌面 MCP 遥测采集。
 
 **预计耗时：** 3 天
 
