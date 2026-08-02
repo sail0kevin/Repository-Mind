@@ -113,6 +113,11 @@ $selectedTasks = @($tasks.tasks | Where-Object { -not $TaskId -or $TaskId -conta
 if ($selectedTasks.Count -eq 0) { throw "No benchmark task matched -TaskId." }
 if ([string]::IsNullOrWhiteSpace($RepeatId)) { throw "-RepeatId must be non-empty." }
 $selectedModes = if ($Mode -eq "all") { @("baseline", "treatment") } else { @($Mode) }
+$diagnosticsHelper = Join-Path $root "scripts\location_ab_diagnostics.ps1"
+if (-not (Test-Path -LiteralPath $diagnosticsHelper -PathType Leaf)) {
+    throw "Diagnostics helper was not found: $diagnosticsHelper"
+}
+. $diagnosticsHelper
 
 function Test-CompletedRun([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
@@ -133,7 +138,7 @@ function Get-RunStatus([string]$Path, [string]$ErrorPath, [string]$TimeoutPath) 
     return "not_run"
 }
 
-function Get-TraceDiagnostics([string]$Path, [string]$Status) {
+function Get-TraceDiagnostics([string]$Path, [string]$ErrorPath, [string]$Status) {
     $events = @()
     if (Test-Path -LiteralPath $Path -PathType Leaf) {
         $events = @(Get-Content -LiteralPath $Path -Encoding utf8 | ForEach-Object {
@@ -164,6 +169,7 @@ function Get-TraceDiagnostics([string]$Path, [string]$Status) {
         final_answer_present = $finalAnswer
         last_event_type = $lastEvent
         failure_class = $failureClass
+        infrastructure_failure_class = Get-InfrastructureFailureClass $Path $ErrorPath
     }
 }
 
@@ -301,7 +307,7 @@ foreach ($task in $selectedTasks) {
         $timeoutPath = Join-Path $output "$mode-$($task.id).timeout.json"
         $status = Get-RunStatus $path $errorPath $timeoutPath
         if ($status -ne "completed") {
-            $diagnostics = Get-TraceDiagnostics $path $status
+            $diagnostics = Get-TraceDiagnostics $path $errorPath $status
             $rows += [ordered]@{
                 task_id = $task.id
                 mode = $mode
@@ -319,13 +325,14 @@ foreach ($task in $selectedTasks) {
                 final_answer_present = $diagnostics.final_answer_present
                 last_event_type = $diagnostics.last_event_type
                 failure_class = $diagnostics.failure_class
+                infrastructure_failure_class = $diagnostics.infrastructure_failure_class
             }
             continue
         }
         $events = Get-Content -LiteralPath $path -Encoding utf8 | ForEach-Object {
             try { $_ | ConvertFrom-Json } catch { $null }
         }
-        $diagnostics = Get-TraceDiagnostics $path $status
+        $diagnostics = Get-TraceDiagnostics $path $errorPath $status
         $usage = @($events | Where-Object { $_.type -eq "turn.completed" } | Select-Object -Last 1).usage
         $messages = @($events | Where-Object { $_.type -eq "item.completed" -and $_.item.type -eq "agent_message" })
         $text = ($messages | Select-Object -Last 1).item.text
@@ -405,6 +412,7 @@ foreach ($task in $selectedTasks) {
             final_answer_present = $diagnostics.final_answer_present
             last_event_type = $diagnostics.last_event_type
             failure_class = $failureClass
+            infrastructure_failure_class = $diagnostics.infrastructure_failure_class
         }
     }
 }

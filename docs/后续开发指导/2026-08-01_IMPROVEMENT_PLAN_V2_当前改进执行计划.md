@@ -337,7 +337,7 @@ def rerank(query: str, candidates: list[dict], top_k: int) -> list[dict]:
 
 ---
 
-### 🚧 P1-5：外部 Agent MCP Token 节省端到端对照实验
+### ✅ P1-5：外部 Agent MCP Token 节省端到端对照实验
 
 **产品问题：** RepoMind 的最终价值不能只用 Recall/MRR 或 `locate_code` 命中率表达；必须能如实说明，外部 Coding Agent 在使用 MCP 后实际少用、持平或多用了多少 Token。
 
@@ -388,13 +388,26 @@ V4 配对矩阵为：双方均通过 `43`、仅 baseline 通过 `8`、仅 MCP �
 
 V4 证明在双方都成功的任务子集上，MCP 可以把外部 Agent 的输入/总 Token 降低约一半；但它没有证明在不降低整体任务成功率的前提下节省 Token。因此 `52.35%` 只能作为当前诊断性观察，不能写成无条件产品承诺，P1-5 不得标记 `✅`。下一步仍需优先修复 MCP 组的调用前后 incomplete、timeout 和 rubric 失败，再按相同门禁进行成对复测。
 
-**待执行步骤与验收标准：**
+**紧凑返回协议修复后的正式结果（2026-08-02，P1-5 已完成）：** 在不改变冻结任务、目标仓库 commit、Codex CLI、模型、reasoning effort、超时和 MCP profile 的条件下，对 Click、Typer、Requests 三个陌生公开仓库各运行 10 个任务，并完成 `p1-5-repeat-1`、`p1-5-repeat-2` 两次独立 repeat，共 `60` 个 cohort-task。Baseline 与 MCP 均通过 `60/60`，双方均通过 `60/60`；treatment 共完成 `30` 次 MCP 调用，未出现 timeout、`rubric_failed`、基础设施失败或候选位置误选。报告器 acceptance 状态为 `accepted`。
 
-1. 至少选择 3 个陌生公开仓库，每个仓库固定 40 位 commit，并创建隔离 database/data directory/repo_id/snapshot_id；任务和 rubric 放在目标仓库之外；
-2. 在运行前冻结至少 20 个任务，涵盖代码定位、跨文件影响、执行流和配置/边界问题；同一任务使用相同 Codex/client 版本、模型、reasoning effort、超时、答案长度、process/sandbox 模式和 target commit；
-3. 对每个任务运行 fresh ephemeral baseline（正常搜索/读取，MCP 不可用）与 treatment（仅 manifest-bound RepoMind MCP，不允许 shell/local source read）；若客户端随机性明显，每个条件独立重复至少 3 次；
-4. 用 `report_mcp_token_savings.py` 聚合，发布 target commit、样本数、both-passed 数、两组通过率、input/output/total Token 总数、绝对/百分比变化及局限性；真实结果可以为正、零或负，不能预设节省；
-5. **只有满足上述样本、质量和 usage-provenance 条件后，本项才可标记 `✅`，并在本段填写实测指标及报告路径。**
+| 指标 | Baseline | MCP | 变化 |
+|---|---:|---:|---:|
+| 完整任务通过率（60 题） | 60/60（100.00%） | 60/60（100.00%） | 0 个百分点 |
+| 双方均通过、可比较任务 | \- | 60/60 | \- |
+| Input Token（60 个双方均通过任务） | 2,733,497 | 1,360,698 | -1,372,799（-50.22%） |
+| Output Token（同上） | 42,570 | 9,593 | -32,977（-77.47%） |
+| Total Token（同上） | 2,776,067 | 1,370,291 | -1,405,776（-50.64%） |
+| Source characters（仅上下文体积 proxy） | 412,735 | 161,234 | -251,501（-60.94%） |
+
+Source-character 总量仅作为上下文体积 proxy，不能替代外部 Agent 的计费 Token；正式结论以 `turn.completed` usage provenance 为准。可复核工件为 [p1-5-v5-report.md](../../e2e-artifacts/p1-5-v5-report.md)、[p1-5-v5-report.json](../../e2e-artifacts/p1-5-v5-report.json) 和 [p1-5-v5-batch.json](../../e2e-artifacts/p1-5-v5-batch.json)。该结论应表述为：在本实验的固定条件下，双方均成功的 60/60 个任务中，RepoMind MCP 使外部 Coding Agent 的 Input Token 减少 `50.22%`、Total Token 减少 `50.64%`，且未观察到通过率下降；不应外推为所有任务、模型或仓库的无条件节省比例。
+
+**验收步骤与完成状态：**
+
+1. ✅ 使用 Click、Typer、Requests 三个陌生公开仓库；每个仓库的 baseline/treatment 使用同一 target commit、隔离运行目录和 manifest-bound 任务集，任务与 rubric 放在目标仓库之外；
+2. ✅ 冻结 30 个任务并执行两次独立 repeat，共 60 个 cohort-task；所有运行固定 Codex/client 版本、模型、reasoning effort、超时、sandbox 模式和 MCP profile；
+3. ✅ 每个任务均运行 fresh ephemeral baseline 与 treatment；treatment 仅使用 RepoMind MCP，未允许 shell/local source read；
+4. ✅ 由 `report_mcp_token_savings.py` 聚合并通过 `accepted` 门禁，报告 target commit、样本数、both-passed 数、两组通过率、input/output/total Token、绝对/百分比变化、失败分类和 usage provenance；
+5. ✅ 样本、质量和 provenance 条件全部满足，P1-5 标记为 `✅`。后续新增模型、仓库或启动策略时应创建新的 cohort，不覆盖本次正式结果。
 
 **预计耗时：** 准备 0.5-1 天；有可用 MCP 索引和外部 Agent 后运行取决于任务数与重复次数。
 

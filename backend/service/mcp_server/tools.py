@@ -187,6 +187,41 @@ def _location_rank(location: dict) -> tuple[float, float, float, float, float, f
     )
 
 
+def _location_symbol(location: dict) -> str | None:
+    value = (
+        location.get("qualified_name")
+        or location.get("symbol_name")
+        or location.get("name")
+    )
+    if value is None:
+        return None
+    normalized = " ".join(str(value).split())
+    return normalized[:160] or None
+
+
+def _location_kind(location: dict) -> str:
+    value = location.get("symbol_kind") or location.get("kind") or location.get("chunk_type")
+    value = str(value or "").casefold()
+    return value if value in {"function", "method", "class", "module"} else "unknown"
+
+
+def _compact_location_basis(location: dict) -> str:
+    if any(
+        float(location.get(key) or 0.0) > 0
+        for key in (
+            "explicit_qualified_symbol_match",
+            "explicit_qualified_method_match",
+            "explicit_class_match",
+        )
+    ) or float(location.get("exact_symbol_match") or 0.0) >= 2:
+        return "exact_symbol"
+    if float(location.get("executable_matches") or 0.0) > 0:
+        return "body_match"
+    if _location_symbol(location) is not None or _location_kind(location) != "unknown":
+        return "symbol_match"
+    return "retrieval"
+
+
 def _structural_location(candidate: dict, terms: set[str], *, allow_class: bool = False) -> dict | None:
     """Keep a retrieved function, method, or class as one usable code location."""
     path = str(candidate.get("file_path") or candidate.get("path") or "").replace("\\", "/")
@@ -210,6 +245,9 @@ def _structural_location(candidate: dict, terms: set[str], *, allow_class: bool 
         "score": float(candidate.get("score") or 0.0),
         "matched_terms": sorted(_identifier_terms(str(candidate.get("content") or "")) & terms),
         "executable_matches": executable_matches,
+        "symbol_name": candidate.get("symbol_name") or candidate.get("name"),
+        "qualified_name": candidate.get("qualified_name"),
+        "symbol_kind": candidate.get("symbol_kind") or (unit_type if unit_type in {"function", "method", "class"} else None),
     }
 
 
@@ -281,6 +319,9 @@ def _location_windows(candidate: dict, terms: set[str]) -> list[dict]:
             "score": max(score for score, _, _ in scored_lines) * 100 + candidate_score,
             "matched_terms": matched_terms,
             "executable_matches": sum(executable_matches.values()),
+            "symbol_name": candidate.get("symbol_name") or candidate.get("name"),
+            "qualified_name": candidate.get("qualified_name"),
+            "symbol_kind": candidate.get("symbol_kind") or (unit_type if unit_type in {"function", "method", "class"} else None),
         }]
 
     # A line usually needs its condition/body context. Keep the best distinct windows,
@@ -305,6 +346,9 @@ def _location_windows(candidate: dict, terms: set[str]) -> list[dict]:
                 max(0, window_start - start_line):window_end - start_line + 1
             ])) & terms),
             "executable_matches": executable_count,
+            "symbol_name": candidate.get("symbol_name") or candidate.get("name"),
+            "qualified_name": candidate.get("qualified_name"),
+            "symbol_kind": candidate.get("symbol_kind") or (unit_type if unit_type in {"function", "method", "class"} else None),
         })
     return windows
 
@@ -346,6 +390,9 @@ def _symbol_locations_for_windows(repo_id: str, snapshot_id: str, windows: list[
                 "reason": reason,
                 "score": float(window.get("score") or 0.0) + 50,
                 "matched_terms": list(window.get("matched_terms") or []),
+                "symbol_name": symbol.get("name"),
+                "qualified_name": symbol.get("qualified_name"),
+                "symbol_kind": symbol.get("symbol_kind"),
             })
     return locations
 
@@ -413,6 +460,9 @@ def _symbol_locations_for_terms(
             "explicit_qualified_method_match": 1.0 if qualified_method_match else 0.0,
             "explicit_qualified_symbol_match": 1.0 if qualified_symbol_match else 0.0,
             "qualified_class_overlap": qualified_class_overlap,
+            "symbol_name": symbol.get("name"),
+            "qualified_name": qualified_name,
+            "symbol_kind": kind,
         })
 
     # A symbol reached by a resolved, observed ``calls`` edge from a symbol that
@@ -459,6 +509,9 @@ def _symbol_locations_for_terms(
                     "explicit_qualified_symbol_match": info["explicit_qualified_symbol_match"],
                     "relation_corroboration": relation_corroboration,
                     "symbol_compactness": 1.0 / max(1, info["end_line"] - info["start_line"] + 1),
+                    "symbol_name": info["symbol_name"],
+                    "qualified_name": info["qualified_name"],
+                    "symbol_kind": info["symbol_kind"],
                 })
                 locations.append(window)
                 window_added = True
@@ -499,6 +552,9 @@ def _symbol_locations_for_terms(
                 "relation_corroboration": relation_corroboration,
                 "symbol_compactness": 1.0 / max(1, info["end_line"] - info["start_line"] + 1),
                 "executable_matches": boundary_exec,
+                "symbol_name": info["symbol_name"],
+                "qualified_name": info["qualified_name"],
+                "symbol_kind": info["symbol_kind"],
             })
     return locations
 
@@ -870,6 +926,9 @@ def locate_code(
                 "evidence_id": candidate.get("chunk_id") or candidate.get("id") or "",
                 "reason": "Retrieved structural boundary; verify the exact statement before citing it",
                 "score": float(candidate.get("score") or 0.0),
+                "symbol_name": candidate.get("symbol_name") or candidate.get("name"),
+                "qualified_name": candidate.get("qualified_name"),
+                "symbol_kind": candidate.get("symbol_kind") or (str(candidate.get("chunk_type") or "") if str(candidate.get("chunk_type") or "") in {"function", "method", "class"} else None),
             })
 
     locations.sort(key=_location_rank, reverse=True)
@@ -954,8 +1013,13 @@ def locate_code(
                     "path": item["file_path"],
                     "start_line": item["start_line"],
                     "end_line": item["end_line"],
+                    "rank": rank,
+                    "is_primary": rank == 1,
+                    "symbol": _location_symbol(item),
+                    "kind": _location_kind(item),
+                    "match_basis": _compact_location_basis(item),
                 }
-                for item in selected
+                for rank, item in enumerate(selected, start=1)
             ],
         }
         # A degraded result changes the meaning of the candidate ranking, so it

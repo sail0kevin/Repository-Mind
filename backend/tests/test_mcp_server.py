@@ -238,17 +238,23 @@ def test_locate_code_compact_mode_preserves_locations_with_less_context(tmp_path
     assert compact["repo_id"] == repo_id
     assert compact["snapshot_id"] == snapshot_id
     assert compact["status"] == detailed["status"] == "degraded"
-    assert compact["locations"] == [
-        {
-            "path": item["file_path"],
-            "start_line": item["start_line"],
-            "end_line": item["end_line"],
-        }
+    expected_keys = {
+        "path", "start_line", "end_line", "rank", "is_primary",
+        "symbol", "kind", "match_basis",
+    }
+    assert all(set(item) == expected_keys for item in compact["locations"])
+    assert [(item["path"], item["start_line"], item["end_line"]) for item in compact["locations"]] == [
+        (item["file_path"], item["start_line"], item["end_line"])
         for item in detailed["data"]["locations"]
     ]
+    assert [item["rank"] for item in compact["locations"]] == list(range(1, len(compact["locations"]) + 1))
+    assert [item["is_primary"] for item in compact["locations"]].count(True) == 1
+    assert compact["locations"][0]["is_primary"] is True
+    assert all(item["kind"] in {"function", "method", "class", "module", "unknown"} for item in compact["locations"])
+    assert all(item["match_basis"] in {"exact_symbol", "body_match", "symbol_match", "retrieval"} for item in compact["locations"])
     assert "question" not in compact
-    assert all("evidence_id" not in item and "reason" not in item for item in compact["locations"])
-    assert len(json.dumps(compact, ensure_ascii=False)) < len(json.dumps(detailed, ensure_ascii=False)) * 0.7
+    assert all("evidence_id" not in item and "reason" not in item and "content" not in item for item in compact["locations"])
+    assert len(json.dumps(compact, ensure_ascii=False)) < len(json.dumps(detailed, ensure_ascii=False)) * 0.95
 
 
 def test_locate_code_merges_term_level_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -977,7 +983,13 @@ async def test_real_stdio_server_lists_seven_tools_and_calls_four(
     compact_payload = compact_location.structuredContent or json.loads(compact_location.content[0].text)
     assert compact_payload["snapshot_id"] == snapshot_id
     assert compact_payload["locations"]
-    assert all(set(item) == {"path", "start_line", "end_line"} for item in compact_payload["locations"])
+    expected_keys = {
+        "path", "start_line", "end_line", "rank", "is_primary",
+        "symbol", "kind", "match_basis",
+    }
+    assert all(set(item) == expected_keys for item in compact_payload["locations"])
+    assert [item["rank"] for item in compact_payload["locations"]] == list(range(1, len(compact_payload["locations"]) + 1))
+    assert compact_payload["locations"][0]["is_primary"] is True
     missing_payload = missing_search.structuredContent or json.loads(missing_search.content[0].text)
     _assert_envelope(missing_payload, repo_id, snapshot_id)
     assert missing_payload["status"] == "not_found"
@@ -1022,7 +1034,13 @@ async def test_coding_agent_stdio_profile_exposes_only_bound_compact_locator(
     assert payload["repo_id"] == repo_id
     assert payload["snapshot_id"] == snapshot_id
     assert payload["locations"]
-    assert all(set(item) == {"path", "start_line", "end_line"} for item in payload["locations"])
+    expected_keys = {
+        "path", "start_line", "end_line", "rank", "is_primary",
+        "symbol", "kind", "match_basis",
+    }
+    assert all(set(item) == expected_keys for item in payload["locations"])
+    assert payload["locations"][0]["rank"] == 1
+    assert payload["locations"][0]["is_primary"] is True
 
 
 @pytest.mark.anyio

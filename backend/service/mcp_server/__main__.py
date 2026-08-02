@@ -15,10 +15,10 @@ from service.mcp_server import tools as impl
 mcp = FastMCP(
     name="repomind",
     instructions=(
-        "For natural-language code-location questions, unknown symbols, cross-file behavior, or questions that need multiple locations, call locate_code once first with compact=true and answer directly from its locations when sufficient. "
+        "For natural-language code-location questions, unknown symbols, cross-file behavior, or questions that need multiple locations, call locate_code once first with compact=true. The first candidate is the highest-ranked candidate; prefer it when it answers the question, and treat is_primary=true as the preferred candidate. Report multiple independent locations separately without merging ranges. "
         "Use get_symbol only when you already know the exact function, class, or qualified symbol name. "
         "Use search_code only when you need supporting snippets beyond the candidate locations. "
-        "In your final answer, report every independently relevant location as PATH:START_LINE-END_LINE on its own line; do not merge separate locations into one broad file range. "
+        "In your final answer, report every independently relevant location as PATH:START_LINE-END_LINE on its own line; do not merge separate locations into one broad file range. Compact results include rank, is_primary, symbol, kind, and match_basis; use these signals before requesting detailed evidence. "
         "RepoMind 是一个只读的代码上下文服务，供 Claude Code/Codex 等编码 Agent 查询已索引仓库。"
         "它不会执行目标仓库代码、不会修改文件、不会安装依赖。"
         "先调用 list_repositories 发现可用 repo_id 和索引状态；其他工具都需要显式的 repo_id。"
@@ -32,8 +32,8 @@ coding_agent_mcp = FastMCP(
     name="repomind-coding-agent",
     instructions=(
         "This server is bound to one indexed repository snapshot and exposes only concise code navigation. "
-        "For a code-location question, call locate_code once and answer directly from its returned PATH:START_LINE-END_LINE locations. "
-        "Do not call another discovery tool. The result contains no source text; only request detailed code evidence when the task cannot be answered from locations alone."
+        "For a code-location question, call locate_code once and answer directly from its returned ranked PATH:START_LINE-END_LINE locations. The first candidate is the current strongest candidate and is_primary=true marks it as preferred. Keep multiple independent locations separate. "
+        "Do not call another discovery tool. The result contains no source text; only request detailed code evidence when compact fields are insufficient."
     ),
 )
 
@@ -41,7 +41,7 @@ coding_agent_location_1_mcp = FastMCP(
     name="repomind-coding-agent-location-1",
     instructions=(
         "This server is bound to one indexed repository snapshot and exposes only concise code navigation. "
-        "For a single-location code question, call locate_code once; it returns only the strongest location. "
+        "For a single-location code question, call locate_code once; it returns the current strongest candidate. "
         "Answer directly from the returned PATH:START_LINE-END_LINE location and always produce a final answer after the tool result. "
         "Do not call another discovery tool."
     ),
@@ -94,7 +94,21 @@ def locate_code_location_1(question: str, limit: int | None = None) -> dict:
             "limitations": [str(exc)],
         }
     requested_limit = 1 if limit is None else min(limit, 1)
-    return impl.locate_code(repo_id, question, snapshot_id, requested_limit, compact=True)
+    result = impl.locate_code(repo_id, question, snapshot_id, requested_limit, compact=True)
+    # Preserve this profile's original minimal contract. The richer candidate
+    # signals belong to the multi-location coding-agent profile and would
+    # otherwise change the single-location benchmark variable.
+    if isinstance(result, dict) and isinstance(result.get("locations"), list):
+        result["locations"] = [
+            {
+                "path": item.get("path"),
+                "start_line": item.get("start_line"),
+                "end_line": item.get("end_line"),
+            }
+            for item in result["locations"]
+            if isinstance(item, dict)
+        ]
+    return result
 
 
 @mcp.tool()
