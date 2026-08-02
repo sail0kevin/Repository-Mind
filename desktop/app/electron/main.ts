@@ -358,7 +358,7 @@ async function stopBackend(): Promise<void> {
 }
 
 const DEMO_FIXTURE_FILES = [
-  "README.md",
+  "OLD_REPOMIND_DEMO_README.md",
   "config.json",
   "expected/showcase.json",
   "repomind_demo/__init__.py",

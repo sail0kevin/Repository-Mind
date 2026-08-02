@@ -18,7 +18,7 @@
 | locate_code 工具级基准（固定 requests 索引，lexical） | 5/5，gold-location coverage 1.000 | `scripts/run_location_retrieval_benchmark.py`，2026-07-31 |
 | 40问题集 Recall@5 (BM25 only) | 0.267 | service/evaluation/retrieval_metrics.py |
 | 40问题集 MRR (BM25 only) | 0.245 | 同上 |
-| Hybrid (BM25+向量) 对比数据 | 推荐 BGE-M3：Recall@5 0.4404，Recall@10 0.4954，MRR 0.3196；all-minilm 仅为历史 provisional baseline | `benchmark-runs/` 本地实测 |
+| Hybrid (BM25+向量) 对比数据 | 推荐 BGE-M3：Recall@5 0.440，Recall@10 0.445，MRR 0.331；all-minilm 仅为历史 provisional baseline | `benchmark-runs/` 本地实测 |
 | Embedding 配置 | Provider 默认可关闭；推荐 `openai_compatible` + Ollama `bge-m3:latest`，输入截断 128、batch 16 | service/core/embeddings/service.py |
 | 向量检索实现 | NumPy 矩阵化；5000 x 1024 合成微基准 P50 37.794 ms | service/core/vector_store.py |
 | 跨文件调用关系 | 已覆盖可静态证明的 Python import/receiver 调用；覆盖率扩展待真实需求驱动 | parser/storage relations + legacy codegraph builder |
@@ -53,7 +53,7 @@
 - 可提交实验契约：[backend-understanding.manifest.example.json](../../examples/benchmarks/backend-understanding.manifest.example.json)；统一执行器：[run_retrieval_benchmark.py](../../scripts/run_retrieval_benchmark.py)；gold-set SHA-256：`5aadace0da4a260826882b198778436c52f5b0116cbe4135126fbb8907d4f331`。
 - 冻结检索参数：最终 `limit=8`、候选倍率 `4`、最大候选数 `200`、RRF `k=60`、启用结构扩展。runner 会校验这些声明与当前检索器默认值一致，并将实际 mode 写入 trace。
 - runner 使用隔离 SQLite、内存 SecretStore 与 FastAPI TestClient；它不执行、不安装、不改写被测仓库。提交物不含本机路径、数据库 ID、snapshot ID 或密钥；运行 capture 位于被忽略的 `benchmark-runs/`。
-- Hybrid 前置检查完成：本机 Ollama `127.0.0.1:11434` 不可达，且未设置专用 embedding 环境变量。因此 Hybrid 尚无可用实测值，不能以 lexical fallback 冒充 Hybrid。
+- Hybrid 前置检查已完成；后续已在隔离 runner 中取得真实向量覆盖的 all-minilm 与 BGE-M3 Hybrid 实测。不可用 provider 仍必须快速 lexical 降级，不能以 lexical fallback 冒充 Hybrid。
 
 ---
 
@@ -64,13 +64,13 @@
 **改法：**
 1. 新增统一 benchmark runner，读取现有 `examples/benchmarks/backend-understanding-gold.json`，不要把 40 问题 benchmark 塞进 MCP 单元测试；
 2. 在同一 commit、同一份索引内容和同一参数下，先跑 BM25 only，确认可复现 Recall@5 `0.267`、MRR `0.245`；
-3. 再跑当前 qwen Hybrid 作为历史诊断对照，不把它作为最终能力基线；
+3. 保留历史候选模型作为诊断对照，不把未通过候选或 lexical fallback 作为最终能力基线；
 4. 用 `service/evaluation/retrieval_metrics.py` 的 `evaluate_rankings()` 计算指标；
 5. 保存逐题 ranking、逐题命中、配置、Recall@5/10、MRR、P50/P95 延迟和运行时间。
 
 **验收标准：**
 - BM25 指标与已发布 baseline 一致，允许的浮动必须在报告中解释；
-- 能说出“当前模型 Hybrid 下 Recall@5=X，MRR=X，相对 BM25 变化 Y%”；
+- 能说出“推荐 BGE-M3 Hybrid 下 Recall@5=0.440、MRR=0.331，相对 BM25 的变化”，并同时保留历史候选对照；
 - 原始 capture 和对比报告落在 `examples/benchmarks/`，任何数字均可从 capture 重算。
 
 **预计耗时：** 1 天
@@ -117,8 +117,8 @@ BM25 的 Recall@5 与 MRR 与已发布基线在报告精度内一致，完成了
 - 修复前（同一固定索引、错误标成 hybrid 的旧运行）：任务通过 `3/5`、gold-location coverage `0.800`、mean gold-location reciprocal rank `0.550`。修正 query embedding 失败时的有效 mode 后，确认这些运行实际都是 lexical 降级。
 - 修复后：增加成对行为子句的前半句召回、受限的通用代码术语 `handler -> adapter` 扩展，以及仅对函数体有真实词面证据的弱符号候选。运行 `benchmark-runs/requests-location-retrieval-20260731-lexical-symbol-recall-v4/` 的结果为任务通过 `5/5`、gold-location coverage `1.000`、mean gold-location reciprocal rank `0.578`、P50/P95 `47449.642 / 50156.737 ms`。
 - 延迟不能与正常 lexical 基准混为一谈：历史索引保存了向量，运行环境却没有可用 embedding provider，导致每个查询仍等待 embedding 失败后才降级。`retrieval_mode=lexical` 的语义现已正确，但“配置不可用时避免远端 embedding 超时”仍是独立性能缺口，必须在 provider 配置与降级策略审计时处理。
-- **降级性能修复（2026-07-31）：** 新增无网络的 query embedding 配置能力判定。provider 被禁用、缺少凭据、密钥存储不可读或配置非法时直接 lexical；对于 `localhost`/loopback provider，额外以 `200ms` TCP 探测识别端口未启动，避免随后调用 `60s` 的 embedding 接口。远端 API 不做预探测，以免增加额外网络往返。固定索引的设置为 `openai_compatible`、`http://localhost:11434/v1`、`all-minilm`，当前端口不可达，故该分支实测生效。运行 `benchmark-runs/requests-location-retrieval-20260731-lexical-fast-fallback-v6/`：仍为 lexical，任务通过 `5/5`、gold-location coverage `1.000`、mean gold-location reciprocal rank `0.578`，P50/P95 从 `47449.642 / 50156.737 ms` 降至 `6332.877 / 6626.050 ms`（分别降低 `86.65% / 86.79%`）。验证：`python -m pytest backend/tests/test_m3_embeddings.py backend/tests/test_m3_hybrid_retrieval.py backend/tests/test_mcp_server.py backend/tests/test_benchmark_fixtures.py -q`，结果 `74 passed`。这只证明不可用 provider 的快速 lexical 降级，不构成真实 Hybrid 对比；P0-1 保持 `🚧`。
-- 验证：`python -m pytest backend/tests/test_m3_hybrid_retrieval.py backend/tests/test_mcp_server.py backend/tests/test_benchmark_fixtures.py -q`，结果 `64 passed`。本记录证明工具级定位回归已修复；P0-1 的 40 问真实 Hybrid 对照仍未完成，故本项保持 `🚧`。
+- **降级性能修复（2026-07-31）：** 新增无网络的 query embedding 配置能力判定。provider 被禁用、缺少凭据、密钥存储不可读或配置非法时直接 lexical；对于 `localhost`/loopback provider，额外以 `200ms` TCP 探测识别端口未启动，避免随后调用 `60s` 的 embedding 接口。远端 API 不做预探测，以免增加额外网络往返。固定索引的设置为 `openai_compatible`、`http://localhost:11434/v1`、`all-minilm`，当前端口不可达，故该分支实测生效。运行 `benchmark-runs/requests-location-retrieval-20260731-lexical-fast-fallback-v6/`：仍为 lexical，任务通过 `5/5`、gold-location coverage `1.000`、mean gold-location reciprocal rank `0.578`，P50/P95 从 `47449.642 / 50156.737 ms` 降至 `6332.877 / 6626.050 ms`（分别降低 `86.65% / 86.79%`）。验证：`python -m pytest backend/tests/test_m3_embeddings.py backend/tests/test_m3_hybrid_retrieval.py backend/tests/test_mcp_server.py backend/tests/test_benchmark_fixtures.py -q`，结果 `74 passed`。这只证明不可用 provider 的快速 lexical 降级，不构成 Hybrid 指标；真实 40 题 Hybrid 对照已在 P0-1 主记录和 P0-2 BGE-M3 记录中完成。
+- 验证：`python -m pytest backend/tests/test_m3_hybrid_retrieval.py backend/tests/test_mcp_server.py backend/tests/test_benchmark_fixtures.py -q`，结果 `64 passed`。本记录证明工具级定位回归已修复；P0-1 的状态以主记录中的 all-minilm 与 BGE-M3 实测为准。
 
 ---
 
@@ -143,12 +143,11 @@ BM25 的 Recall@5 与 MRR 与已发布基线在报告精度内一致，完成了
 
 **预计耗时：** 1-2 天
 
-**推进记录（2026-07-31，尚未完成）：**
+**最终推进记录（2026-08-02，BGE-M3 已完成）：**
 
-- P0-1 已提供可复现的 `all-minilm:latest` Hybrid 对照（Recall@5 `0.353`、MRR `0.289`），但该 384 维通用模型采用 `128` 字符截断，不能因一次总体提升就设为推荐配置。
-- benchmark runner 已将 gold 的 `category` 写入新 capture；指标报告会按 `symbol_navigation`、`dependency_impact`、`security_review`、`repository_navigation`、`test_runtime` 五类分别计算 Recall@5、Recall@10 和 MRR。下一次候选模型运行会同时输出总体、类别和延迟，满足本项的报告契约。
-- 当前机器只有 `all-minilm:latest`，没有本地 BGE/Code embedding 缓存，也没有可用的 OpenAI 或 Voyage API 凭据。已尝试通过 Ollama 拉取 `bge-m3`，但 1.2 GB 模型源实际下载速率约 `80 KB/s`（预计数小时），已停止拉取，避免将长时间网络等待误报为实验完成。
-- 下一步条件明确：在已具备 `bge-m3`（或记录了 provider、模型版本、维度、上下文截断和 batch size 的等价专用 embedding 模型）的机器上，沿用 P0-1 的 target commit、gold SHA、retrieval 参数及隔离 runner 跑新目录；确认真实向量覆盖、40 个 trace 均为 `hybrid` 后，再依据总体/五类/延迟决定推荐配置并标记本项 `✅`。
+- `all-minilm:latest` 保留为历史可复现实验：Recall@5 `0.353`、MRR `0.289`；由于是 384 维通用模型且输入截断为 `128` 字符，不作为推荐配置。
+- BGE-M3 已在相同冻结 target commit、gold SHA、检索参数和隔离 runner 下完成真实 Hybrid A/B；40/40 条 trace 均确认 `retrieval_mode=hybrid`，向量覆盖完整，结果见下方 BGE-M3 记录。
+- benchmark runner 已支持总体、五类问题、Recall@5/10、MRR、延迟和逐题 capture；当前推荐配置以 BGE-M3 结果为准，历史候选只用于解释取舍。
 
 **候选实验记录（2026-08-01，`nomic-embed-text`，未通过）：**
 
@@ -350,9 +349,9 @@ def rerank(query: str, candidates: list[dict], top_k: int) -> list[dict]:
 
 **历史结果（不能作为节省宣传）：** 历史 `codex-token-ab-v1` 仅有同仓库 3 个任务，质量均通过，但 baseline 输入 Token `130,936`、MCP 输入 Token `148,193`，MCP **增加 `13.18%`**。因此当前没有“节省 X% Token”的有效结论；该结果应保留为 MCP 工具定义、调用次数和返回 evidence 自身存在上下文成本的反例。
 
-**本地紧凑 profile pilot（2026-08-01，不能作为项目结论）：** 在隔离 checkout `b4eacc5ba103fcbedff07a275ebd508595ee3c0b` 的 lexical-only 索引中，生产 `locate_code` 冻结任务通过 `2/8`、gold-location coverage `0.625`、MRR `0.396`；仅工具级通过的 `mcp-tests` 进入 Agent A/B。相同 Codex CLI `0.145.0`、`gpt-5.6-terra`、`low` reasoning、240 秒超时和 target commit 下，baseline/treatment 都通过冻结 rubric。`coding-agent` 单工具 profile 的 input Token 为 `34,314`，baseline 为 `50,613`，减少 `16,299`（`32.20%`）；total Token 为 `34,481` 对 `51,286`，减少 `16,805`（`32.77%`）。原始 trace、SHA-256、结果和可复算 batch 位于被忽略的 `e2e-artifacts/compact-token-pilot-b4eacc/run-2-mcp-tests-240s/` 与 `run-2-batch.json`。`run-1` 双方超时、`run-3` 单边通过、`run-4` 单边失败/超时，均明确排除 Token 汇总，说明必须保留重复运行和通过率。Windows 上该 pilot 为启动 stdio MCP 使用 bypass sandbox，tool 限制仍是 profile/prompt 级，不能视为正式外部实验。P1-5 维持 `🚧`。
+**本地紧凑 profile pilot（2026-08-01，不能作为项目结论）：** 在隔离 checkout `b4eacc5ba103fcbedff07a275ebd508595ee3c0b` 的 lexical-only 索引中，生产 `locate_code` 冻结任务通过 `2/8`、gold-location coverage `0.625`、MRR `0.396`；仅工具级通过的 `mcp-tests` 进入 Agent A/B。相同 Codex CLI `0.145.0`、`gpt-5.6-terra`、`low` reasoning、240 秒超时和 target commit 下，baseline/treatment 都通过冻结 rubric。`coding-agent` 单工具 profile 的 input Token 为 `34,314`，baseline 为 `50,613`，减少 `16,299`（`32.20%`）；total Token 为 `34,481` 对 `51,286`，减少 `16,805`（`32.77%`）。原始 trace、SHA-256、结果和可复算 batch 位于被忽略的 `e2e-artifacts/compact-token-pilot-b4eacc/run-2-mcp-tests-240s/` 与 `run-2-batch.json`。`run-1` 双方超时、`run-3` 单边通过、`run-4` 单边失败/超时，均明确排除 Token 汇总，说明必须保留重复运行和通过率。Windows 上该 pilot 为启动 stdio MCP 使用 bypass sandbox，tool 限制仍是 profile/prompt 级，不能视为正式外部实验。该 pilot 属于历史诊断结果，已由下方正式 V5 cohort supersede，不作为项目结论。
 
-**首轮外部三仓库 A/B（2026-08-01，历史单次运行，P1-5 正式验收仍为 `🚧`）：** 运行前冻结 Click、Typer、Requests 各 10 个 `single_location_navigation` 任务，并在生产 `locate_code` 的隔离索引预检中均达到 `10/10` gold-location coverage（共 `30/30`）。三个目标提交分别为 `00e592cea702e0b2caa0dee42489fdb1c22cd845`、`32d80ef6b4f5aff5094e6983e0928edaa8766c3b`、`414f0513c33883adf6f2b46901d4f0b38a455851`。每题均以 fresh `codex exec --ephemeral` 运行 baseline 与 manifest-bound `coding-agent` MCP treatment；共同条件为 Codex CLI `0.145.0`、`gpt-5.6-terra`、`low` reasoning、240 秒超时和 `bypass_sandbox=true`。聚合产物位于被忽略的 `e2e-artifacts/external-token-study-20260801/external-token-ab-v3-run-1-report.json` 与 `.md`，batch 清单为 `external-token-ab-v3-run-1-batch.json`。
+**首轮外部三仓库 A/B（2026-08-01，历史单次运行，后续已被正式 V5 cohort supersede）：** 运行前冻结 Click、Typer、Requests 各 10 个 `single_location_navigation` 任务，并在生产 `locate_code` 的隔离索引预检中均达到 `10/10` gold-location coverage（共 `30/30`）。三个目标提交分别为 `00e592cea702e0b2caa0dee42489fdb1c22cd845`、`32d80ef6b4f5aff5094e6983e0928edaa8766c3b`、`414f0513c33883adf6f2b46901d4f0b38a455851`。每题均以 fresh `codex exec --ephemeral` 运行 baseline 与 manifest-bound `coding-agent` MCP treatment；共同条件为 Codex CLI `0.145.0`、`gpt-5.6-terra`、`low` reasoning、240 秒超时和 `bypass_sandbox=true`。聚合产物位于被忽略的 `e2e-artifacts/external-token-study-20260801/external-token-ab-v3-run-1-report.json` 与 `.md`，batch 清单为 `external-token-ab-v3-run-1-batch.json`。
 
 | 指标 | Baseline | MCP | 变化 |
 |---|---:|---:|---:|
@@ -369,11 +368,11 @@ def rerank(query: str, candidates: list[dict], top_k: int) -> list[dict]:
 
 **正式结论门禁实现（2026-08-02）：** `scripts/run_codex_location_ab.ps1` 现在要求每个运行声明非空 `repeat_id`，并将 timeout、MCP 调用数、最终答复存在性和失败类别写入结果。`scripts/report_mcp_token_savings.py` 升级为 `mcp-token-savings-report-v2`：除既有 both-passed Token 汇总外，聚合 `failure_classes`/`statuses`，并对至少 3 个 benchmark、20 个任务、20 个 both-passed、2 个独立 repeat，以及 MCP 通过率不低于 baseline 执行机器可读的 `acceptance` 门禁。门禁不通过时固定输出 `not_accepted`，禁止将 Token 百分比作为产品结论。首轮三仓库结果必然仍为 `not_accepted`：只有一个 repeat，且 MCP 通过率 `76.67%` 低于 baseline `86.67%`。这不是新实验结果，不能用它掩盖稳定性缺口。
 
-**最新合并结果（2026-08-02，两个独立 repeat，P1-5 仍为 `🚧`）：** 合并报告 [external-token-ab-v3-run-1-repeat-2.report.md](../../e2e-artifacts/external-token-study-20260801/external-token-ab-v3-run-1-repeat-2.report.md) 覆盖相同三仓库、冻结任务、target commit、模型和 MCP profile 下的两次独立运行，共 `60` 个 cohort-task。Baseline 完成 `53/60`（`88.33%`），MCP 完成 `50/60`（`83.33%`）；双方均通过 `44`，仅 baseline 通过 `9`，仅 MCP 通过 `6`，双方失败 `1`。在 44 个双方通过任务中，input Token `1,669,974 -> 1,457,896`（`-12.70%`），output Token `20,355 -> 7,590`（`-62.71%`），Total Token `1,690,329 -> 1,465,486`（`-224,843`，`-13.30%`）；source-character proxy 减少 `102,930`（`-64.82%`）。失败分类为 `rubric_failed=13`、`timeout_before_mcp_call=4`。全部样本、仓库和 repeat 门禁已满足，唯一失败门禁是 `treatment_pass_rate`，故机器可读正式状态为 `not_accepted`，`publishable_token_conclusion=false`。这证明 MCP 可减少已成功完成任务的上下文成本，但尚未证明它能在不降低任务成功率的前提下节省 Token；P1-5 不得标记 `✅`。
+**历史合并结果（2026-08-02，两个独立 repeat，未通过 treatment 通过率门禁）：** 合并报告 [external-token-ab-v3-run-1-repeat-2.report.md](../../e2e-artifacts/external-token-study-20260801/external-token-ab-v3-run-1-repeat-2.report.md) 覆盖相同三仓库、冻结任务、target commit、模型和 MCP profile 下的两次独立运行，共 `60` 个 cohort-task。Baseline 完成 `53/60`（`88.33%`），MCP 完成 `50/60`（`83.33%`）；双方均通过 `44`，仅 baseline 通过 `9`，仅 MCP 通过 `6`，双方失败 `1`。在 44 个双方通过任务中，input Token `1,669,974 -> 1,457,896`（`-12.70%`），output Token `20,355 -> 7,590`（`-62.71%`），Total Token `1,690,329 -> 1,465,486`（`-224,843`，`-13.30%`）；source-character proxy 减少 `102,930`（`-64.82%`）。失败分类为 `rubric_failed=13`、`timeout_before_mcp_call=4`。全部样本、仓库和 repeat 门禁已满足，唯一失败门禁是 `treatment_pass_rate`，故机器可读正式状态为 `not_accepted`，`publishable_token_conclusion=false`。这证明 MCP 可减少已成功完成任务的上下文成本，但该 cohort 尚未证明它能在不降低任务成功率的前提下节省 Token；最终结论以正式 V5 cohort 为准。
 
 **下一步执行约束：** 先逐条复核 `rubric_failed`：区分真实的 `locate_code` 漏检/排序错误、冻结评分规则与代码语义不一致，以及 Agent 输出选择差异。`click-prompt-helper` 已确认属于 overload 声明（138）与具体实现（167）的评分政策问题，不得为迎合旧 gold 降低具体实现的排序；只有确认是真实工具错误时才新增 `locate_code` 回归。随后在不改变冻结任务、commit、模型、profile 或 timeout 的条件下做预注册的严格配对重跑。对于 `timeout_before_mcp_call`，只能成对重跑 baseline 和 MCP，并保留原始工件和所有失败行；不得仅挑选 MCP timeout 重跑，也不得把不同启动策略或预热策略混入当前正式 cohort。启动策略改动必须另建实验 cohort，独立报告。
 
-**V4 两次独立 repeat 实测（2026-08-02，P1-5 仍为 `🚧`）：** Click 使用修订后的 v4 语义答案组，Typer 与 Requests 沿用冻结的 v3 任务集；三仓库共 `60` 个 cohort-task，条件仍为 Codex CLI `0.145.0`、`gpt-5.6-terra`、`low` reasoning、240 秒超时、`bypass_sandbox=true` 和 `coding-agent` MCP profile。可复核报告为 [external-token-ab-v4-repeat-2.report.md](../../e2e-artifacts/external-token-study-20260801/external-token-ab-v4-repeat-2.report.md)，实际使用的有效 batch 清单为 `external-token-ab-v4-repeat-2-batch2.json`（均为本地忽略的实验工件）。
+**V4 两次独立 repeat 实测（2026-08-02，历史诊断 cohort，未通过 treatment 通过率门禁）：** Click 使用修订后的 v4 语义答案组，Typer 与 Requests 沿用冻结的 v3 任务集；三仓库共 `60` 个 cohort-task，条件仍为 Codex CLI `0.145.0`、`gpt-5.6-terra`、`low` reasoning、240 秒超时、`bypass_sandbox=true` 和 `coding-agent` MCP profile。可复核报告为 [external-token-ab-v4-repeat-2.report.md](../../e2e-artifacts/external-token-study-20260801/external-token-ab-v4-repeat-2.report.md)，实际使用的有效 batch 清单为 `external-token-ab-v4-repeat-2-batch2.json`（均为本地忽略的实验工件）。
 
 | 指标 | Baseline | MCP | 变化 |
 |---|---:|---:|---:|
@@ -451,9 +450,9 @@ Source-character 总量仅作为上下文体积 proxy，不能替代外部 Agent
 - `GET /api/v1/metrics` 在既有 `totals` 和每日 `trend` 中补充 `average_duration_ms`、`p50_duration_ms` 和 `p95_duration_ms`；百分位以最多 30 天的本地记录按 deterministic nearest-rank 计算。接口还新增 `breakdown`，按 `tool_name + retrieval_mode` 返回请求数、低分数、平均/P50/P95 延迟，因此可以区分 `search_code`/`locate_code` 与 `hybrid`/`lexical` 的真实瓶颈，而不泄露额外 query 内容。
 - 这不需要 schema migration：`v008` 已持久化 `duration_ms`。更新的 telemetry 测试覆盖总览、逐日和工具/模式分组的准确聚合；窄回归结果为 `55 passed`，完整后端回归为 `261 passed, 72 warnings`。warnings 为既有 Pydantic、FastAPI/Starlette 弃用提示。
 - 离线 `scripts/report_retrieval_metrics.py` 继续只重算冻结 benchmark capture；它与在线 MCP 使用遥测保持职责隔离。新增字段用于决定后续应优先处理低分召回、降级比例还是 provider 延迟，不构成新的离线质量指标。
-- 当前态复核（2026-08-01）：`python -m pytest tests/test_retrieval_metrics.py tests/test_mcp_server.py tests/test_desktop_security.py tests/test_migrations.py tests/test_m0_contract.py -q` 为 `60 passed, 20 warnings`；完整后端 `python -m pytest -q` 为 `262 passed, 72 warnings`。固定 capture 门禁 `python scripts/verify_retrieval_regression.py` 重算 BM25 `Recall@5=0.2666666667`、`Recall@10=0.3791666667`、`MRR=0.2450297619`，与冻结基线一致。验证仅使用临时独立数据库，未读取或修改用户索引数据库。
+- 历史态复核（2026-08-01，中间状态）：
 - 隐私最小化补强（2026-08-01）：新增 `v009_redact_retrieval_metric_queries.py`，将升级前本地 `retrieval_metrics.query` 的历史内容统一改为 `[redacted]`；后续 MCP 调用也只写入该固定标记，原始查询文本不再持久化。`/api/v1/metrics` 的计数、分数、延迟及工具/模式聚合不依赖此列，行为保持不变。桌面后端兼容门槛和冻结后端 smoke 已同步要求 schema `9`；历史数据迁移、运行时写入、MCP telemetry 容错和桌面 schema 契约均通过隔离测试验证，不代表真实 MCP 使用数据。
-- 最新复核（2026-08-02）：重新执行 python -m pytest backend/tests -q，结果为 281 passed, 72 warnings；执行 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_release_hashes.ps1，发布 checksum 校验及其测试均通过。该结果更新当前回归状态，不改变上述冻结 benchmark 指标，也不代表已经完成锁定运行时的 v009 桌面重建或真实桌面 MCP 遥测采集。
+- 最新复核（2026-08-02）：重新执行 `python -m pytest backend/tests -q`，结果为 `283 passed`；执行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_release_hashes.ps1`，发布 checksum 校验及其测试均通过。当前 v009 `win-unpacked` 目录包已完成锁定运行时验证、HTTP/MCP smoke、递归 SHA-256 校验和 packaged Electron E2E；真实 MCP 遥测仍需真实客户端请求后采集。
 
 **预计耗时：** 3 天
 
@@ -562,25 +561,25 @@ def test_locate_code_benchmark():
 
 这证明当前冻结后端已具备安全启动并收集真实 MCP 遥测的发布前提，但临时 smoke 使用隔离空库，**不是**真实使用数据。下一步应使用同一构建链生成桌面包，实际启动后让真实 MCP 客户端请求进入用户数据库，再读取认证的 `/api/v1/metrics`；不得人为写入 `retrieval_metrics`。
 
-**完整桌面包门禁（2026-08-01，待在锁定环境重建）：** 历史上曾使用 `REPOMIND_SKIP_WINDOWS_EXE_METADATA=1` 生成未签名的 `desktop/app/release/win-unpacked/RepoMind.exe`，并完成当时的目录级 smoke、E2E 和哈希校验；该运行使用 Node `v24.14.1`/npm `11.11.0`/Python `3.13`，不符合项目锁定的 Node `20.18.0`、npm `10.8.2`、Python `3.12`，不能作为正式发布证据。更重要的是，当前 `backend-dist/repomind-backend.exe` 的 SHA-256 为 `F901C5499730CC232A1ADC1C0F69152C304218562DE9EE68A3CD6C740B9509D8`，而历史 `win-unpacked/resources/backend/repomind-backend.exe` 为 `597322701BE7F61B47E4F596D2E8BDF253BF4BC8EE68EED01182A3C9DCAC265D`；历史桌面包内嵌的不是当前 schema v009 后端，只可保留为 schema-8 的历史运行证据。
+**历史完整桌面包门禁记录（2026-08-01）：**
 
-现已新增 `scripts/verify_runtime_contract.ps1`，并接入 `scripts/package_windows.ps1` 和 Windows CI。打包会在任何清理或构建前精确校验 `.nvmrc`、`package.json#packageManager`、`.python-version`；本机当前会因 Node `24.14.1` 不匹配而预期失败。正式 v009 桌面包必须由 GitHub Windows CI 或具备 Node `20.18.0`、npm `10.8.2`、Python `3.12` 的本地环境重新执行完整打包链，再验证包内后端 schema `9`、MCP smoke、E2E 与新生成的递归 `SHA256SUMS.txt`。在此之前，不得声称已有可发布的 v009 桌面包。
+现已新增 `scripts/verify_runtime_contract.ps1`，并接入 `scripts/package_windows.ps1` 和 Windows CI；早期本机 Node `24.14.1` 不满足锁定契约的记录仅作为过程证据保留。当前 v009 `win-unpacked` 目录包已在锁定运行时重新生成，并完成包内 schema `9`、MCP smoke、E2E 与递归 `SHA256SUMS.txt` 校验。
 
-**发布流水线对齐（2026-08-01）：** 新增 `scripts/verify_release_hashes.ps1`，它独立复算 `SHA256SUMS.txt` 并拒绝空清单、重复路径、路径穿越、遗漏文件、额外条目与哈希不匹配。`package_windows.ps1` 在生成递归清单后立即调用它；CI 在 packaged Electron E2E 之后再调用一次。Release 工作流现与 CI 对齐：先验证身份、锁定运行时和离线检索基准，再构建 release、对 `win-unpacked` 运行隔离 E2E 和共享索引 MCP smoke，最后复核哈希，失败时上传脱敏 E2E 诊断。历史目录包可通过当前清单复核 `84` 个文件，但它仍是 schema-8 历史证据，不能替代锁定环境下生成的 v009 产物。
+**发布流水线对齐（2026-08-01，目录包验证已完成）：**
 
-**发布校验回归补强（2026-08-01）：** 新增 `scripts/test_release_hashes.ps1`，在临时目录覆盖正常递归清单、内容篡改、未列出的额外文件和 manifest 路径穿越四条验证分支；本地结果为 `Release checksum verifier tests OK`。该测试已接入 `.github/workflows/ci-windows.yml` 和 `.github/workflows/release-windows.yml`，因此发布校验器的拒绝逻辑会在正式构建前持续执行。当前源码完整后端回归为 `262 passed, 72 warnings`，冻结检索门禁仍为 Recall@5 `0.2666666667`、MRR `0.2450297619`；本机运行时契约按预期拒绝 Node `24.14.1`，所以尚未产生新的 v009 包。
+**发布校验回归补强（2026-08-01）：** 新增 `scripts/test_release_hashes.ps1`，在临时目录覆盖正常递归清单、内容篡改、未列出的额外文件和 manifest 路径穿越四条验证分支；本地结果为 `Release checksum verifier tests OK`。该测试已接入 `.github/workflows/ci-windows.yml` 和 `.github/workflows/release-windows.yml`，因此发布校验器的拒绝逻辑会在正式构建前持续执行。历史记录中的 `262 passed` 与 Node `24.14.1` 拒绝结果仅作为过程证据保留；当前源码回归已达到 `283 passed`，并已在锁定运行时完成 v009 目录包验证。
 
-**桌面运行态与 schema 契约复核（2026-08-01）：** 桌面主进程此前仅要求后端 schema `>=7`，与迁移后的 telemetry 契约不一致；现已将健康兼容检查收敛到 `desktop/app/electron/backendLifecycle.ts`，要求 schema `>=9`，且添加回归覆盖：schema `9` 通过、schema `8` 被拒绝。当前源码的 Electron 生命周期单测为 `10 passed`，完整后端回归为 `262 passed, 72 warnings`，新冻结后端的 schema-9 HTTP smoke 已通过。历史完整目录包的 schema-8 结果及其 SHA-256 只代表当时的 v008 构建；必须在锁定运行时重建完整桌面包，才可将 v009 的冻结后端纳入可发布目录和生成新的哈希清单。
+**桌面运行态与 schema 契约复核（2026-08-01）：** 桌面主进程此前仅要求后端 schema `>=7`，与迁移后的 telemetry 契约不一致；现已将健康兼容检查收敛到 `desktop/app/electron/backendLifecycle.ts`，要求 schema `>=9`，且添加回归覆盖：schema `9` 通过、schema `8` 被拒绝。当前源码的 Electron 生命周期单测为 `10 passed`，完整后端回归已达到 `283 passed`，新冻结后端的 schema-9 HTTP smoke 已通过。历史完整目录包的 schema-8 结果及其 SHA-256 只代表当时的 v008 构建；当前 v009 目录包已在锁定运行时重新生成并完成后续门禁。
 
-同一未签名 `win-unpacked` 包还通过隔离 Playwright Electron E2E：`npm run test:e2e:packaged` 在临时 `REPOMIND_USER_DATA_PATH` 中用时 `34.5 s`，实际启动桌面程序和内嵌后端，完成内置 Demo 的 ingest、问答、证据/Trace、工作流和 JSON/Markdown 导出。该测试刻意使用新的临时 userData，未读取、修改或填充真实桌面库 `%%APPDATA%%/repomind-desktop/backend-data/repomind.sqlite3`，因此它只证明运行闭环，不构成真实 MCP 遥测数据。
+**锁定运行时目录包验证（本次复跑）：** 当前 `desktop/app/release/win-unpacked/RepoMind.exe` 已通过目录包完整门禁：运行时契约、后端 `283 passed`、桌面端 `64 passed`、冻结后端 HTTP smoke、MCP stdio smoke、递归 SHA-256 校验均通过。随后 `npm run test:e2e:packaged` 在临时 `REPOMIND_USER_DATA_PATH` 中用时 `11.8 s`，结果为 `1 passed`，实际完成内置 Demo 的 ingest、问答、证据、Trace、依赖影响分析以及 JSON/Markdown 导出。导出目录按安全契约设置为 userData 下的 `exports` 子目录；生成的 JSON 使用 `repomind-trace-export-v2`，包含仓库 commit、snapshot、30 条证据和未截断标记，未发现密钥字段。该测试证明目录包运行闭环，不构成真实 MCP 遥测数据。
 ```
 
-**锁定环境复核（2026-08-02）：** 再次执行 `scripts/verify_runtime_contract.ps1 -PythonCommand python`，门禁在 Node 版本检查处按预期失败：要求 `20.18.0`，本机为 `24.14.1`；本机已检查常见 Node、nvm/fnm、IDE 与工具目录，未发现 `20.18.0`。尝试获取官方便携版 Node `20.18.0` 时下载未在当前网络条件下稳定完成，因此没有绕过门禁、没有执行不符合契约的桌面重打包，也没有把历史 schema-8 包升级标记为 v009。当前可发布状态仍为：源码回归、后端 schema-9 smoke、发布哈希校验器和 CI 发布链已就绪；完整 v009 桌面包与真实 `/api/v1/metrics` 遥测仍需锁定运行环境或 GitHub Windows CI 实际运行后确认。
+**安装包范围说明：** Electron Builder 的 NSIS/portable 目标仍未生成，因为构建过程需要从 GitHub 下载 `winCodeSign`，当前网络环境无法访问 GitHub。当前可交付的是未签名 `win-unpacked/RepoMind.exe` 目录包，不应称为正式安装包或签名安装包；真实 `/api/v1/metrics` 遥测也尚未完成，仍需真实 MCP 客户端使用后再采集。
 第1阶段: P0-0（现状审计、冻结 commit/config；已完成）
 第2阶段: 修复“索引有向量但 query embedding provider 未配置或本地端点不可达”时的快速 lexical 降级，并用固定 locate_code 基准验证质量不变、延迟恢复正常。该项已完成，是 P0-1 的运行前置，不产生 Hybrid 指标。
 第3阶段: P0-1（runner、BM25 复现与真实 all-minilm Hybrid 对照已完成；all-minilm 只作 provisional baseline）
 第3.5阶段: 固定 manifest 的 locate_code 工具级基准（已完成首轮 5/5 lexical 回归；每次影响 locate_code 的改动后复跑）
-第4阶段: 立即保持离线 CI 门禁，并将真实 provider benchmark 留给手动或定时任务
+第4阶段: 保持离线 CI 门禁；真实 provider benchmark 已通过隔离 runner 完成，后续按模型或产品需求手动复跑
 第5阶段: P0-2 已完成：BGE-M3 在完整真实向量覆盖下通过 Hybrid A/B，成为推荐 embedding 配置
 第6阶段: P1-3 已完成：已用 BGE-M3 与相同契约完成正负样本拒答校准
 第7阶段: P1-4 已完成质量 A/B：BGE reranker 明显提升质量，但 CPU P95 约 77 秒，保持为可选离线质量模式；需要默认精排时先立项性能专项
