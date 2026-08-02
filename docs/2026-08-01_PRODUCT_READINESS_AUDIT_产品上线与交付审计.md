@@ -1,7 +1,7 @@
 # RepoMind 产品上线与交付审计
 
 > 文档状态：当前审计
-> 审计日期：2026-08-01
+> 审计日期：2026-08-02
 > 审计依据：当前源代码、冻结 benchmark、已记录的测试/打包证据；未把历史文档声明当作新的运行结果。
 
 ## 结论
@@ -26,14 +26,15 @@ RepoMind 有实际价值，但当前应定位为“本地、单用户、只读�
 | 40 题 BM25 基线 | Recall@5 `0.267`，MRR `0.245` | 说明通用复杂代码理解仍不足，不能以此承诺全面准确 |
 | 40 题 BGE-M3 Hybrid 实验 | Recall@5 `0.4404`，MRR `0.3196` | 这是在冻结实验契约下的候选配置结果，需持续回归，不能替代真实用户验收 |
 | 30 题外部单入口定位工具预检 | 现有 qualified-symbol 条件下曾达到 `30/30` gold coverage | 仅证明固定公开仓库、指定单入口题目的工具级召回，不等于 Agent 最终任务成功 |
-| MCP Token 外部 A/B（V4 最新） | 两次独立重复、60 个 cohort-task 中，43 个双方完成任务的 Total Token `1,994,139 -> 950,210`，`-52.35%` | 仅诊断信号：MCP 通过率 `75.00%` 低于 baseline `85.00%`，正式状态为 `not_accepted`，不能作为销售承诺 |
+| MCP Token 外部 A/B（V5 正式结果） | Click、Typer、Requests 三个陌生仓库、两次独立重复、60 个 cohort-task 中，双方 `60/60` 通过；Input Token `2,733,497 -> 1,360,698`（`-50.22%`），Total Token `2,776,067 -> 1,370,291`（`-50.64%`） | 报告器状态为 `accepted`，本实验未观察到通过率下降；仍只代表固定模型、任务、仓库和 MCP profile 条件，不是所有任务的无条件承诺 |
+| MCP Token 外部 A/B（V4 历史结果） | 两次独立重复、60 个 cohort-task 中，43 个双方完成任务的 Total Token `1,994,139 -> 950,210`，`-52.35%` | MCP 通过率 `75.00%` 低于 baseline `85.00%`，正式状态为 `not_accepted`；保留用于说明失败模式，不能覆盖 V5 |
 | MCP Token 历史反例 | 输入 Token 曾增加 `13.18%` | Token 节省强依赖任务、工具调用和 Agent 行为，不能从 Recall/MRR 推导 |
 
-三仓库单入口 `coding-agent` profile 的预检已经达到 Click、Typer、Requests 各 `10/10`，共 `30/30`。但这只是生产工具级 gold-location coverage，不等于外部 Agent 最终任务成功。V4 已满足样本、仓库和 repeat 门槛，但 P1-5 仍被 MCP 通过率低于 baseline 所阻断：60 个 cohort-task 中 baseline `51/60`，MCP `45/60`；失败分类为 `incomplete_before_mcp_call=14`、`incomplete_after_mcp_before_final_answer=4`、`rubric_failed=4`、`timeout_before_mcp_call=1`、`timeout_after_mcp_before_final_answer=1`。因此必须继续分离启动稳定性、Agent 行为和工具定位精度问题。
+三仓库单入口 `coding-agent` profile 的预检已经达到 Click、Typer、Requests 各 `10/10`，共 `30/30`。这只是生产工具级 gold-location coverage，不等于全仓代码理解；但 V5 已在相同冻结任务和运行条件下完成两次独立 repeat，baseline 与 MCP 均为 `60/60` 通过，treatment 共完成 `30` 次 MCP 调用，未出现 timeout、rubric failure、基础设施失败或候选位置误选。V4 的失败矩阵仍作为历史诊断证据保留，说明任务成功率必须与 Token 一起报告。
 
 ## Token 应如何对外表达
 
-不能承诺“使用 RepoMind 必然节省 X% Token”。当前最新可审计观察是：在 Click、Typer、Requests 三个固定公开仓库、60 个 cohort-task 的两次独立重复中，43 个双方通过任务的 Total Token 降低 `52.35%`；但 MCP 整体任务成功率为 `75.00%`，低于 baseline 的 `85.00%`，因此该数字只能用于诊断，不能用于产品或销售主张。当前最诚实、也更有产品价值的表达是：
+不能承诺“使用 RepoMind 必然节省 X% Token”。当前最新可审计观察是：在 Click、Typer、Requests 三个固定公开仓库、两次独立重复的 `60` 个 cohort-task 中，双方均通过的任务为 `60/60`；在该固定条件下，Input Token 减少 `50.22%`，Total Token 减少 `50.64%`，且未观察到通过率下降。这个结果可以作为项目的实测案例和试点基线，但不能外推为所有仓库、任务、模型或 Agent 的无条件节省比例。
 
 > RepoMind 通过 MCP 提供版本绑定、带证据且有预算的代码上下文，目标是减少无边界代码读取和重复定位；Token 消耗、完成率与延迟按客户仓库、任务类型和所用 Agent 持续测量。
 
@@ -41,7 +42,7 @@ RepoMind 有实际价值，但当前应定位为“本地、单用户、只读�
 
 ## 测试不是“完美”，但已有基础
 
-没有“完美测试”。目前已有后端、MCP、检索、snapshot、迁移、桌面生命周期及部分打包 E2E 的自动化覆盖；历史记录显示完整后端回归曾为 `262 passed, 72 warnings`，MCP server 当前相关测试曾为 `36 passed, 1 warning`。这些是已有证据，不是本次审计重新执行出的测试结果。
+没有“完美测试”。目前已有后端、MCP、检索、snapshot、迁移、桌面生命周期及部分打包 E2E 的自动化覆盖。本次复核重新执行 `python -m pytest backend/tests -q`，结果为 `281 passed, 72 warnings`；发布递归哈希校验器测试也通过。桌面打包 E2E 仍只能证明历史 schema-8 包的运行闭环，不能替代锁定环境下的 schema-9 v009 验收。
 
 对上线而言，测试还欠缺四件更重要的事：真实私有仓库的验收集、按版本固定的性能/SLA 回归、故障与恢复演练、真实用户行为数据下的端到端评估。测试数量不是上线许可，关键是风险是否被场景化验证。
 
@@ -59,7 +60,7 @@ RepoMind 有实际价值，但当前应定位为“本地、单用户、只读�
 2. Windows 本地 stdio MCP 的约束主要来自 tool schema 与 prompt/profile，不是操作系统级隔离。需完成企业安全评审，明确进程权限、数据路径、日志和越权边界。
 3. 用真实的目标领域/私有仓库建立匿名化 benchmark 与验收集，测量定位、问答、延迟、失败降级和人工纠正率。
 4. 补齐企业所需的身份、权限、审计、数据保留、密钥管理、私有仓库连接与运维能力，或明确产品不提供这些能力。
-5. 修复并重新验证 Token 研究的任务成功率缺口；独立重复已完成，但只要 MCP 通过率低于 baseline，Token 降低就不能作为优化完成或对外结论。
+5. Token A/B 已在固定实验条件下通过正式验收，但仍需在设计伙伴试点中按仓库、任务类型和 Agent 版本建立新的 cohort，持续观察任务成功率、Token、延迟与 MCP 调用成本，不能把单一 V5 数字当作普遍保证。
 6. GitHub CI/Release 当前不可作为已绿的事实。网络恢复后需验证构建工作流、签名策略和 release 产物。
 
 ## 下一步建议
