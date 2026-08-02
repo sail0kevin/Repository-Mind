@@ -73,7 +73,7 @@ RepoMind 是一个面向 Windows 的本地 Git 仓库知识助手。它将指定
 ### 4.1 首页与产品定位
 
 ```text
-README.md
+2026-08-01_REPOMIND_README_项目说明.md
 ```
 
 当前 README 详细但较长，技术内容可信。后续要把它重构成面试官三分钟可读的中英双语首页，详细内容下沉到 docs。
@@ -81,16 +81,16 @@ README.md
 ### 4.2 当前真实实现与验收记录
 
 ```text
-docs/后续开发指导/DEVELOPMENT_REPORT.md
+docs/后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md
 ```
 
-阅读重点：M0–M5、测试结果、Snapshot、Parser、检索、Main Agent、Electron、Windows 构建和当前限制。
+阅读重点：已完成事项、实测指标、当前发布门槛、真实 MCP 遥测前提，以及下一步执行关口。
 
 ### 4.3 架构与术语
 
 ```text
-docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md
-docs/后续开发指导/RAG_VS_AGENTIC.md
+docs/后续开发指导/2026-07-28_ARCHITECTURE_FUTURE_ROADMAP_未来架构路线图.md
+docs/后续开发指导/2026-07-26_RAG_VS_AGENTIC_RAG与智能体检索定位.md
 ```
 
 必须理解：RepoMind 是“增强型 RAG 知识底座 + 轻量、受约束 Agent 调度”，而不是 RAG 与 Agent 二选一。
@@ -98,7 +98,7 @@ docs/后续开发指导/RAG_VS_AGENTIC.md
 ### 4.4 GitHub 上传边界
 
 ```text
-docs/后续开发指导/GITHUB_UPLOAD_GUIDE.md
+docs/后续开发指导/2026-08-01_GITHUB_UPLOAD_GUIDE_GitHub上传指南.md
 ```
 
 此文档定义哪些源码和文档可上传，哪些本地数据、历史资料、密钥和构建产物禁止上传。
@@ -254,7 +254,7 @@ desktop/app/renderer/services/apiClient.ts
 desktop/app/renderer/services/apiClient.test.ts
 desktop/app/renderer/src/main.tsx
 desktop/app/renderer/src/features/repositories/RepositoryAccessPanel.tsx
-docs/后续开发指导/DEVELOPMENT_REPORT.md
+docs/后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md
 demo/repomind-demo/
 ```
 
@@ -370,7 +370,7 @@ examples/outputs/
 至少包括：
 
 ```text
-repomind-demo-report.md
+2026-07-18_REPOMIND_DEMO_REPORT_演示报告.md
 repomind-demo-trace.json
 ```
 
@@ -451,7 +451,7 @@ repomind-demo-trace.json
 
 详细技术表、M0–M5 历史和长篇面试口径继续留在 docs，不全部堆在首页。
 
-### P1：新增 SECURITY.md
+### P1：新增 旧_SECURITY_安全边界说明.md
 
 内容必须包括：
 
@@ -576,7 +576,7 @@ REPOMIND_EMBEDDING__API_KEY=
 - [ ] 3–5 张真实截图通过视觉检查；
 - [ ] 演示视频/GIF 清晰且不泄露隐私；
 - [ ] README 中英双语、三分钟可读；
-- [ ] SECURITY.md 完成；
+- [ ] 旧_SECURITY_安全边界说明.md 完成；
 - [ ] 后端和桌面测试通过；
 - [ ] Renderer/Electron build 通过；
 - [ ] Windows E2E 通过；
@@ -593,18 +593,18 @@ REPOMIND_EMBEDDING__API_KEY=
 <repository-root>
 
 首先完整阅读：
-1. docs/多模态AI交接/RepoMind_多模态AI展示与发布任务书.md
-2. README.md
-3. docs/后续开发指导/DEVELOPMENT_REPORT.md
-4. docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md
-5. docs/后续开发指导/RAG_VS_AGENTIC.md
-6. docs/后续开发指导/GITHUB_UPLOAD_GUIDE.md
+1. docs/多模态AI交接/2026-08-01_REPOMIND_MULTIMODAL_HANDOFF_多模态展示与发布任务书.md
+2. 2026-08-01_REPOMIND_README_项目说明.md
+3. docs/后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md
+4. docs/后续开发指导/2026-07-28_ARCHITECTURE_FUTURE_ROADMAP_未来架构路线图.md
+5. docs/后续开发指导/2026-07-26_RAG_VS_AGENTIC_RAG与智能体检索定位.md
+6. docs/后续开发指导/2026-08-01_GITHUB_UPLOAD_GUIDE_GitHub上传指南.md
 
 开始前检查 git status 和 diff。当前工作区包含尚未提交的桌面连接修复、一键内置 Demo、Markdown Evidence identity 修复和 Code Graph Snapshot 一致性改动，禁止 reset、clean 或覆盖。
 
 产品核心是：commit 级不可变 Snapshot + 结构化 Evidence/Catalog + FTS5/BM25/可选 Embedding + 受约束 Main Agent + commit/path/line 引用 + Agent Trace。Legacy 多角色不是主流程。
 
-按任务书中的 P0 → P1 → P2 执行。先完成真实 Demo 三类问答验收和 Evidence file_path/line 修复，再做 Markdown/JSON 导出、真实截图/GIF、双语 README、SECURITY.md、Windows E2E 和 CI。不要先增加新 Agent 或模型 Provider。
+按任务书中的 P0 → P1 → P2 执行。先完成真实 Demo 三类问答验收和 Evidence file_path/line 修复，再做 Markdown/JSON 导出、真实截图/GIF、双语 README、旧_SECURITY_安全边界说明.md、Windows E2E 和 CI。不要先增加新 Agent 或模型 Provider。
 
 所有运行使用临时 REPOMIND_USER_DATA_PATH、临时数据库、空 Chat/Embedding Key；不执行或修改目标仓库；不读取真实用户数据库。截图必须亲自查看，确认没有乱码、个人路径、密钥和隐私信息。
 

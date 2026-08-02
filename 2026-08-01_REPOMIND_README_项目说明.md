@@ -1,6 +1,6 @@
 # RepoMind
 
-[English](README.en.md)
+[English](2026-08-01_REPOMIND_README_EN_项目说明英文版.md)
 
 ![Windows-first](https://img.shields.io/badge/platform-Windows-0078D4)
 ![Local-first](https://img.shields.io/badge/design-local--first-2E7D32)
@@ -24,7 +24,7 @@
 - [约 32 秒的真实运行 GIF](docs/assets/repomind-showcase.gif)
 - [修复后的 Trace](examples/outputs/repomind-demo-trace.post-fix.json)
 - [FastAPI Demo capture](examples/benchmarks/demo-evidence-capture-post-fix.json)
-- [Markdown 评测报告](examples/benchmarks/demo-evidence-report-post-fix.md)
+- [Markdown 评测报告](examples/benchmarks/2026-07-20_DEMO_EVIDENCE_POST_FIX_REPORT_修复后演示证据报告.md)
 
 ### 本地运行无 Key Demo
 
@@ -53,7 +53,7 @@ cd backend
 python -m service.mcp_server
 ```
 
-MCP Server 不依赖 FastAPI 常驻，不执行目标仓库代码，也不提供文件修改或 Shell 工具。Claude Code 与 Codex CLI 均已完成真实客户端调用验证；配置、验证范围与限制见 [MCP Server 使用指南](docs/MCP_SERVER.md)。
+MCP Server 不依赖 FastAPI 常驻，不执行目标仓库代码，也不提供文件修改或 Shell 工具。Claude Code 与 Codex CLI 均已完成真实客户端调用验证；配置、验证范围与限制见 [MCP Server 使用指南](docs/2026-08-01_MCP_SERVER_GUIDE_MCP服务使用指南.md)。
 
 Windows Setup 安装版可直接使用内置的 `resources\backend\repomind-backend.exe --mcp`，不需要另装 Python。连接后先调用 `list_repositories` 发现已索引仓库；自然语言代码定位优先使用 `locate_code`，再按需调用其余只读工具。
 
@@ -95,7 +95,7 @@ pip install -r backend/requirements-build.txt
 
 > **评测边界：**这只是 3 个问题的 synthetic bundled Demo，衡量的是引用路径命中，不代表大型真实仓库的语义准确率或生产性能。实例方法调用边尚未完整解析，因此入口和测试只标记为“源码引用候选”，不是已证明的调用边；当前也没有受控的 P50/P95 延迟数据。
 
-项目另提供一组针对 RepoMind 自身后端的 **40 条、5 类人工标注代码理解任务**。当前纯词法基线的 Recall@5 为 `0.267`、MRR 为 `0.245`，有 **22/40** 条回答命中至少一条人工标注的关键证据，任务完成率为 `55%`；这组结果如实暴露了跨文件综述、测试定位和安全审查的检索短板，不以小样本 Demo 指标替代真实基线。可直接查看 [Gold 标注](examples/benchmarks/backend-understanding-gold.json)、[真实 Capture](examples/benchmarks/backend-understanding-capture-v2.json) 和 [逐题报告](examples/benchmarks/backend-understanding-report-v2.md)。
+项目另提供一组针对 RepoMind 自身后端的 **40 条、5 类人工标注代码理解任务**。当前纯词法基线的 Recall@5 为 `0.267`、MRR 为 `0.245`，有 **22/40** 条回答命中至少一条人工标注的关键证据，任务完成率为 `55%`；这组结果如实暴露了跨文件综述、测试定位和安全审查的检索短板，不以小样本 Demo 指标替代真实基线。可直接查看 [Gold 标注](examples/benchmarks/backend-understanding-gold.json)、[真实 Capture](examples/benchmarks/backend-understanding-capture-v2.json) 和 [逐题报告](examples/benchmarks/2026-07-25_BACKEND_UNDERSTANDING_REPORT_V2_后端理解评测报告V2.md)。
 
 复现命令：
 
@@ -108,7 +108,7 @@ python scripts/report_retrieval_metrics.py examples/benchmarks/demo-evidence-cap
 
 在固定 Commit 的隔离本地 AgentForge 检出中，对每题需要定位两处源码的任务比较“Codex 自行搜索/读取文件”和“仅使用 RepoMind MCP”。当前一轮 5 条人工标注代码导航任务中，普通搜索通过 2/5，RepoMind MCP 通过 3/5。
 
-该轮中，MCP 工具结果携带的源码字符总量从 `1,032,948` 降至 `112,971`；但由于外部 Agent 会进行工具选择、重复调用和推理，总输入 Token 只从 `422,444` 降至 `399,563`。这说明 RepoMind 已初步验证“压缩找代码时读取的源码量”，尚不能写成“普遍节省 Token”：样本只有 5 条，目标是一个本地检出，源码文本量是上下文体积代理值而非计费 Token，且 Windows 下的工具限制由提示词约束。完整条件、逐题结果和复现入口见 [外部代码定位 A/B v3 报告](examples/benchmarks/external-location-ab-v3-report.md) 与 [运行脚本](scripts/run_codex_location_ab.ps1)。旧的 [v2 报告](examples/benchmarks/codex-location-ab-v2-report.md) 仅保留为历史实验记录。
+该轮中，MCP 工具结果携带的源码字符总量从 `1,032,948` 降至 `112,971`；但由于外部 Agent 会进行工具选择、重复调用和推理，总输入 Token 只从 `422,444` 降至 `399,563`。这说明 RepoMind 已初步验证“压缩找代码时读取的源码量”，尚不能写成“普遍节省 Token”：样本只有 5 条，目标是一个本地检出，源码文本量是上下文体积代理值而非计费 Token，且 Windows 下的工具限制由提示词约束。完整条件、逐题结果和复现入口见 [外部代码定位 A/B v3 报告](examples/benchmarks/2026-07-26_EXTERNAL_LOCATION_AB_V3_REPORT_外部代码定位对比报告V3.md) 与 [运行脚本](scripts/run_codex_location_ab.ps1)。旧的 [v2 报告](examples/benchmarks/2026-07-26_CODEX_LOCATION_AB_V2_REPORT_代码定位对比报告V2.md) 仅保留为历史实验记录。
 
 ## 工作流程
 
@@ -148,8 +148,8 @@ RepoMind 默认不会把整个仓库塞进 Prompt。Repo Map 先缩小范围，B
 
 以下是当前提交的可复现验证结果：
 
-- Backend：`cd backend; python -m pytest -q` → **181 passed**，其中 MCP 专项 **14 passed**
-- Desktop：`npm test -- --run` → **63 passed**（11 个测试文件）
+- Backend：`cd backend; python -m pytest -q` → **262 passed**，包含 MCP、检索遥测、快照隔离与桌面访问保护回归
+- Desktop：`npm test -- --run` → **64 passed**（11 个测试文件）
 - Desktop build：`npm run build` → Vite renderer 与 Electron TypeScript 构建通过
 - Frozen MCP：打包后端以 `--mcp` 启动，完成仓库发现调用；当前源码 MCP 提供 7 个只读工具
 - Packaged Demo：真实 Electron 流程覆盖索引、0/1 Tool 路由、Evidence、Trace 和导出，并验证包内 MCP 复用桌面索引数据库完成仓库发现
@@ -164,14 +164,14 @@ Windows CI 会从干净环境重建冻结后端和 Electron 包，并运行打�
 - Python parser 尚未完整解析局部实例变量的类型传播；静态关系和安全线索不等于运行时事实或完整安全审计。
 - 当前评测集规模很小，尚无大型真实仓库 benchmark 和受控延迟数据。
 
-详细数据边界见 [SECURITY.md](SECURITY.md)。
+详细数据边界和上线限制见 [产品上线与交付审计](docs/2026-08-01_PRODUCT_READINESS_AUDIT_产品上线与交付审计.md)。历史安全边界说明保留在 `docs/旧的文件/`，仅用于追溯。
 
 ## 文档
 
-- [开发与验证记录](docs/后续开发指导/DEVELOPMENT_REPORT.md)
-- [架构与后续路线图](docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md)
-- [评测与简历事实边界](docs/后续开发指导/RESUME_EVIDENCE_PLAN.md)
-- [RAG 与受约束 Agent 的分工](docs/后续开发指导/RAG_VS_AGENTIC.md)
-- [MCP Server 使用指南](docs/MCP_SERVER.md)
+- [文档导航](docs/2026-08-01_DOCUMENTATION_INDEX_文档导航.md)
+- [当前改进执行计划](docs/后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md)
+- [架构与后续路线图](docs/后续开发指导/2026-07-28_ARCHITECTURE_FUTURE_ROADMAP_未来架构路线图.md)
+- [RAG 与受约束 Agent 的分工](docs/后续开发指导/2026-07-26_RAG_VS_AGENTIC_RAG与智能体检索定位.md)
+- [MCP Server 使用指南](docs/2026-08-01_MCP_SERVER_GUIDE_MCP服务使用指南.md)
 
 下一步：扩大 Codex/Claude Code 多仓库 A/B 样本并压缩 MCP 上下文开销 → 经明确批准后创建 Tag/Release → 增加正式图标与 Windows 代码签名。

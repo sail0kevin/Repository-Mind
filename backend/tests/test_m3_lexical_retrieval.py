@@ -9,7 +9,7 @@ import pytest
 
 from service.evaluation import evaluate_rankings
 from service.storage.chunk_store import replace_repo_chunks, search_chunks
-from service.storage.lexical_store import normalize_query
+from service.storage.lexical_store import _fts_match_expression, normalize_query
 from service.storage.repository_store import create_repo_record, replace_file_records
 from service.storage.snapshot_store import get_or_create_snapshot, publish_snapshot
 from service.storage.sqlite_db import get_connection, require_fts5
@@ -48,6 +48,24 @@ def test_query_normalization_covers_chinese_snake_camel_and_path() -> None:
     """归一化应保留中文短语，并展开 snake、camel 和 Windows/POSIX 路径。"""
     terms = normalize_query(r"用户认证 parseConfigKey parse_config_key src\auth/token_service.py")
     assert {"用户认证", "用", "户", "认", "证", "parseconfigkey", "parse", "config", "key", "src", "auth", "token", "service", "py"} <= set(terms)
+
+
+def test_english_natural_language_query_requires_meaningful_term_quadruple() -> None:
+    terms = normalize_query("How does Kubernetes Helm blue green rollout manage release traffic?")
+
+    expression = _fts_match_expression("How does Kubernetes Helm blue green rollout manage release traffic?", terms)
+
+    assert '"how"' not in expression
+    assert '"does"' not in expression
+    assert '("kubernetes" AND "helm" AND "blue" AND "green")' in expression
+
+
+def test_symbol_query_keeps_or_expansion_for_identifier_recall() -> None:
+    terms = normalize_query("parseConfigKey")
+
+    expression = _fts_match_expression("parseConfigKey", terms)
+
+    assert expression == '"parseconfigkey" OR "parse" OR "config" OR "key"'
 
 
 def test_fts5_capability_check_has_clear_failure(monkeypatch: pytest.MonkeyPatch) -> None:

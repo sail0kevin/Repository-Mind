@@ -33,15 +33,20 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
         self.model = model.strip()
         self.timeout = timeout
         self._client_factory = client_factory
+        self._client_instance: Any | None = None
 
     def _client(self) -> Any:
+        if self._client_instance is not None:
+            return self._client_instance
         if self._client_factory is not None:
-            return self._client_factory(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
+            self._client_instance = self._client_factory(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
+            return self._client_instance
         try:
             from openai import OpenAI
         except Exception as exc:
             raise EmbeddingError("openai SDK 未安装") from exc
-        return OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
+        self._client_instance = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
+        return self._client_instance
 
     def embed(self, texts: list[str]) -> EmbeddingBatch:
         if not texts:

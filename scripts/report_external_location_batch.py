@@ -18,7 +18,7 @@ class BatchReportError(RuntimeError):
 
 def _read_object(path: Path, label: str) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as exc:
         raise BatchReportError(f"Cannot read {label} at {path}: {exc}") from exc
     if not isinstance(payload, dict):
@@ -48,7 +48,7 @@ def _load_run(entry: dict[str, Any], base: Path) -> dict[str, Any]:
         raise BatchReportError("Every batch run needs a non-empty benchmark_id.")
     results_path = _resolve(base, entry.get("results"), f"run {benchmark_id}.results")
     metadata_path = _resolve(base, entry.get("metadata"), f"run {benchmark_id}.metadata")
-    rows = json.loads(results_path.read_text(encoding="utf-8"))
+    rows = json.loads(results_path.read_text(encoding="utf-8-sig"))
     if not isinstance(rows, list) or not rows:
         raise BatchReportError(f"Results for {benchmark_id} must be a non-empty JSON array.")
     metadata = _read_object(metadata_path, f"metadata for {benchmark_id}")

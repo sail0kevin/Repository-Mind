@@ -6,6 +6,8 @@ import hashlib
 import math
 import sys
 
+import numpy as np
+
 from service.storage.sqlite_db import get_connection
 
 
@@ -35,6 +37,46 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
     left_norm = math.sqrt(sum(a * a for a in left))
     right_norm = math.sqrt(sum(b * b for b in right))
     return 0.0 if left_norm == 0 or right_norm == 0 else dot / (left_norm * right_norm)
+
+
+def _rank_vector_rows(rows: list, query_embedding: list[float], limit: int) -> list[tuple[int, float]]:
+    """Return stable positive cosine matches as ``(row_index, score)`` pairs."""
+
+    if limit <= 0 or not rows or not query_embedding:
+        return []
+    dimension = len(query_embedding)
+    compatible_indices: list[int] = []
+    vectors: list[np.ndarray] = []
+    for index, row in enumerate(rows):
+        if int(row["dimension"]) != dimension:
+            continue
+        vector = np.frombuffer(row["vector"], dtype="<f4")
+        if vector.size != dimension:
+            continue
+        compatible_indices.append(index)
+        vectors.append(vector)
+    if not vectors:
+        return []
+
+    # float64 keeps the numerical behavior close to the former Python-loop calculation.
+    matrix = np.vstack(vectors, dtype=np.float64)
+    query = np.asarray(query_embedding, dtype=np.float64)
+    query_norm = np.linalg.norm(query)
+    if query_norm == 0:
+        return []
+    norms = np.linalg.norm(matrix, axis=1)
+    scores = np.divide(
+        matrix @ query,
+        norms * query_norm,
+        out=np.zeros_like(norms),
+        where=norms > 0,
+    )
+    positive = np.flatnonzero(scores > 0)
+    if not positive.size:
+        return []
+    # Stable sorting preserves the old Python ``list.sort`` tie behavior.
+    ranked = positive[np.argsort(-scores[positive], kind="stable")[:limit]]
+    return [(compatible_indices[int(index)], float(scores[index])) for index in ranked]
 
 
 def find_cached_vector(provider: str, model: str, content_hash: str) -> list[float] | None:
@@ -116,17 +158,14 @@ def search_vectors(repo_id: str, query: str, limit: int = 8, *, query_embedding:
                WHERE embeddings.repo_id = ? AND embeddings.snapshot_id IS ?""",
             (repo_id, selected),
         ).fetchall()
-    scored = []
-    for row in rows:
-        vector = _unpack_float32(row["vector"], row["dimension"])
-        score = _cosine_similarity(query_embedding, vector)
-        if score > 0:
-            item = dict(row)
-            item.update(score=score, vector_score=score, match_type="semantic")
-            item.pop("vector", None)
-            scored.append(item)
-    scored.sort(key=lambda item: item["score"], reverse=True)
-    return scored[:limit]
+    ranked = _rank_vector_rows(rows, query_embedding, limit)
+    results = []
+    for index, score in ranked:
+        item = dict(rows[index])
+        item.update(score=score, vector_score=score, match_type="semantic")
+        item.pop("vector", None)
+        results.append(item)
+    return results
 
 
 # 兼容旧调用名；M3 不再写入旧 vectors JSON 表。

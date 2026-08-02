@@ -23,6 +23,10 @@ $currentStage = "identity contract"
 & (Join-Path $scriptRoot "verify_identity_contract.ps1")
 if (-not $?) { throw "Identity verification failed" }
 
+$currentStage = "runtime contract"
+& (Join-Path $scriptRoot "verify_runtime_contract.ps1") -PythonCommand $PythonCommand
+if (-not $?) { throw "Runtime contract verification failed" }
+
 $currentStage = "Python FTS5 capability"
 $ftsCheckPath = Join-Path ([System.IO.Path]::GetTempPath()) ("repomind-fts5-check-" + [guid]::NewGuid().ToString("N") + ".py")
 $ftsCheck = @'
@@ -144,9 +148,24 @@ finally {
 }
 
 $currentStage = "release hashes"
-$hashLines = Get-ChildItem $releaseRoot -File -ErrorAction SilentlyContinue | ForEach-Object {
-    $fileHash = Get-FileHash $_.FullName -Algorithm SHA256
-    "$($fileHash.Hash)  $($_.Name)"
-}
-if ($hashLines) { $hashLines | Set-Content (Join-Path $releaseRoot "SHA256SUMS.txt") -Encoding ascii }
+$checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
+$releaseRootPrefix = $releaseRoot.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+$hashLines = @(
+    Get-ChildItem -LiteralPath $releaseRoot -File -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -ne $checksumPath } |
+        ForEach-Object {
+            $relativePath = $_.FullName.Substring($releaseRootPrefix.Length).Replace('\', '/')
+            $fileHash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
+            [PSCustomObject]@{
+                RelativePath = $relativePath
+                Line = "$($fileHash.Hash)  $relativePath"
+            }
+        } |
+        Sort-Object RelativePath |
+        ForEach-Object { $_.Line }
+)
+if ($hashLines) { $hashLines | Set-Content -LiteralPath $checksumPath -Encoding ascii }
+$currentStage = "release hash verification"
+& (Join-Path $scriptRoot "verify_release_hashes.ps1") -ReleaseDirectory $releaseRoot
+if (-not $?) { throw "Release checksum verification failed" }
 Write-Host "RepoMind Windows package chain OK -> $releaseRoot"

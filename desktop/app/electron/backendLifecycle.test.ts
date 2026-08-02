@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as path from "path";
 import { createHash } from "crypto";
 
-import { canonicalDatabasePath, computeDatabaseIdentity, createSingleFlight, ownsBackendSession, pythonLauncherCandidates, revalidateTrackedBackend } from "./backendLifecycle";
+import { canonicalDatabasePath, computeDatabaseIdentity, createSingleFlight, isCompatibleBackendHealth, MIN_BACKEND_SCHEMA_VERSION, ownsBackendSession, pythonLauncherCandidates, revalidateTrackedBackend } from "./backendLifecycle";
 
 describe("Electron 后端生命周期辅助函数", () => {
   it("数据库身份使用规范化真实路径的 UTF-8 SHA-256", () => {
@@ -21,6 +21,37 @@ describe("Electron 后端生命周期辅助函数", () => {
     expect(pythonLauncherCandidates("win32", undefined)).toEqual([{ command: "python", args: [] }]);
     expect(pythonLauncherCandidates("win32", "C:\\Python311\\python.exe"))
       .toEqual([{ command: "C:\\Python311\\python.exe", args: [] }]);
+  });
+
+  it("只接受包含当前 v009 遥测脱敏迁移的后端健康契约", () => {
+    const health = {
+      status: "ok",
+      api_version: "v1",
+      schema_version: "9",
+      database_schema_version: "9",
+      backend_contract_version: "1",
+      instance_id: "repomind-desktop-backend",
+      session_id: "session-current",
+      database_identity: "database-current",
+    };
+
+    expect(MIN_BACKEND_SCHEMA_VERSION).toBe(9);
+    expect(isCompatibleBackendHealth(
+      200,
+      health,
+      "repomind-desktop-backend",
+      "1",
+      "database-current",
+      "session-current",
+    )).toBe(true);
+    expect(isCompatibleBackendHealth(
+      200,
+      { ...health, schema_version: "8", database_schema_version: "8" },
+      "repomind-desktop-backend",
+      "1",
+      "database-current",
+      "session-current",
+    )).toBe(false);
   });
 
   it("并发启动调用共享同一个进行中的 Promise", async () => {

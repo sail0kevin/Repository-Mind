@@ -134,6 +134,10 @@ class SettingsResponse(BaseModel):
     embedding_api_key_hint: str | None = None
     embedding_base_url: str = 'https://api.openai.com/v1'
     embedding_model: str = 'text-embedding-3-small'
+    reranker_provider: Literal['disabled', 'flag_embedding'] = 'disabled'
+    reranker_model: str = 'BAAI/bge-reranker-v2-m3'
+    reranker_use_fp16: bool = False
+    reranker_candidate_limit: int = 50
     retrieval_limit: int = 8
     # 模型价格配置（每 1K token 的美元价格）
     input_cost_per_1k_tokens: float = 0.0005
@@ -172,6 +176,10 @@ class SettingsUpdateRequest(BaseModel):
     embedding_api_key: str | None = Field(default=None, max_length=4096, exclude=True)
     embedding_base_url: str | None = Field(default=None, min_length=8, max_length=2048)
     embedding_model: str | None = Field(default=None, min_length=1, max_length=200)
+    reranker_provider: Literal['disabled', 'flag_embedding'] | None = None
+    reranker_model: str | None = Field(default=None, min_length=1, max_length=200)
+    reranker_use_fp16: bool | None = None
+    reranker_candidate_limit: int | None = Field(default=None, ge=5, le=50)
     retrieval_limit: int | None = Field(default=None, ge=1, le=50)
     input_cost_per_1k_tokens: float | None = Field(default=None, ge=0, le=1000)
     output_cost_per_1k_tokens: float | None = Field(default=None, ge=0, le=1000)

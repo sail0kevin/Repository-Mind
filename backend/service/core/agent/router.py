@@ -1,6 +1,8 @@
 """Main Agent 的确定性 Router；首版不让 LLM 决定是否调用工具。"""
 from __future__ import annotations
 
+import re
+
 from service.core.agent.models import AgentPlan, ToolDecision
 
 _SECURITY = ("安全", "认证", "密钥", "注入", "权限", "漏洞", "secret", "token", "password", "security")
@@ -9,11 +11,33 @@ _IMPACT = ("影响", "依赖", "调用链", "谁调用", "受影响", "改动", 
 _TEST = ("测试", "用例", "失败", "运行", "启动", "报错", "构建", "test", "pytest", "vitest")
 _OVERVIEW = ("概览", "架构", "从哪里开始", "怎么读", "主要模块", "入口", "overview", "architecture", "reading guide")
 _LANGUAGE = ("继承", "接口", "符号", "类结构", "函数结构", "方法列表", "typescript", "python", "class hierarchy", "symbol")
+_DEBATE = ("为什么", "设计", "架构", "取舍", "权衡", "演进", "原因", "why", "design", "architecture", "tradeoff")
 
 
 def _contains(question: str, keywords: tuple[str, ...]) -> bool:
     normalized = question.casefold()
     return any(keyword.casefold() in normalized for keyword in keywords)
+
+
+def _has_precise_symbol(question: str) -> bool:
+    """限定名、snake_case 和 CamelCase 查询应走直接证据路径，而不是多角色讨论。"""
+    for token in re.findall(r"[A-Za-z_][A-Za-z0-9_.]*", question):
+        if len(token) < 3:
+            continue
+        if "." in token or "_" in token or any(char.isupper() for char in token[1:]):
+            return True
+    return False
+
+
+def _debate_decision(question: str) -> tuple[tuple[str, ...], str | None]:
+    """仅为复杂、开放式且非精确符号的问题启用固定的双视角讨论。"""
+    if _has_precise_symbol(question):
+        return (), "precise_symbol_query"
+    normalized = question.strip()
+    has_complex_signal = _contains(normalized, _DEBATE) or _contains(normalized, _IMPACT)
+    if has_complex_signal and len(normalized) > 50:
+        return ("developer", "architect"), "complex_open_question"
+    return (), "not_complex_enough"
 
 
 def route_question(question: str) -> AgentPlan:
@@ -35,4 +59,10 @@ def route_question(question: str) -> AgentPlan:
     elif _contains(question, _LANGUAGE):
         intent = "language_structure"
         tools.append(ToolDecision("language_structure", "查询符号和结构关系"))
-    return AgentPlan(intent=intent, tools=tuple(tools[:2]))
+    debate_roles, debate_reason = _debate_decision(question)
+    return AgentPlan(
+        intent=intent,
+        tools=tuple(tools[:2]),
+        debate_roles=debate_roles,
+        debate_reason=debate_reason,
+    )

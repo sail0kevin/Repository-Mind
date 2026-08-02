@@ -1,6 +1,6 @@
 # RepoMind
 
-[中文](README.md)
+[中文](2026-08-01_REPOMIND_README_项目说明.md)
 
 ![Windows-first](https://img.shields.io/badge/platform-Windows-0078D4)
 ![Local-first](https://img.shields.io/badge/design-local--first-2E7D32)
@@ -24,7 +24,7 @@
 - [~32-second runtime GIF](docs/assets/repomind-showcase.gif)
 - [Post-fix Trace](examples/outputs/repomind-demo-trace.post-fix.json)
 - [FastAPI Demo capture](examples/benchmarks/demo-evidence-capture-post-fix.json)
-- [Markdown metrics report](examples/benchmarks/demo-evidence-report-post-fix.md)
+- [Markdown metrics report](examples/benchmarks/2026-07-20_DEMO_EVIDENCE_POST_FIX_REPORT_修复后演示证据报告.md)
 
 ### Run the no-key Demo locally
 
@@ -53,7 +53,7 @@ cd backend
 python -m service.mcp_server
 ```
 
-The MCP process does not require FastAPI to remain running, does not execute target-repository code, and exposes no file-editing or shell tools. Both Claude Code and Codex CLI have completed real client calls. See the [MCP Server guide](docs/MCP_SERVER.md) for scope and limitations.
+The MCP process does not require FastAPI to remain running, does not execute target-repository code, and exposes no file-editing or shell tools. Both Claude Code and Codex CLI have completed real client calls. See the [MCP Server guide](docs/2026-08-01_MCP_SERVER_GUIDE_MCP服务使用指南.md) for scope and limitations.
 
 The Windows Setup build can use the bundled `resources\backend\repomind-backend.exe --mcp` directly, without a separate Python installation. Call `list_repositories` first to discover indexed repositories, then use the other five code-context tools.
 
@@ -93,7 +93,7 @@ Pre-fix → post-fix: Recall@5 `0.556 → 0.667`, MRR `0.667 → 0.833`, and cit
 
 > **Scope:** three synthetic questions measuring cited-path hits—not general accuracy or production performance. Instance-method call edges remain incomplete, so entrypoint/test references are candidates, not proven edges. No controlled P50/P95 data is available.
 
-A separate benchmark contains **40 human-labeled code-understanding tasks across five categories** against RepoMind's own backend. The current lexical baseline has Recall@5 `0.267`, MRR `0.245`, and **22/40** answers cite at least one human-labeled key evidence path, for a `55%` task-completion rate. The report deliberately exposes weak cross-file overview, test-location, and security-review cases instead of presenting the three-question Demo as a general result. Inspect the [Gold labels](examples/benchmarks/backend-understanding-gold.json), [real Capture](examples/benchmarks/backend-understanding-capture-v2.json), and [per-query report](examples/benchmarks/backend-understanding-report-v2.md).
+A separate benchmark contains **40 human-labeled code-understanding tasks across five categories** against RepoMind's own backend. The current lexical baseline has Recall@5 `0.267`, MRR `0.245`, and **22/40** answers cite at least one human-labeled key evidence path, for a `55%` task-completion rate. The report deliberately exposes weak cross-file overview, test-location, and security-review cases instead of presenting the three-question Demo as a general result. Inspect the [Gold labels](examples/benchmarks/backend-understanding-gold.json), [real Capture](examples/benchmarks/backend-understanding-capture-v2.json), and [per-query report](examples/benchmarks/2026-07-25_BACKEND_UNDERSTANDING_REPORT_V2_后端理解评测报告V2.md).
 
 ```powershell
 python scripts/capture_demo_evidence.py
@@ -104,7 +104,7 @@ python scripts/report_retrieval_metrics.py examples/benchmarks/demo-evidence-cap
 
 An isolated fixed-commit experiment compares direct Codex search/file reads with RepoMind-only MCP access for locating two annotated source locations per task. On eight manually annotated navigation tasks, direct search passed 4/8 and RepoMind MCP passed 7/8.
 
-For the four tasks both paths passed, MCP received 83.5% less source/evidence text and used 29.8% fewer total input tokens. This is an initial code-location result, not a general Token-saving or feature-development claim: the common-success set contains only four tasks, source-text volume is a proxy rather than billed Token usage, and Windows restrictions were prompt-enforced. See the [full v2 report](examples/benchmarks/codex-location-ab-v2-report.md) and [runner](scripts/run_codex_location_ab.ps1).
+For the four tasks both paths passed, MCP received 83.5% less source/evidence text and used 29.8% fewer total input tokens. This is an initial code-location result, not a general Token-saving or feature-development claim: the common-success set contains only four tasks, source-text volume is a proxy rather than billed Token usage, and Windows restrictions were prompt-enforced. See the [full v2 report](examples/benchmarks/2026-07-26_CODEX_LOCATION_AB_V2_REPORT_代码定位对比报告V2.md) and [runner](scripts/run_codex_location_ab.ps1).
 
 ## Architecture
 
@@ -142,7 +142,7 @@ Repo Map narrows scope; BM25/optional Embedding retrieve candidates; RRF and str
 
 ## Verification
 
-- Backend: `cd backend; python -m pytest -q` → **176 passed**, including **12 MCP tests**
+- Backend: `cd backend; python -m pytest -q` → **261 passed**, covering MCP, retrieval telemetry, snapshot isolation, and desktop access protection
 - Desktop: `npm test -- --run` → **63 passed** across 11 test files
 - Desktop: `npm run build` → Vite renderer and Electron TypeScript passed
 - Frozen MCP: the packaged backend starts with `--mcp`, lists six read-only tools, and completes repository discovery
@@ -158,14 +158,16 @@ Windows CI rebuilds the frozen backend and Electron package in a clean environme
 - Local-instance type propagation and some call edges remain incomplete; static clues are not runtime facts or a full audit.
 - There is no large-repository benchmark or controlled latency study yet.
 
-See [SECURITY.md](SECURITY.md) for the complete data boundary.
+See the [Product Readiness Audit](docs/2026-08-01_PRODUCT_READINESS_AUDIT_产品上线与交付审计.md) for the current data boundary and release limitations. The historical security-boundary note remains under `docs/旧的文件/` for traceability only.
 
 ## Documentation
 
-- [Development and verification report](docs/后续开发指导/DEVELOPMENT_REPORT.md)
-- [Architecture and roadmap](docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md)
-- [Evaluation and resume claim boundaries](docs/后续开发指导/RESUME_EVIDENCE_PLAN.md)
-- [RAG versus bounded agent responsibilities](docs/后续开发指导/RAG_VS_AGENTIC.md)
-- [MCP Server guide](docs/MCP_SERVER.md)
+- [Documentation index](docs/2026-08-01_DOCUMENTATION_INDEX_文档导航.md)
+- [Current improvement execution plan](docs/后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md)
+- [Architecture and roadmap](docs/后续开发指导/2026-07-28_ARCHITECTURE_FUTURE_ROADMAP_未来架构路线图.md)
+- [RAG versus bounded agent responsibilities](docs/后续开发指导/2026-07-26_RAG_VS_AGENTIC_RAG与智能体检索定位.md)
+- [MCP Server guide](docs/2026-08-01_MCP_SERVER_GUIDE_MCP服务使用指南.md)
+- [Archived development report](docs/旧的文件/2026-07-16_DEVELOPMENT_REPORT_开发报告.md)
+- [Archived evaluation and resume evidence plan](docs/旧的文件/旧_RESUME_EVIDENCE_PLAN_恢复证据计划.md)
 
 Next: expand the Codex/Claude Code A/B across repositories and reduce MCP context overhead → create a Tag/Release only after explicit approval → add a production icon and Windows code signing.

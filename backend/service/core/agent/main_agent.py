@@ -6,8 +6,9 @@ import time
 from service.core.agent.models import AgentContext, MainAgentResult
 from service.core.agent.router import route_question
 from service.core.agent.tools import run_tool
+from service.core.debate import MultiAgentDebateService
 from service.core.evidence import EvidenceAssembler
-from service.core.qa import answer_question
+from service.core.qa import answer_question, insufficient_evidence_answer
 from service.core.repo_map import build_repo_map, build_repo_summary
 from service.core.retrieval import HybridRetriever
 from service.storage.agent_trace_store import finish_agent_trace, record_agent_step, start_agent_trace
@@ -125,6 +126,23 @@ def _direct_symbol_evidence(context: AgentContext) -> list[dict]:
     return []
 
 
+def _debate_context(evidence_rows: list[dict]) -> dict:
+    """只把已通过 EvidenceAssembler 的可引用证据交给多角色分析。"""
+    return {
+        "chunks": [
+            {
+                "file_path": item.get("path") or item.get("file_path") or "",
+                "start_line": item.get("start_line"),
+                "end_line": item.get("end_line"),
+                "title": item.get("title"),
+                "symbol_name": item.get("symbol_name"),
+                "content": item.get("content") or item.get("snippet") or "",
+            }
+            for item in evidence_rows
+        ],
+    }
+
+
 def run_main_agent(context: AgentContext) -> MainAgentResult:
     """执行一次有硬上限的 Main Agent 问答。"""
     plan = route_question(context.question)
@@ -132,7 +150,9 @@ def run_main_agent(context: AgentContext) -> MainAgentResult:
                                  mode=plan.intent, planner_version=plan.planner_version)
     step_no = 1
     record_agent_step(trace_id, step_no, "route", input_summary={"question": context.question},
-                      output_summary={"intent": plan.intent, "tools": [tool.name for tool in plan.tools]})
+                      output_summary={"intent": plan.intent, "tools": [tool.name for tool in plan.tools],
+                                      "debate_roles": list(plan.debate_roles),
+                                      "debate_reason": plan.debate_reason})
     step_no += 1
 
     retrieval = HybridRetriever().retrieve(
@@ -149,8 +169,15 @@ def run_main_agent(context: AgentContext) -> MainAgentResult:
             _direct_symbol_evidence(context),
             specialist_limit=1,
         )
+    relevance = retrieval.run.relevance
+    rerank_event = next(
+        (event for event in retrieval.run.events if event.get("stage") == "rerank"),
+        {"applied": False, "candidate_count": 0},
+    )
     record_agent_step(trace_id, step_no, "retrieval", tool_name="hybrid_retriever",
-                      output_summary={"mode": retrieval.run.mode, **retrieval_bundle.stats},
+                      output_summary={"mode": retrieval.run.mode, **retrieval_bundle.stats,
+                                      "relevance": relevance.to_dict() if relevance else None,
+                                      "rerank": rerank_event},
                       evidence_refs=_refs(retrieval_rows))
     step_no += 1
 
@@ -197,15 +224,74 @@ def run_main_agent(context: AgentContext) -> MainAgentResult:
     repo_summary = build_repo_summary(repo_map)
     if tool_summaries:
         repo_summary = {**repo_summary, "summary": (repo_summary.get("summary") or "") + "\n专业工具：" + "；".join(tool_summaries)}
-    answer = answer_question(context.question, evidence_rows, repo_summary)
+    retrieval_rejected = relevance is not None and not relevance.accepted
+    evidence_override = retrieval_rejected and bool(evidence_rows)
+    debate_result = None
+    debate_completed = False
+    debate_skip_reason = None
+    if plan.debate_roles:
+        if retrieval_rejected or len(evidence_rows) < 2 or final_bundle.source_count < 2:
+            debate_skip_reason = "insufficient_grounded_evidence"
+        else:
+            debate_started = time.perf_counter()
+            try:
+                debate_result = MultiAgentDebateService().run_debate(
+                    topic=context.question,
+                    context=_debate_context(evidence_rows),
+                    agents=[{"name": role.title(), "role": role} for role in plan.debate_roles],
+                )
+                debate_completed = debate_result.agents_used_llm == len(plan.debate_roles)
+                record_agent_step(
+                    trace_id, step_no, "debate", tool_name="multi_agent_debate",
+                    status="succeeded" if debate_completed else "fallback",
+                    output_summary={"roles": list(plan.debate_roles),
+                                    "agents_used_llm": debate_result.agents_used_llm,
+                                    "contribution_count": len(debate_result.contributions)},
+                    evidence_refs=_refs(evidence_rows), token_count=debate_result.total_tokens_used,
+                    duration_ms=(time.perf_counter() - debate_started) * 1000,
+                )
+            except Exception as exc:
+                debate_skip_reason = "debate_execution_failed"
+                limitations.append(f"Debate 执行失败：{exc}")
+                record_agent_step(trace_id, step_no, "debate", tool_name="multi_agent_debate",
+                                  status="failed", error=str(exc), evidence_refs=_refs(evidence_rows),
+                                  duration_ms=(time.perf_counter() - debate_started) * 1000)
+        step_no += 1
+    elif plan.debate_reason:
+        record_agent_step(trace_id, step_no, "debate", tool_name="multi_agent_debate", status="skipped",
+                          output_summary={"reason": plan.debate_reason})
+        step_no += 1
+
+    if debate_skip_reason:
+        record_agent_step(trace_id, step_no, "debate", tool_name="multi_agent_debate", status="skipped",
+                          output_summary={"reason": debate_skip_reason}, evidence_refs=_refs(evidence_rows))
+        step_no += 1
+
+    if retrieval_rejected and not evidence_rows:
+        answer = insufficient_evidence_answer(relevance.outcome)
+    elif debate_completed and debate_result and debate_result.summary:
+        answer = {
+            "answer": debate_result.summary,
+            "confidence": "high",
+            "used_context": len(evidence_rows),
+            "next_steps": [],
+            "token_count": debate_result.total_tokens_used,
+            "used_llm": True,
+        }
+    else:
+        answer = answer_question(context.question, evidence_rows, repo_summary)
     if limitations:
         answer["answer"] += "\n\n限制说明：" + "；".join(limitations)
-    generation_mode = "llm" if answer.get("used_llm") else "rule_fallback"
+    generation_mode = "llm_debate" if debate_completed and answer.get("used_llm") else (
+        "llm" if answer.get("used_llm") else "rule_fallback"
+    )
     record_agent_step(trace_id, step_no, "synthesis", status="succeeded",
                       output_summary={"generation_mode": generation_mode, "limitations": limitations,
-                                      "evidence_stats": final_bundle.stats},
+                                      "evidence_stats": final_bundle.stats,
+                                      "relevance_outcome": relevance.outcome if relevance else None,
+                                      "evidence_override": evidence_override},
                       token_count=answer.get("token_count", 0), evidence_refs=_refs(evidence_rows))
-    finish_agent_trace(trace_id, status="succeeded" if generation_mode == "llm" else "fallback",
+    finish_agent_trace(trace_id, status="succeeded" if generation_mode.startswith("llm") else "fallback",
                        answer=answer["answer"], confidence=answer.get("confidence", "low"),
                        token_count=answer.get("token_count", 0))
     return MainAgentResult(

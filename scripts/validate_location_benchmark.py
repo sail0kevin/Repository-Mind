@@ -99,6 +99,12 @@ def _validate_tasks(task_path: Path, repository: Path, commit: str) -> int:
     tasks = payload.get("tasks")
     if not isinstance(tasks, list) or not tasks:
         raise BenchmarkValidationError("tasks.tasks must be a non-empty array.")
+    task_type = payload.get("task_type", "multi_location_navigation")
+    if task_type not in {"multi_location_navigation", "single_location_navigation"}:
+        raise BenchmarkValidationError(
+            "tasks.task_type must be multi_location_navigation or single_location_navigation."
+        )
+    minimum_locations = 1 if task_type == "single_location_navigation" else 2
     task_ids: set[str] = set()
     tree_paths = set(_git_output(repository, "ls-tree", "-r", "--name-only", commit).splitlines())
     for item in tasks:
@@ -111,17 +117,34 @@ def _validate_tasks(task_path: Path, repository: Path, commit: str) -> int:
         if not isinstance(item.get("query"), str) or not item["query"].strip():
             raise BenchmarkValidationError(f"Task {task_id} has no query.")
         locations = item.get("expected_locations")
-        if not isinstance(locations, list) or len(locations) < 2:
-            raise BenchmarkValidationError(
-                f"Task {task_id} must annotate at least two expected_locations for code-location A/B."
-            )
-        for location in locations:
+        groups = item.get("acceptable_location_groups")
+        if groups is not None:
+            if locations is not None:
+                raise BenchmarkValidationError(
+                    f"Task {task_id} must use either expected_locations or acceptable_location_groups, not both."
+                )
+            if not isinstance(groups, list) or len(groups) < minimum_locations:
+                raise BenchmarkValidationError(
+                    f"Task {task_id} must annotate at least {minimum_locations} acceptable location groups."
+                )
+            locations_to_validate = [location for group in groups for location in (group if isinstance(group, list) else [])]
+            if any(not isinstance(group, list) or not group for group in groups):
+                raise BenchmarkValidationError(f"Task {task_id} has an empty or invalid acceptable location group.")
+        else:
+            if not isinstance(locations, list) or len(locations) < minimum_locations:
+                raise BenchmarkValidationError(
+                    f"Task {task_id} must annotate at least {minimum_locations} expected_locations "
+                    f"for {task_type}."
+                )
+            locations_to_validate = locations
+        for location in locations_to_validate:
             if not isinstance(location, dict):
                 raise BenchmarkValidationError(f"Task {task_id} has an invalid expected location.")
             relative_path = _required_string(location, "path", f"task {task_id} location")
             start_line = location.get("line_start")
-            if not isinstance(start_line, int) or start_line < 1:
-                raise BenchmarkValidationError(f"Task {task_id} has an invalid line_start for {relative_path}.")
+            end_line = location.get("line_end", start_line)
+            if not isinstance(start_line, int) or start_line < 1 or not isinstance(end_line, int) or end_line < start_line:
+                raise BenchmarkValidationError(f"Task {task_id} has an invalid line range for {relative_path}.")
             if relative_path not in tree_paths:
                 raise BenchmarkValidationError(
                     f"Task {task_id} references {relative_path}, which is absent at commit {commit}."

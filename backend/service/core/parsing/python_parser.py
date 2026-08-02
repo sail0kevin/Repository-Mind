@@ -117,6 +117,7 @@ class _PythonCollector(ast.NodeVisitor):
         self.module_name = module_name
         self.scope: list[Symbol] = [module]
         self.imports: dict[str, str] = {}
+        self.receiver_bindings: list[dict[str, str]] = []
         self.local_symbols: dict[str, Symbol] = {}
         self.class_symbols: dict[str, Symbol] = {}
         self.symbol_ordinals: dict[tuple[str, str, str], int] = {}
@@ -193,9 +194,26 @@ class _PythonCollector(ast.NodeVisitor):
         if self.scope[-1].kind == "module":
             self.local_symbols[node.name] = symbol
         self.scope.append(symbol)
+        self.receiver_bindings.append({})
         for child in node.body:
             self.visit(child)
+        self.receiver_bindings.pop()
         self.scope.pop()
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        """Bind only direct imported-class construction within the current function."""
+        self.generic_visit(node)
+        self._update_receiver_bindings(node.targets, node.value)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        """Treat annotated assignments like ordinary local bindings."""
+        self.generic_visit(node)
+        self._update_receiver_bindings([node.target], node.value)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        """An augmented assignment invalidates a previously known receiver type."""
+        self.generic_visit(node)
+        self._clear_receiver_bindings([node.target])
 
     def visit_Call(self, node: ast.Call) -> None:
         """仅输出名称能由当前作用域或 import 绑定静态解析的调用。"""
@@ -290,6 +308,16 @@ class _PythonCollector(ast.NodeVisitor):
                 return self.local_symbols[node.id].qualified_name
             return self.imports.get(node.id)
         if isinstance(node, ast.Attribute):
+            if (
+                isinstance(node.value, ast.Name)
+                and node.value.id in {"self", "cls"}
+            ):
+                enclosing_class = next(
+                    (scope for scope in reversed(self.scope) if scope.kind == "class"),
+                    None,
+                )
+                if enclosing_class is not None:
+                    return f"{enclosing_class.qualified_name}.{node.attr}"
             if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
                 # An imported class constructor followed by a method call is a
                 # statically navigable relationship. Other factory calls remain
@@ -297,8 +325,42 @@ class _PythonCollector(ast.NodeVisitor):
                 constructor = self.imports.get(node.value.func.id)
                 if constructor:
                     return f"{constructor}.{node.attr}"
+            if isinstance(node.value, ast.Name) and self.receiver_bindings:
+                constructor = self.receiver_bindings[-1].get(node.value.id)
+                if constructor:
+                    return f"{constructor}.{node.attr}"
             return self._resolve_expr(node)
         return None
+
+    def _update_receiver_bindings(self, targets: list[ast.expr], value: ast.expr | None) -> None:
+        """Record ``client = ImportedClass()`` and clear all other direct rebindings."""
+        if not self.receiver_bindings:
+            return
+        names = [target.id for target in targets if isinstance(target, ast.Name)]
+        if not names:
+            return
+        constructor = self._direct_constructor(value)
+        bindings = self.receiver_bindings[-1]
+        for name in names:
+            if constructor:
+                bindings[name] = constructor
+            else:
+                bindings.pop(name, None)
+
+    def _clear_receiver_bindings(self, targets: list[ast.expr]) -> None:
+        if not self.receiver_bindings:
+            return
+        bindings = self.receiver_bindings[-1]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                bindings.pop(target.id, None)
+
+    def _direct_constructor(self, value: ast.expr | None) -> str | None:
+        if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
+            return None
+        if value.func.id in self.class_symbols:
+            return self.class_symbols[value.func.id].qualified_name
+        return self.imports.get(value.func.id)
 
     def _resolve_expr(self, node: ast.expr) -> str | None:
         if isinstance(node, ast.Name):

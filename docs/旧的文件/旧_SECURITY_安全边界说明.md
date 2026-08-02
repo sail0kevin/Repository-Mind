@@ -1,5 +1,7 @@
 # RepoMind Security Boundary
 
+> Archive status: undated historical material. See `../2026-08-01_PRODUCT_READINESS_AUDIT_产品上线与交付审计.md` for the current delivery and enterprise-security position.
+
 This document describes the security posture of the public `0.1.x` development
 line. It is a product boundary, not a security certification.
 

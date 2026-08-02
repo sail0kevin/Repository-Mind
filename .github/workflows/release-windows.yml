@@ -39,6 +39,22 @@ jobs:
         shell: pwsh
         run: python -m pip install -r backend/requirements-build.txt
 
+      - name: Verify stable product identity
+        shell: pwsh
+        run: ./scripts/verify_identity_contract.ps1
+
+      - name: Verify locked build runtime
+        shell: pwsh
+        run: ./scripts/verify_runtime_contract.ps1 -PythonCommand python
+
+      - name: Verify offline retrieval regression gate
+        shell: pwsh
+        run: python scripts/verify_retrieval_regression.py
+
+      - name: Test release checksum verifier
+        shell: pwsh
+        run: ./scripts/test_release_hashes.ps1
+
       - name: Verify tag and package version
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
@@ -50,6 +66,28 @@ jobs:
       - name: Build and verify release artifacts
         shell: pwsh
         run: ./scripts/package_windows.ps1 -PythonCommand python -Release
+
+      - name: Run packaged Electron E2E
+        shell: pwsh
+        run: ./scripts/e2e_windows.ps1 -ExePath ./desktop/app/release/win-unpacked/RepoMind.exe
+
+      - name: Verify release hashes after E2E
+        shell: pwsh
+        run: ./scripts/verify_release_hashes.ps1 -ReleaseDirectory ./desktop/app/release
+
+      - name: Upload redacted E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repomind-release-e2e-diagnostics
+          path: |
+            e2e-artifacts/**/*.png
+            e2e-artifacts/**/*.zip
+            e2e-artifacts/**/*.webm
+            e2e-artifacts/**/*.txt
+            e2e-artifacts/**/*-redacted.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4

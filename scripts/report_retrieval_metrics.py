@@ -90,6 +90,24 @@ def _evaluate(payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _evaluate_categories(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Evaluate the same ranking metrics for every labeled query category."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for query in payload["queries"]:
+        if not isinstance(query, dict):
+            continue
+        category = str(query.get("category") or "uncategorized")
+        grouped.setdefault(category, []).append(query)
+
+    return {
+        category: evaluate_rankings(
+            [[str(item) for item in query["ranked"]] for query in queries],
+            [[str(item) for item in query["relevant"]] for query in queries],
+        ).to_dict()
+        for category, queries in sorted(grouped.items())
+    }
+
+
 def _comparison(payload: dict[str, Any], input_path: Path) -> dict[str, dict[str, float]]:
     """从同目录修复前 capture 实时计算可复核对比，禁止硬编码指标。"""
     reference = payload.get("pre_fix_capture")
@@ -153,6 +171,15 @@ def _markdown(result: dict[str, Any], payload: dict[str, Any] | None = None) -> 
             "  - Scope: expected tools are labeled from the same deterministic Router rules; this is a regression check, not an unseen-query generalization score.",
         ])
 
+    categories = result.get("categories")
+    if isinstance(categories, dict) and categories:
+        lines.extend(["", "## Category Ranking Metrics", "", "| Category | Queries | Recall@5 | Recall@10 | MRR |", "|----------|--------:|---------:|----------:|----:|"])
+        for category, metrics in categories.items():
+            lines.append(
+                f"| {category} | {metrics['query_count']} | {metrics['recall_at_5']:.3f} | "
+                f"{metrics['recall_at_10']:.3f} | {metrics['mrr']:.3f} |"
+            )
+
     queries = payload.get("queries") if isinstance(payload, dict) else None
     if isinstance(queries, list) and queries:
         lines.extend(["", "## Per-query actual cited files", ""])
@@ -200,6 +227,7 @@ def main() -> int:
 
     payload = _load(args.input)
     result = _evaluate(payload)
+    result["categories"] = _evaluate_categories(payload)
     comparison = _comparison(payload, args.input)
     if comparison:
         payload = {**payload, "comparison": comparison}

@@ -2,6 +2,39 @@ import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 
+export const MIN_BACKEND_SCHEMA_VERSION = 9;
+
+export interface CompatibleBackendHealth {
+  status: string;
+  api_version: string;
+  database_schema_version: string;
+  schema_version: string;
+  backend_contract_version: string;
+  instance_id: string;
+  session_id: string | null;
+  database_identity: string;
+}
+
+export function isCompatibleBackendHealth(
+  statusCode: number | undefined,
+  health: CompatibleBackendHealth,
+  expectedInstanceId: string,
+  expectedBackendContractVersion: string,
+  expectedDatabaseIdentity?: string,
+  expectedSessionId?: string,
+): boolean {
+  const schemaVersion = Number.parseInt(health.database_schema_version || health.schema_version, 10);
+  return statusCode === 200
+    && health.status === "ok"
+    && health.instance_id === expectedInstanceId
+    && health.api_version === "v1"
+    && health.backend_contract_version === expectedBackendContractVersion
+    && Number.isInteger(schemaVersion)
+    && schemaVersion >= MIN_BACKEND_SCHEMA_VERSION
+    && (!expectedDatabaseIdentity || health.database_identity === expectedDatabaseIdentity)
+    && (!expectedSessionId || health.session_id === expectedSessionId);
+}
+
 /**
  * 与 Python 后端共享的数据库身份规范：非严格 realpath 解析链接/联接，统一为 /，
  * Windows 再转小写，最后对 UTF-8 字节计算 SHA-256。

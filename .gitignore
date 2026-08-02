@@ -72,10 +72,11 @@ tmp/
 /desktop/app/test-results/
 /desktop/app/playwright-report/
 /e2e-artifacts/
+/backend/e2e-artifacts/
+/benchmark-runs/
 
-# Local historical documents
-# 这些文件保留在本机作为历史归档，不属于当前公开项目说明。
-docs/旧的文件/
+# Historical documents are versioned for decision traceability. They are not
+# current implementation guidance; see docs/README.md for the active entrypoints.
 
 # Sensitive key and certificate material
 *.pem

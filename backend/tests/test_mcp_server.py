@@ -225,6 +225,32 @@ def test_locate_code_returns_independent_compact_candidates(tmp_path: Path) -> N
     assert any("independent" in item for item in result["limitations"])
 
 
+def test_locate_code_compact_mode_preserves_locations_with_less_context(tmp_path: Path) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    question = "Locate where authenticate is defined and where login calls authenticate."
+
+    detailed = locate_code(repo_id, question, limit=4)
+    compact = locate_code(repo_id, question, limit=4, compact=True)
+
+    assert set(compact) == {
+        "repo_id", "snapshot_id", "commit", "status", "locations", "retrieval_mode", "limitations"
+    }
+    assert compact["repo_id"] == repo_id
+    assert compact["snapshot_id"] == snapshot_id
+    assert compact["status"] == detailed["status"] == "degraded"
+    assert compact["locations"] == [
+        {
+            "path": item["file_path"],
+            "start_line": item["start_line"],
+            "end_line": item["end_line"],
+        }
+        for item in detailed["data"]["locations"]
+    ]
+    assert "question" not in compact
+    assert all("evidence_id" not in item and "reason" not in item for item in compact["locations"])
+    assert len(json.dumps(compact, ensure_ascii=False)) < len(json.dumps(detailed, ensure_ascii=False)) * 0.7
+
+
 def test_locate_code_merges_term_level_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_id, snapshot_id, _ = _seed_repo(tmp_path)
 
@@ -357,10 +383,54 @@ def test_locate_code_retrieves_each_explicit_behavior_clause(tmp_path: Path, mon
     question = "Locate first behavior, and where second behavior is handled."
     result = locate_code(repo_id, question, limit=4)
 
-    assert queries == [question, "where second behavior is handled"]
+    assert queries == [question, "Locate first behavior", "where second behavior is handled"]
     assert {(item["file_path"], item["start_line"]) for item in result["data"]["locations"]} == {
         ("src/first.py", 1), ("src/second.py", 10),
     }
+
+
+def test_location_queries_expand_handler_to_adapter_without_repository_specific_terms() -> None:
+    question = "Locate where a handler is selected for an outgoing URL."
+
+    queries = mcp_tools._location_queries(question)
+
+    assert queries == [question, "Locate where a adapter is selected for an outgoing URL."]
+
+
+def test_location_terms_expand_handler_to_adapter_for_symbol_matching() -> None:
+    assert "adapter" in mcp_tools._location_terms("Locate the selected transport handler")
+
+
+def test_locate_code_retrieves_leading_behavior_clause_for_cross_file_location(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_id, _, _ = _seed_repo(tmp_path)
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, query: str, _limit: int):
+            if query == "Locate the public helper that creates a temporary Session":
+                items = [{
+                    "chunk_id": "api_request", "file_path": "src/api.py", "start_line": 20, "end_line": 25,
+                    "chunk_type": "function", "content": "def request():\n    with Session() as session:\n        return session.request()\n", "score": 2.0,
+                }]
+            elif query == "the Session.request method sends the prepared request":
+                items = [{
+                    "chunk_id": "session_request", "file_path": "src/sessions.py", "start_line": 50, "end_line": 58,
+                    "chunk_type": "method", "content": "def request(self):\n    prepared = self.prepare_request()\n    return self.send(prepared)\n", "score": 2.0,
+                }]
+            else:
+                items = []
+            return type("Result", (), {"items": items, "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    question = (
+        "Locate the public helper that creates a temporary Session, "
+        "and the Session.request method sends the prepared request"
+    )
+    result = locate_code(repo_id, question, limit=4)
+
+    locations = {(item["file_path"], item["start_line"]) for item in result["data"]["locations"]}
+    assert {("src/api.py", 20), ("src/sessions.py", 50)} <= locations
 
 
 def test_locate_code_promotes_qualified_symbol_with_two_question_clues(
@@ -463,6 +533,211 @@ def test_locate_code_prefers_qualified_method_over_same_named_symbol(tmp_path: P
 
     assert result["data"]["locations"][0]["file_path"] == "src/auth.py"
     assert result["data"]["locations"][0]["start_line"] == 1
+
+
+def test_locate_code_matches_import_facing_qualified_symbol_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        connection.execute(
+            "UPDATE symbols SET qualified_name = ? WHERE qualified_name = ?",
+            ("src.requests.api.request", "src.auth.authenticate"),
+        )
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, _query: str, _limit: int):
+            return type("Result", (), {"items": [], "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    result = locate_code(repo_id, "Locate requests.api.request", snapshot_id, limit=1)
+
+    location = result["data"]["locations"][0]
+    assert location["file_path"] == "src/auth.py"
+    assert location["start_line"] == 1
+
+
+def test_locate_code_prioritizes_method_under_explicit_class_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        connection.execute(
+            "UPDATE symbols SET qualified_name = ? WHERE qualified_name = ?",
+            ("src.auth.Session.send", "src.auth.authenticate"),
+        )
+        connection.execute(
+            "INSERT INTO symbols (id, logical_id, identity_key, snapshot_id, file_id, evidence_id, qualified_name, name, symbol_kind, start_line, end_line) "
+            "SELECT ?, ?, ?, snapshot_id, file_id, evidence_id, ?, 'send', 'method', start_line, end_line FROM symbols WHERE qualified_name = ?",
+            ("adapter_send", "adapter_send_logical", "adapter_send_identity", "src.auth.HTTPAdapter.send", "src.login.login"),
+        )
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, _query: str, _limit: int):
+            return type("Result", (), {"items": [], "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    result = locate_code(repo_id, "Locate where Session sends a prepared request", snapshot_id, limit=1)
+
+    assert result["data"]["locations"][0]["file_path"] == "src/auth.py"
+    assert result["data"]["locations"][0]["start_line"] == 1
+
+
+def test_locate_code_prioritizes_explicit_qualified_method_over_class_helpers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        connection.execute(
+            "UPDATE symbols SET qualified_name = ?, symbol_kind = 'method' WHERE qualified_name = ?",
+            ("src.auth.Session.request", "src.auth.authenticate"),
+        )
+        connection.execute(
+            "INSERT INTO symbols (id, logical_id, identity_key, snapshot_id, file_id, evidence_id, qualified_name, name, symbol_kind, start_line, end_line) "
+            "SELECT ?, ?, ?, snapshot_id, file_id, evidence_id, ?, 'prepare_request', 'method', start_line, end_line FROM symbols WHERE qualified_name = ?",
+            ("prepare_request", "prepare_request_logical", "prepare_request_identity", "src.auth.Session.prepare_request", "src.login.login"),
+        )
+
+    class FakeRetriever:
+        def retrieve(self, _repo_id: str, _snapshot_id: str, _query: str, _limit: int):
+            return type("Result", (), {"items": [], "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", FakeRetriever)
+    result = locate_code(
+        repo_id,
+        "Locate Session.request, which calls self.prepare_request",
+        snapshot_id,
+        limit=1,
+    )
+
+    assert result["data"]["locations"][0]["file_path"] == "src/auth.py"
+    assert result["data"]["locations"][0]["start_line"] == 1
+
+
+def _seed_call_relation_scenario(
+    repo_id: str,
+    snapshot_id: str,
+    file_id: dict[str, str],
+    methods: list[tuple[str, str, str, int, int]],
+    resolved_calls: list[tuple[str, str]],
+) -> None:
+    """Replace the snapshot's symbols/relations with a small ``Class.method`` call graph.
+
+    ``methods`` items are ``(short_id, file_path, qualified_name, start_line, end_line)``.
+    ``resolved_calls`` items are ``(source_short_id, target_short_id)`` observed edges.
+    """
+    evidence = [
+        {
+            "id": f"{short_id}_ev", "logical_id": f"{short_id}_ev_logical",
+            "identity_key": f"{short_id}_ev_identity", "snapshot_id": snapshot_id,
+            "file_id": file_id[path], "unit_type": "method", "language": "python",
+            "title": qualified_name.rsplit(".", 1)[-1], "start_line": start, "end_line": end,
+            "content": f"def {qualified_name.rsplit('.', 1)[-1]}(self):\n    return None\n",
+            "parser_name": "test", "parser_version": "1",
+            "metadata": {"symbol_name": qualified_name.rsplit(".", 1)[-1]},
+        }
+        for short_id, path, qualified_name, start, end in methods
+    ]
+    symbols = [
+        {
+            "id": f"{short_id}_sym", "logical_id": f"{short_id}_sym_logical",
+            "identity_key": f"{short_id}_sym_identity", "snapshot_id": snapshot_id,
+            "file_id": file_id[path], "evidence_id": f"{short_id}_ev",
+            "qualified_name": qualified_name, "name": qualified_name.rsplit(".", 1)[-1],
+            "symbol_kind": "method", "start_line": start, "end_line": end,
+        }
+        for short_id, path, qualified_name, start, end in methods
+    ]
+    path_by_short = {short_id: path for short_id, path, _, _, _ in methods}
+    relations = [
+        {
+            "id": f"rel_{source}_{target}", "snapshot_id": snapshot_id,
+            "file_id": file_id[path_by_short[source]], "source_symbol_id": f"{source}_sym",
+            "target_symbol_id": f"{target}_sym", "relation_type": "calls",
+            "identity_key": f"{source}_calls_{target}", "observed": True, "inferred": False,
+            "resolver_status": "resolved", "evidence_id": f"{source}_ev", "line": 1,
+            "extractor": "test", "extractor_version": "1",
+        }
+        for source, target in resolved_calls
+    ]
+    replace_all_snapshot_parse_results(repo_id, snapshot_id, evidence, symbols, relations, [])
+
+
+class _EmptyRetriever:
+    def retrieve(self, _repo_id: str, _snapshot_id: str, _query: str, _limit: int):
+        return type("Result", (), {"items": [], "run": type("Run", (), {"mode": "lexical"})()})()
+
+
+def test_locate_code_boosts_resolved_call_neighbor_over_compact_distractor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A call-connected caller must survive the per-file cap over an unrelated compact match.
+
+    ``configure`` (large span) and ``render`` (compact) are the two connected gold sites;
+    ``reset`` is an equally strong lexical match but is not on the call graph. Without
+    corroboration the compact ``reset`` would take the file's second slot and evict the
+    real caller ``configure``.
+    """
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        file_id = {
+            row["relative_path"]: row["id"]
+            for row in connection.execute(
+                "SELECT id, relative_path FROM files WHERE snapshot_id = ?", (snapshot_id,)
+            ).fetchall()
+        }
+    _seed_call_relation_scenario(
+        repo_id, snapshot_id, file_id,
+        methods=[
+            ("configure", "src/auth.py", "src.auth.Widget.configure", 1, 40),
+            ("render", "src/auth.py", "src.auth.Widget.render", 45, 60),
+            ("reset", "src/auth.py", "src.auth.Widget.reset", 65, 70),
+        ],
+        resolved_calls=[("configure", "render")],
+    )
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", _EmptyRetriever)
+    result = locate_code(
+        repo_id, "Locate the widget configure step, the widget render step, and the widget reset step",
+        snapshot_id, limit=2,
+    )
+
+    starts = {item["start_line"] for item in result["data"]["locations"]}
+    assert starts == {1, 45}
+    assert 65 not in starts
+
+
+def test_locate_code_corroborates_callee_across_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A resolved callee ranks above an unrelated equally-strong match in another file."""
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        file_id = {
+            row["relative_path"]: row["id"]
+            for row in connection.execute(
+                "SELECT id, relative_path FROM files WHERE snapshot_id = ?", (snapshot_id,)
+            ).fetchall()
+        }
+    _seed_call_relation_scenario(
+        repo_id, snapshot_id, file_id,
+        methods=[
+            # anchor caller and its resolved callee (the gold), plus a compact distractor.
+            ("dispatch", "src/login.py", "src.login.Client.dispatch", 1, 30),
+            ("connect", "src/auth.py", "src.auth.Client.connect", 100, 140),
+            ("noise", "src/b_helper.py", "src.b_helper.Client.connect", 5, 8),
+        ],
+        resolved_calls=[("dispatch", "connect")],
+    )
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", _EmptyRetriever)
+    result = locate_code(
+        repo_id, "Locate the client dispatch stage and the client connect stage", snapshot_id, limit=6,
+    )
+
+    order = [(item["file_path"], item["start_line"]) for item in result["data"]["locations"]]
+    assert ("src/auth.py", 100) in order
+    assert order.index(("src/auth.py", 100)) < order.index(("src/b_helper.py", 5))
 
 
 def test_real_hybrid_search_uses_stored_vectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -683,6 +958,9 @@ async def test_real_stdio_server_lists_seven_tools_and_calls_four(
                 await session.call_tool("locate_code", {"repo_id": repo_id, "question": "Locate authenticate"}),
                 await session.call_tool("get_symbol", {"repo_id": repo_id, "symbol_query": "authenticate"}),
             ]
+            compact_location = await session.call_tool(
+                "locate_code", {"repo_id": repo_id, "question": "Locate authenticate", "compact": True}
+            )
             missing_search = await session.call_tool(
                 "search_code", {"repo_id": repo_id, "query": "qzjxvwpnkrmtafud"}
             )
@@ -695,7 +973,353 @@ async def test_real_stdio_server_lists_seven_tools_and_calls_four(
         assert not call.isError
         payload = call.structuredContent or json.loads(call.content[0].text)
         _assert_envelope(payload, repo_id, snapshot_id)
+    assert not compact_location.isError
+    compact_payload = compact_location.structuredContent or json.loads(compact_location.content[0].text)
+    assert compact_payload["snapshot_id"] == snapshot_id
+    assert compact_payload["locations"]
+    assert all(set(item) == {"path", "start_line", "end_line"} for item in compact_payload["locations"])
     missing_payload = missing_search.structuredContent or json.loads(missing_search.content[0].text)
     _assert_envelope(missing_payload, repo_id, snapshot_id)
     assert missing_payload["status"] == "not_found"
     assert missing_payload["evidence"] == []
+
+
+@pytest.mark.anyio
+async def test_coding_agent_stdio_profile_exposes_only_bound_compact_locator(
+    tmp_path: Path, temporary_database: Path
+) -> None:
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    backend_dir = Path(__file__).resolve().parents[1]
+    env = dict(os.environ)
+    env.update({
+        "REPOMIND_PATHS__DATA_DIR": str(temporary_database.parent),
+        "REPOMIND_PATHS__DATABASE_PATH": str(temporary_database),
+        "REPOMIND_MCP_REPO_ID": repo_id,
+        "REPOMIND_MCP_SNAPSHOT_ID": snapshot_id,
+        "PYTHONIOENCODING": "utf-8",
+    })
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "service.mcp_server", "--profile", "coding-agent"],
+        env=env,
+        cwd=str(backend_dir),
+    )
+
+    async with stdio_client(server) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            listed = await session.list_tools()
+            assert [tool.name for tool in listed.tools] == ["locate_code"]
+            locator = listed.tools[0]
+            assert set(locator.inputSchema["properties"]) == {"question", "limit"}
+            call = await session.call_tool("locate_code", {"question": "Locate authenticate"})
+
+    assert not call.isError
+    payload = call.structuredContent or json.loads(call.content[0].text)
+    assert payload["repo_id"] == repo_id
+    assert payload["snapshot_id"] == snapshot_id
+    assert payload["locations"]
+    assert all(set(item) == {"path", "start_line", "end_line"} for item in payload["locations"])
+
+
+@pytest.mark.anyio
+async def test_coding_agent_location_1_profile_caps_bound_locator_to_one_location(
+    tmp_path: Path, temporary_database: Path
+) -> None:
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    backend_dir = Path(__file__).resolve().parents[1]
+    env = dict(os.environ)
+    env.update({
+        "REPOMIND_PATHS__DATA_DIR": str(temporary_database.parent),
+        "REPOMIND_PATHS__DATABASE_PATH": str(temporary_database),
+        "REPOMIND_MCP_REPO_ID": repo_id,
+        "REPOMIND_MCP_SNAPSHOT_ID": snapshot_id,
+        "PYTHONIOENCODING": "utf-8",
+    })
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "service.mcp_server", "--profile", "coding-agent-location-1"],
+        env=env,
+        cwd=str(backend_dir),
+    )
+
+    async with stdio_client(server) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            listed = await session.list_tools()
+            assert [tool.name for tool in listed.tools] == ["locate_code"]
+            locator = listed.tools[0]
+            assert set(locator.inputSchema["properties"]) == {"question", "limit"}
+            call = await session.call_tool(
+                "locate_code", {"question": "Locate authenticate", "limit": 5}
+            )
+
+    assert not call.isError
+    payload = call.structuredContent or json.loads(call.content[0].text)
+    assert payload["repo_id"] == repo_id
+    assert payload["snapshot_id"] == snapshot_id
+    assert len(payload["locations"]) == 1
+    assert set(payload["locations"][0]) == {"path", "start_line", "end_line"}
+
+
+def _seed_methods_with_content(
+    repo_id: str,
+    snapshot_id: str,
+    file_id: dict[str, str],
+    methods: list[tuple[str, str, str, int, int, str]],
+    resolved_calls: list[tuple[str, str]],
+) -> None:
+    """Like _seed_call_relation_scenario but accepts custom body content per method."""
+    evidence = [
+        {
+            "id": f"{sid}_ev", "logical_id": f"{sid}_ev_logical",
+            "identity_key": f"{sid}_ev_identity", "snapshot_id": snapshot_id,
+            "file_id": file_id[path], "unit_type": "method", "language": "python",
+            "title": qname.rsplit(".", 1)[-1], "start_line": start, "end_line": end,
+            "content": content, "parser_name": "test", "parser_version": "1",
+            "metadata": {"symbol_name": qname.rsplit(".", 1)[-1]},
+        }
+        for sid, path, qname, start, end, content in methods
+    ]
+    symbols = [
+        {
+            "id": f"{sid}_sym", "logical_id": f"{sid}_sym_logical",
+            "identity_key": f"{sid}_sym_identity", "snapshot_id": snapshot_id,
+            "file_id": file_id[path], "evidence_id": f"{sid}_ev",
+            "qualified_name": qname, "name": qname.rsplit(".", 1)[-1],
+            "symbol_kind": "method", "start_line": start, "end_line": end,
+        }
+        for sid, path, qname, start, end, _ in methods
+    ]
+    path_by_sid = {sid: path for sid, path, _, _, _, _ in methods}
+    relations = [
+        {
+            "id": f"rel_{src}_{tgt}", "snapshot_id": snapshot_id,
+            "file_id": file_id[path_by_sid[src]], "source_symbol_id": f"{src}_sym",
+            "target_symbol_id": f"{tgt}_sym", "relation_type": "calls",
+            "identity_key": f"{src}_calls_{tgt}", "observed": True, "inferred": False,
+            "resolver_status": "resolved", "evidence_id": f"{src}_ev", "line": 1,
+            "extractor": "test", "extractor_version": "1",
+        }
+        for src, tgt in resolved_calls
+    ]
+    replace_all_snapshot_parse_results(repo_id, snapshot_id, evidence, symbols, relations, [])
+
+
+def test_locate_code_suppresses_trivial_dunder_boundary_in_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dunder methods with no executable content match must not crowd out real matches.
+
+    ``__enter__`` and ``__exit__`` both match one term ("session") via the class
+    component of their qualified name, but their bodies have no executable lines
+    matching any query term.  Fix A guards the unconditional full-boundary append
+    in the weak fallback pass: a single class-name-only term overlap with no body
+    evidence must not earn a boundary entry that takes a per-file cap slot.
+    ``install_transports`` has actual executable "https" / "transport" matches and
+    must survive the per-file cap.
+    """
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        file_id = {
+            row["relative_path"]: row["id"]
+            for row in connection.execute(
+                "SELECT id, relative_path FROM files WHERE snapshot_id = ?", (snapshot_id,)
+            ).fetchall()
+        }
+    dunder_enter_body = "def __enter__(self):\n    return self\n"
+    dunder_exit_body = "def __exit__(self, exc_type, exc_val, exc_tb):\n    pass\n"
+    install_body = (
+        "def install_transports(self):\n"
+        "    handler = TransportHandler()\n"
+        "    self.mount(\"https://\", handler)\n"
+        "    self.mount(\"http://\", handler)\n"
+        "    self.transport_handlers = [handler]\n"
+    )
+    _seed_methods_with_content(
+        repo_id, snapshot_id, file_id,
+        methods=[
+            ("enter", "src/auth.py", "src.auth.Session.__enter__", 1, 2, dunder_enter_body),
+            ("exit_", "src/auth.py", "src.auth.Session.__exit__", 4, 5, dunder_exit_body),
+            ("install", "src/auth.py", "src.auth.Session.install_transports", 10, 24, install_body),
+        ],
+        resolved_calls=[],
+    )
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", _EmptyRetriever)
+    # lowercase "session" keeps explicit_class_names empty so class_match stays False
+    result = locate_code(
+        repo_id,
+        "where does a session install the https transport handlers",
+        snapshot_id,
+        limit=3,
+    )
+
+    starts = {item["start_line"] for item in result["data"]["locations"]}
+    assert 10 in starts, "install_transports must appear"
+    assert 1 not in starts, "__enter__ must not take a per-file cap slot"
+    assert 4 not in starts, "__exit__ must not take a per-file cap slot"
+
+
+def test_locate_code_ranks_body_matching_anchor_over_name_only_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Among tied anchors (same exact_symbol_match), the one with body content match wins.
+
+    ``Session.request``, ``Session.prepare_request``, and ``Session.merge_settings``
+    all qualify as 2-term anchors in the primary pass.  Without Fix B all boundary
+    entries carry ``executable_matches=0`` and ``symbol_compactness`` decides,
+    evicting the longest method (``Session.request``, which contains the real call
+    site) in favour of the shorter ``Session.prepare_request``.  Fix B propagates
+    the body-line executable match count so ``Session.request`` (body references
+    "settings" / "environment") outranks ``Session.prepare_request`` (body has no
+    such terms).
+    """
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        file_id = {
+            row["relative_path"]: row["id"]
+            for row in connection.execute(
+                "SELECT id, relative_path FROM files WHERE snapshot_id = ?", (snapshot_id,)
+            ).fetchall()
+        }
+    request_body = (
+        "def request(self, method, url):\n"
+        "    prep = self.prepare_request(method, url)\n"
+        "    settings = self.merge_settings(prep)\n"
+        "    environment_settings = settings.copy()\n"
+        "    resp = self.send(prep, **environment_settings)\n"
+        "    return resp\n"
+    )
+    prepare_body = (
+        "def prepare_request(self, method, url):\n"
+        "    p = PreparedRequest()\n"
+        "    p.prepare_method(method)\n"
+        "    p.prepare_url(url)\n"
+        "    return p\n"
+    )
+    merge_body = (
+        "def merge_settings(self, request):\n"
+        "    environment = get_environ_proxies(request.url)\n"
+        "    merged = {**request.settings, **environment}\n"
+        "    return merged\n"
+    )
+    _seed_methods_with_content(
+        repo_id, snapshot_id, file_id,
+        methods=[
+            ("request", "src/login.py", "src.login.Session.request", 10, 55, request_body),
+            ("prepare", "src/login.py", "src.login.Session.prepare_request", 60, 75, prepare_body),
+            ("merge", "src/login.py", "src.login.Session.merge_settings", 80, 92, merge_body),
+        ],
+        resolved_calls=[("request", "merge")],
+    )
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", _EmptyRetriever)
+    # "merges" != identifier-split "merge", so all three stay tied at exact_symbol_match=2
+    result = locate_code(
+        repo_id,
+        "where does session request merges environment settings",
+        snapshot_id,
+        limit=3,
+    )
+
+    starts = {item["start_line"] for item in result["data"]["locations"]}
+    assert 10 in starts, "Session.request (gold container) must appear"
+    assert 80 in starts, "Session.merge_settings (gold definition) must appear"
+    assert 60 not in starts, "Session.prepare_request (name-only anchor) must not take a slot"
+
+
+def test_locate_code_allows_three_slots_per_file_for_large_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The leading (highest-ranked) file gets a cap of 3 when limit >= 6.
+
+    Compound queries often target multiple sites inside one large module.  The
+    leading file — the one whose first chunk ranks highest — is allowed a third
+    slot so those sites are not evicted by the diversity cap.  All other files
+    remain capped at 2, preserving cross-file diversity.  With limit=4 even the
+    leading file stays at 2.
+    """
+    repo_id, snapshot_id, _ = _seed_repo(tmp_path)
+    with get_connection() as connection:
+        file_id = {
+            row["relative_path"]: row["id"]
+            for row in connection.execute(
+                "SELECT id, relative_path FROM files WHERE snapshot_id = ?", (snapshot_id,)
+            ).fetchall()
+        }
+    setup_body = (
+        "def setup_environment(self):\n"
+        "    self.proxies = {}\n"
+        "    self.cert = None\n"
+        "    self.verify = True\n"
+    )
+    merge_body = (
+        "def merge_environment_settings(self, url, proxies, verify, cert):\n"
+        "    env_proxies = get_environ_proxies(url)\n"
+        "    merged_proxies = merge_setting(proxies, env_proxies)\n"
+        "    merged_verify = merge_setting(verify, self.verify)\n"
+        "    merged_cert = merge_setting(cert, self.cert)\n"
+        "    return {'proxies': merged_proxies, 'verify': merged_verify, 'cert': merged_cert}\n"
+    )
+    send_body = (
+        "def send(self, request, proxies=None, cert=None, verify=True):\n"
+        "    settings = self.merge_environment_settings(request.url, proxies, verify, cert)\n"
+        "    adapter = self.get_adapter(url=request.url)\n"
+        "    return adapter.send(request, **settings)\n"
+    )
+    _seed_methods_with_content(
+        repo_id, snapshot_id, file_id,
+        methods=[
+            ("setup", "src/auth.py", "src.auth.Session.setup_environment", 10, 25, setup_body),
+            ("merge", "src/auth.py", "src.auth.Session.merge_environment_settings", 30, 65, merge_body),
+            ("send", "src/auth.py", "src.auth.Session.send", 70, 110, send_body),
+        ],
+        resolved_calls=[("send", "merge")],
+    )
+
+    # FakeRetriever returns all three methods as high-scoring candidates so that
+    # only the per-file cap determines how many from src/auth.py are selected.
+    class _ThreeMethodRetriever:
+        def retrieve(self, _repo_id, _snapshot_id, _query, _limit):
+            items = [
+                {"chunk_id": "setup", "file_path": "src/auth.py", "start_line": 10,
+                 "end_line": 25, "chunk_type": "method", "content": setup_body, "score": 1.5},
+                {"chunk_id": "merge", "file_path": "src/auth.py", "start_line": 30,
+                 "end_line": 65, "chunk_type": "method", "content": merge_body, "score": 1.4},
+                {"chunk_id": "send", "file_path": "src/auth.py", "start_line": 70,
+                 "end_line": 110, "chunk_type": "method", "content": send_body, "score": 1.3},
+            ]
+            return type("Result", (), {"items": items, "run": type("Run", (), {"mode": "lexical"})()})()
+
+    monkeypatch.setattr(mcp_tools, "HybridRetriever", _ThreeMethodRetriever)
+
+    # With limit=6 all three methods in the same file must be returned.
+    result6 = locate_code(
+        repo_id,
+        "where does a session merge proxy and certificate settings from the environment, "
+        "and where that merged configuration is applied before dispatching the request",
+        snapshot_id,
+        limit=6,
+    )
+    starts6 = {item["start_line"] for item in result6["data"]["locations"]}
+    assert 10 in starts6, "setup_environment must appear (limit=6)"
+    assert 30 in starts6, "merge_environment_settings must appear (limit=6)"
+    assert 70 in starts6, "send must appear (limit=6)"
+
+    # With limit=4 the cap stays at 2 per file — diversity is preserved.
+    result4 = locate_code(
+        repo_id,
+        "where does a session merge proxy and certificate settings from the environment, "
+        "and where that merged configuration is applied before dispatching the request",
+        snapshot_id,
+        limit=4,
+    )
+    starts4 = {item["start_line"] for item in result4["data"]["locations"]}
+    assert len([s for s in starts4 if s in {10, 30, 70}]) <= 2, "at most 2 from the same file when limit=4"

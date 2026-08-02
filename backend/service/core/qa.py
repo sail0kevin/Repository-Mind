@@ -10,6 +10,22 @@ from typing import Any
 from service.core.llm_client import generate_llm_answer
 
 
+def insufficient_evidence_answer(reason: str | None = None) -> dict:
+    """Return a citation-free answer when retrieval has no usable evidence."""
+    detail = "未找到足以支持回答的相关代码证据。"
+    if reason == "low_relevance":
+        detail = "检索到的候选与问题相关性不足，不能据此推断代码行为。"
+    return {
+        "answer": f"{detail}\n\n请提供更具体的符号名、文件路径或业务术语后再试。",
+        "confidence": "insufficient_evidence",
+        "used_context": 0,
+        "trace_id": f"trace_{uuid.uuid4().hex}",
+        "next_steps": ["补充函数、类或文件名", "换用更具体的代码术语", "确认目标仓库快照已完成索引"],
+        "token_count": 0,
+        "used_llm": False,
+    }
+
+
 def _fallback_answer(question: str, evidence: list[dict], repo_summary: dict | None) -> dict:
     """当没有模型可用时，基于本地证据生成规则型回答。"""
     summary_text = (repo_summary or {}).get("summary", "") if repo_summary else ""

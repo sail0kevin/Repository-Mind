@@ -15,16 +15,16 @@
 
 - Question: `GreetingService.build_message 方法是做什么的？`
 - Route tools: `[]`
-- Actual cited files: `repomind_demo/service.py`, `README.md`, `tests/test_greeting.py`
-- Relevant cited files: `repomind_demo/service.py`, `README.md`, `tests/test_greeting.py`
+- Actual cited files: `repomind_demo/service.py`, `2026-08-01_REPOMIND_README_项目说明.md`, `tests/test_greeting.py`
+- Relevant cited files: `repomind_demo/service.py`, `2026-08-01_REPOMIND_README_项目说明.md`, `tests/test_greeting.py`
 - Result: **passed**
 
 ### `security-review`
 
 - Question: `security token 安全风险`
 - Route tools: `['security_review']`
-- Actual cited files: `README.md`, `config.json`, `expected/showcase.json`, `repomind_demo/security_examples.py`
-- Relevant cited files: `README.md`, `repomind_demo/security_examples.py`
+- Actual cited files: `2026-08-01_REPOMIND_README_项目说明.md`, `config.json`, `expected/showcase.json`, `repomind_demo/security_examples.py`
+- Relevant cited files: `2026-08-01_REPOMIND_README_项目说明.md`, `repomind_demo/security_examples.py`
 - Result: **passed**
 
 ### `impact-build-message`

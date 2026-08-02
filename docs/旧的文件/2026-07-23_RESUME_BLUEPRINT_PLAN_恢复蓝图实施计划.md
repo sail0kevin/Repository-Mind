@@ -1,5 +1,7 @@
 # RepoMind 简历蓝图落地实施计划
 
+> 归档说明：本计划已由 `docs/后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md` 取代，仅保留为历史决策记录，请勿作为当前执行入口。
+
 本文档是可执行的工程任务清单，目标是让项目真实实现支撑起以下"简历技术亮点"里当前还带占位符的部分：
 
 - 检索方案选型（BM25 vs BM25+Embedding 对比）
@@ -7,7 +9,7 @@
 - 评测体系建设（任务完成率、工具调用准确率、响应延迟、Token 成本）
 - 可靠性与风险防控（无引用依据时触发拒答）
 
-与 `RESUME_EVIDENCE_PLAN.md` 的关系：那份文档定义了"什么数字可以对外说、什么时候能说"的原则（不夸大、必须有本地可复现依据）；本文档是"具体要改哪些文件、怎么改、怎么验证"的执行清单。两份文档不冲突，本文档的产出最终要回填进那份文档的"简历回填规则"一节。
+与 `旧_RESUME_EVIDENCE_PLAN_恢复证据计划.md` 的关系：那份文档定义了"什么数字可以对外说、什么时候能说"的原则（不夸大、必须有本地可复现依据）；本文档是"具体要改哪些文件、怎么改、怎么验证"的执行清单。两份文档不冲突，本文档的产出最终要回填进那份文档的"简历回填规则"一节。
 
 ## 硬性约束（执行时必须遵守）
 
@@ -32,7 +34,7 @@
 2. 通过 settings 接口将 `embedding_provider` 设为 `openai_compatible`，配置 `embedding_api_key`（走 secret store，不要硬编码或提交到仓库）、`embedding_base_url`、`embedding_model`。
 3. 对现有 Demo 仓库（或任务 2 扩容后的评测仓库）重新执行 ingest，确认 `vector_store.has_real_embeddings` 对该 repo/snapshot 返回 `true`。
 4. 使用 `scripts/report_retrieval_metrics.py`，分别在 `use_semantic=false`（纯 BM25 基线）与 `use_semantic=true`（BM25+Embedding+RRF）两种模式下各跑一次评测，产出两份报告。
-5. 将两份报告的 Recall@5/10、MRR、Citation Hit Rate 并列整理成一份对比文档，存放到 `examples/benchmarks/`，命名参考现有的 `demo-evidence-report-post-fix.md` 风格。
+5. 将两份报告的 Recall@5/10、MRR、Citation Hit Rate 并列整理成一份对比文档，存放到 `examples/benchmarks/`，命名参考现有的 `2026-07-20_DEMO_EVIDENCE_POST_FIX_REPORT_修复后演示证据报告.md` 风格。
 
 **验收标准**：产出一份双路对比报告，包含两种模式下完整的指标数字与运行环境说明（模型名称、API 提供方、评测集版本）。如果双路提升不明显甚至下降，必须在报告里如实记录并给出可能原因，不能只选择性展示对比结果中好看的部分。
 
@@ -135,7 +137,7 @@
 
 ### 任务 9：文档一致性修正
 
-**现状**：`docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md` 第 8 节"执行原则"中提到"设置调用次数、超时和 Token 预算""无证据时澄清或拒答"，这些在任务 7、8 完成前属于**尚未落地的设计目标**，但文档表述容易被误读为已实现的当前能力。
+**现状**：`docs/后续开发指导/2026-07-28_ARCHITECTURE_FUTURE_ROADMAP_未来架构路线图.md` 第 8 节"执行原则"中提到"设置调用次数、超时和 Token 预算""无证据时澄清或拒答"，这些在任务 7、8 完成前属于**尚未落地的设计目标**，但文档表述容易被误读为已实现的当前能力。
 
 **步骤**：
 1. 在任务 7、8 完成前，若该文档仍被引用或展示给外部（如面试材料参考），需要在相关段落补充状态标注（如"设计目标，尚未实现"）。
@@ -151,7 +153,7 @@
 1. 使用任务 3 泛化后的采集脚本，对任务 2 产出的 30-50 题评测集跑一次完整评测，产出包含五个维度（Recall/MRR、Citation Hit Rate、任务完成率、工具调用准确率、响应延迟与 Token 成本）的完整报告。
 2. 汇总任务 1 的 Embedding 对比实验最终结果。
 3. 统计任务 7、8 新增的单元测试数量，更新总测试数（当前后端 136 项、桌面端 63 项的基线数字）。
-4. 将本次全部产出的真实数字，按 `RESUME_EVIDENCE_PLAN.md` 的"简历回填规则"要求，回填进简历蓝图中的占位符，同时更新面试话术文档（对应仓库内 `对应的项目面试话术/RepoMind/` 目录下的 00-05 号文档），确保新增能力对应的追问（"超时阈值怎么定的""拒答判定标准是什么""评测集怎么扩到 30-50 题的"）都有真实可核实的答案支撑。
+4. 将本次全部产出的真实数字，按 `旧_RESUME_EVIDENCE_PLAN_恢复证据计划.md` 的"简历回填规则"要求，回填进简历蓝图中的占位符，同时更新面试话术文档（对应仓库内 `对应的项目面试话术/RepoMind/` 目录下的 00-05 号文档），确保新增能力对应的追问（"超时阈值怎么定的""拒答判定标准是什么""评测集怎么扩到 30-50 题的"）都有真实可核实的答案支撑。
 
 **验收标准**：简历蓝图中原有的全部占位符 `[N]`、`[真实值]` 均被替换为可追溯到本文档任务产出的具体报告文件的真实数字；面试话术文档同步更新且无遗留的旧数字/旧表述。
 
@@ -196,13 +198,12 @@
 - ✅ `scripts/capture_demo_evidence.py` 改造为双模式 CLI：不带 `--gold-file`/`--repo-id` 时走原有内置 3 题 demo 路径（原 `main()` 重命名为 `_run_builtin_demo_capture()`，函数体逐字节未改动）；带上这两个参数则走新的 `_run_generic_capture()`，对一个已经在跑的后端发真实 HTTP 请求（`/ask` + `/traces/{id}`），按 gold 文件的 `queries` 数组逐题采集，输出结构（`ranked`/`evidence_paths`/`relevant` 等字段）与原有 demo capture 完全一致，下游 `service/evaluation/*_metrics.py` 和 `scripts/report_retrieval_metrics.py` 不需要改一行。
 - ✅ 新增 `scripts/verify_capture_regression.py`：重跑一次内置 3 题 demo，和改造前保存的 `demo-evidence-capture-post-fix.json`/`repomind-demo-trace.post-fix.json` 比较。剔除 UUID/时间戳等天然易变字段后，capture 文件内容要求逐字段相等；Trace 比较改为结构级（route/retrieval/synthesis 各一步、route_tools 相同、evidence 路径集合相同），不要求列表顺序——因为验证过程中发现 `dependency_impact` 工具在并列分数下的候选排序会随 Python 进程哈希种子变化，这是改造前就有的产品行为，不是本次引入的回归，因此不能拿"顺序完全一致"当回归判据。跑 `python scripts/verify_capture_regression.py` 输出 `PASS`。
 - ✅ 用真实 40 题评测集（任务 2 产出的 `backend-understanding-gold.json`，快照 commit `c92e2f9af153212074da62d2d7fc1418bfbc0d72`）对泛化后的脚本做端到端验证：新建 git worktree 固定在该 commit，起一个独立后端实例，注册仓库并 ingest，再用 `python scripts/capture_demo_evidence.py --gold-file examples/benchmarks/backend-understanding-gold.json --repo-id <id> --snapshot-id <id> --base-url http://127.0.0.1:8123/api/v1 --output examples/benchmarks/backend-understanding-capture.json` 跑通全部 40 题，无一题因脚本本身异常中断。
-- ✅ 用 `scripts/report_retrieval_metrics.py` 对该 capture 跑出真实指标（写入 `examples/benchmarks/backend-understanding-report.md`）：**Recall@5=0.267、Recall@10=0.379、MRR=0.245、Citation hit rate=0.550、Citation precision=0.166**（40 题，lexical-only，未启用 Embedding）。40 题逐题结果里 18 题 passed、22 题因"引用路径未命中 gold 标注的 relevant_paths"判定 failed；失败集中在 `repository_navigator`（8 题里 6 题 failed）和 `test_runtime`（8 题里 6 题 failed）两类，这两类问题往往期望的是"整体架构/模块分布"这种跨文件综述性答案，而当前 lexical 检索命中的是包含相同关键词的文档/示例文件（如 `docs/`、`examples/` 下的说明文档）而非 gold 标注的源码文件——这是真实的检索短板，不是评测方法出的假象，如实记录，不做美化。
+- ✅ 用 `scripts/report_retrieval_metrics.py` 对该 capture 跑出真实指标（写入 `examples/benchmarks/2026-07-24_BACKEND_UNDERSTANDING_REPORT_后端理解评测报告.md`）：**Recall@5=0.267、Recall@10=0.379、MRR=0.245、Citation hit rate=0.550、Citation precision=0.166**（40 题，lexical-only，未启用 Embedding）。40 题逐题结果里 18 题 passed、22 题因"引用路径未命中 gold 标注的 relevant_paths"判定 failed；失败集中在 `repository_navigator`（8 题里 6 题 failed）和 `test_runtime`（8 题里 6 题 failed）两类，这两类问题往往期望的是"整体架构/模块分布"这种跨文件综述性答案，而当前 lexical 检索命中的是包含相同关键词的文档/示例文件（如 `docs/`、`examples/` 下的说明文档）而非 gold 标注的源码文件——这是真实的检索短板，不是评测方法出的假象，如实记录，不做美化。
 - 📌 诚实结论：40 题规模下 BM25-only 的表现明显弱于 3 题 demo（demo 的 0.667/0.833 具有极大样本偏差，3 题本来就是精心挑选能被 lexical 检索命中的路径）。这组 40 题数字才是有统计意义、可以往简历/面试话术里填的基线；后续任务 1 的 Embedding 对比也应该在这个 40 题集上重跑一次，而不是只用 3 题 demo 的数字（那组对比数字目前记录在案但样本量不足，参见上面任务 1 日志的诚实结论）。
 - 🐛 **过程中发现并修复两个与本任务无关但会真实阻断 ingest 的产品 bug**（均已征得用户同意后修复，不算"顺手无关重构"）：
   1. **YAML 布尔 key 排序崩溃**：`.github/workflows/*.yml` 这类文件里裸 `on:` 键被 PyYAML 解析成布尔值，`config_adapter.py` 里 `json.dumps(..., sort_keys=True)` 对着混有 `bool`/`str` 类型的 key 排序时抛 `TypeError`，导致任何带 GitHub Actions workflow 的仓库整体 ingest 被拒绝发布。修复：新增 `ConfigParser._sort_keys_as_str()`，统一按 `str(key)` 排序后重建 dict 再序列化。回归测试：`test_config_parser_handles_yaml_boolean_keys_like_github_workflow_on`（`backend/tests/test_m2_parser_storage.py`）。
   2. **JS/TS 证据 identity 冲突**：`javascript_typescript_parser.py` 的 `_add_exports`/`_add_heritage`/`_add_calls` 三处调用 `_add_evidence()` 时都没传 `identity`，导致同一模块内第二个 `export` 语句、同一函数体内第二次直接调用、同一符号的第二条 extends/implements 目标，会和第一条共享完全相同的 `logical_id`，撞上 DB 的 `UNIQUE(snapshot_id, identity_key)` 约束，整个仓库 ingest 直接失败（`UNIQUE constraint failed: evidence_units.snapshot_id, evidence_units.identity_key`）。修复：新增 `_next_evidence_discriminator(owner_id, kind)` 按 `(owner_id, kind)` 分配自增序号，仿照 `_add_symbol()` 里已有的 `_symbol_ordinals` 模式，把序号作为 `identity` 的一部分传给三处调用。回归测试：`test_repeated_js_ts_export_call_and_heritage_evidence_have_distinct_identity_and_are_persistable`（`backend/tests/test_m2_parser_storage.py`）。用本仓库自身（228 个已跟踪文件）做过端到端复现验证：修复前 63 个重复 `logical_id`、ingest 失败；修复后 0 个失败文件、0 个重复 `logical_id`。
   - 两个修复后，后端全量测试从 136 项增至 **138 项全部通过**（新增 2 个回归测试）。这两个 bug 本身可以作为简历/面试话术的真实素材："搭建评测基础设施时发现并修复了两个会导致真实仓库（带 CI workflow 的仓库、export/call 数量大于 1 的 JS/TS 文件）ingest 失败的产品级 bug"。
-- 产出文件：`scripts/capture_demo_evidence.py`（改造）、`scripts/verify_capture_regression.py`（新增）、`backend/service/core/parsing/config_adapter.py`（bug 1 修复）、`backend/service/core/parsing/javascript_typescript_parser.py`（bug 2 修复）、`backend/tests/test_m2_parser_storage.py`（新增 2 个回归测试）、`examples/benchmarks/backend-understanding-capture.json`、`examples/benchmarks/backend-understanding-report.md`。
+- 产出文件：`scripts/capture_demo_evidence.py`（改造）、`scripts/verify_capture_regression.py`（新增）、`backend/service/core/parsing/config_adapter.py`（bug 1 修复）、`backend/service/core/parsing/javascript_typescript_parser.py`（bug 2 修复）、`backend/tests/test_m2_parser_storage.py`（新增 2 个回归测试）、`examples/benchmarks/backend-understanding-capture.json`、`examples/benchmarks/2026-07-24_BACKEND_UNDERSTANDING_REPORT_后端理解评测报告.md`。
 
 **下一步**：任务 4（新增"任务完成率"评测维度）。按已建立的模型批次表，任务 4-6 仍在 Sonnet 5 批次内，可以继续用当前模型执行；任务 7-8 开始前需要提醒切换到 Opus 4.8。
-

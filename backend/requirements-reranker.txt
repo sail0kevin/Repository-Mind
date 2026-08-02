@@ -1,0 +1,4 @@
+# Optional local cross-encoder reranker support. The base MCP retrieval path
+# remains usable without these packages and keeps reranking disabled by default.
+FlagEmbedding>=1.4.0,<2
+transformers>=4.44.2,<5

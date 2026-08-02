@@ -43,6 +43,18 @@ jobs:
         shell: pwsh
         run: ./scripts/verify_identity_contract.ps1
 
+      - name: Verify locked build runtime
+        shell: pwsh
+        run: ./scripts/verify_runtime_contract.ps1 -PythonCommand python
+
+      - name: Verify offline retrieval regression gate
+        shell: pwsh
+        run: python scripts/verify_retrieval_regression.py
+
+      - name: Test release checksum verifier
+        shell: pwsh
+        run: ./scripts/test_release_hashes.ps1
+
       - name: Run isolated Windows package chain
         shell: pwsh
         env:
@@ -52,6 +64,10 @@ jobs:
       - name: Run packaged Electron E2E
         shell: pwsh
         run: ./scripts/e2e_windows.ps1 -ExePath ./desktop/app/release/win-unpacked/RepoMind.exe
+
+      - name: Verify packaged release hashes
+        shell: pwsh
+        run: ./scripts/verify_release_hashes.ps1 -ReleaseDirectory ./desktop/app/release
 
       - name: Upload redacted E2E diagnostics
         if: failure()

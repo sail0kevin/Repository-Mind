@@ -151,6 +151,104 @@ def test_imported_class_constructor_method_resolves_through_package_reexport() -
     assert factory_call.resolver_status == "unresolved"
 
 
+def test_imported_class_variable_method_call_resolves_and_projects_to_code_edges() -> None:
+    """A direct constructor binding can safely navigate a later receiver method call."""
+    from service.storage.evidence_store import replace_all_snapshot_parse_results
+    from service.storage.sqlite_db import get_connection
+    from service.storage.symbol_store import project_symbols_to_code_graph
+
+    repo_id = "receiver-binding-repo"
+    snapshot_id = "receiver-binding-snapshot"
+    documents = [
+        SourceDocument(
+            repo_id=repo_id, snapshot_id=snapshot_id, file_id="caller-file", path="caller.py",
+            content=(
+                "from transport import HTTPAdapter\n\n"
+                "class Session:\n"
+                "    def send(self, request):\n"
+                "        adapter = HTTPAdapter()\n"
+                "        return adapter.send(request)\n"
+            ),
+            language="python",
+        ),
+        SourceDocument(
+            repo_id=repo_id, snapshot_id=snapshot_id, file_id="transport-file", path="transport.py",
+            content="class HTTPAdapter:\n    def send(self, request):\n        return request\n",
+            language="python",
+        ),
+    ]
+    results = default_registry().parse_all(documents)
+    caller = next(item for item in results if item.document.path == "caller.py")
+    session_send = next(item for item in caller.symbols if item.qualified_name == "caller.Session.send")
+    call = next(
+        item for item in caller.relations
+        if item.kind == "calls" and item.source_id == session_send.id
+        and item.target_qualified_name == "transport.HTTPAdapter.send"
+    )
+
+    assert call.target_id is not None
+    assert call.resolver_status == "resolved"
+
+    with get_connection() as connection:
+        connection.execute(
+            "INSERT INTO repos (id, alias, repo_path, status) VALUES (?, ?, ?, 'ready')",
+            (repo_id, repo_id, "/tmp/receiver-binding"),
+        )
+        connection.execute(
+            "INSERT INTO repository_snapshots (id, repo_id, commit_hash, status) VALUES (?, ?, ?, 'succeeded')",
+            (snapshot_id, repo_id, "b" * 40),
+        )
+        connection.execute("UPDATE repos SET active_snapshot_id = ? WHERE id = ?", (snapshot_id, repo_id))
+        for document in documents:
+            connection.execute(
+                "INSERT INTO files (id, repo_id, relative_path, snapshot_id) VALUES (?, ?, ?, ?)",
+                (document.file_id, repo_id, document.path, snapshot_id),
+            )
+
+    replace_all_snapshot_parse_results(
+        repo_id,
+        snapshot_id,
+        [item for result in results for item in result.evidence],
+        [item for result in results for item in result.symbols],
+        [item for result in results for item in result.relations],
+        [item for result in results for item in result.diagnostics],
+    )
+    project_symbols_to_code_graph(repo_id, snapshot_id)
+    with get_connection() as connection:
+        edge = connection.execute(
+            "SELECT edge_type FROM code_edges WHERE repo_id = ? AND snapshot_id = ? AND source_id = ? AND target_id = ?",
+            (repo_id, snapshot_id, call.source_id, call.target_id),
+        ).fetchone()
+    assert edge[0] == "calls"
+
+
+def test_receiver_binding_is_cleared_after_reassignment() -> None:
+    """A local receiver type must not survive an unrelated reassignment."""
+    documents = [
+        SourceDocument(
+            snapshot_id="snap", path="caller.py",
+            content=(
+                "from transport import HTTPAdapter\n\n"
+                "def send(request, factory):\n"
+                "    adapter = HTTPAdapter()\n"
+                "    adapter = factory()\n"
+                "    return adapter.send(request)\n"
+            ),
+            language="python",
+        ),
+        SourceDocument(
+            snapshot_id="snap", path="transport.py",
+            content="class HTTPAdapter:\n    def send(self, request):\n        return request\n",
+            language="python",
+        ),
+    ]
+
+    caller = next(item for item in default_registry().parse_all(documents) if item.document.path == "caller.py")
+    calls = [item for item in caller.relations if item.kind == "calls"]
+
+    assert all(item.target_qualified_name != "transport.HTTPAdapter.send" for item in calls)
+
+
 def test_actual_mcp_search_wrapper_resolves_to_hybrid_retrieval_entry_point() -> None:
     """真实 MCP 搜索工具应能导航到 HybridRetriever 的实际方法入口。"""
     backend_root = Path(__file__).resolve().parents[1]

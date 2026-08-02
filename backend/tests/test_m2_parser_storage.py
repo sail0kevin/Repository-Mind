@@ -91,6 +91,28 @@ def test_repository_linker_does_not_connect_ambiguous_short_names() -> None:
     assert all(item.kind != "maybe_call" for item in result.relations)
 
 
+def test_python_parser_resolves_same_class_self_calls() -> None:
+    """`self.method()` has a locally provable receiver and can form a static edge."""
+    result = default_registry().parse(SourceDocument(
+        snapshot_id="s",
+        path="client.py",
+        content=(
+            "class Client:\n"
+            "    def send(self):\n"
+            "        return self.prepare()\n"
+            "\n"
+            "    def prepare(self):\n"
+            "        return True\n"
+        ),
+        language="python",
+    ))
+
+    calls = [item for item in result.relations if item.kind == "calls"]
+    assert len(calls) == 1
+    assert calls[0].target_qualified_name == "client.Client.prepare"
+    assert calls[0].observed and not calls[0].inferred
+
+
 def test_config_parser_and_tree_sitter_fallback_are_honest(monkeypatch: pytest.MonkeyPatch) -> None:
     """配置错误和 grammar 缺失都应显式 fallback，不伪造结构。"""
     broken = ConfigParser().parse(SourceDocument(snapshot_id="s", path="x.json", content="{", language="json"))

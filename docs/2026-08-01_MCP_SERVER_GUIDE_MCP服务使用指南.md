@@ -42,6 +42,31 @@ python -m service.mcp_server
 
 该命令启动 `stdio` Server，通常应由 MCP 客户端自动拉起。直接运行时没有 HTTP 地址，也不会出现交互式提示。
 
+## 查看在线检索指标
+
+`search_code` 和 `locate_code` 的每次 MCP 调用会在同一 RepoMind SQLite 数据库中记录一条遥测数据。记录只保留仓库/Snapshot、工具、检索模式、结果数、分数和耗时等聚合所需元数据，**不会保存原始查询文本**。MCP 本身保持 `stdio` 和只读工具边界；指标通过 HTTP 后端的 `GET /api/v1/metrics` 查看，因此需要另外启动 FastAPI：
+
+```powershell
+cd <repo-root>\backend
+python -m service.main
+```
+
+默认近 7 天的请求量、top-score、低分数量和平均/P50/P95 延迟：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/metrics
+```
+
+可以传入 `days=1..30` 和已知的 `repo_id`，只查看单个仓库：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/api/v1/metrics?days=30&repo_id=repo_xxx"
+```
+
+响应中的 `breakdown` 按 `tool_name + retrieval_mode` 分组，可判断慢查询来自 `search_code` 或 `locate_code`，以及 `hybrid` 或 `lexical` 路径。若启动时设置了 `REPOMIND_API_TOKEN`，请求必须附带 `X-RepoMind-API-Token`；Electron 会在其自身请求中自动携带该 token。指标不改变 MCP 返回、离线 benchmark 或目标仓库文件。
+
+遥测只应用于真实 MCP 使用后的产品决策：先以 schema `9` 的桌面包索引真实仓库，再让已配置到同一用户数据库的 MCP 客户端自然产生 `search_code` 或 `locate_code` 请求，最后读取聚合指标。不得用单元测试、benchmark、合成 MCP 请求或直接写 SQLite 的方式填充 `retrieval_metrics`；这些操作会污染真实使用趋势，且不能替代离线检索评测。
+
 ## 使用 Windows 安装包中的 MCP Server
 
 通过 Setup 安装或使用 `win-unpacked` 目录时，不需要另外安装 Python。先在桌面端导入并索引仓库，再将安装目录中的冻结后端作为 MCP 命令：
@@ -121,7 +146,9 @@ Codex 等支持标准 `stdio` MCP Server 的客户端可使用与“通用 MCP �
 
 本项目已使用 Codex CLI `0.145.0` 完成真实 `stdio` MCP 调用：Codex 能发现工具，并通过 `search_code`、`get_symbol` 等工具取得固定 Snapshot 的代码证据。验证使用本地索引和只读任务，不代表所有 Codex 版本、模型供应商或编辑器环境均已兼容。
 
-项目还提供固定 Commit 的代码定位 A/B。当前一轮在一个隔离的本地 AgentForge 检出上运行 5 条人工标注任务：普通搜索通过 2/5，RepoMind MCP 通过 3/5；MCP 工具结果中的源码字符从 `1,032,948` 降至 `112,971`，但总输入 Token 仅从 `422,444` 降至 `399,563`。这只说明初步的代码定位上下文收益，不代表完整开发任务或普遍节省 Token；样本量、计量方式和 Windows 提示词约束等限制见 [外部代码定位 A/B v3 报告](../examples/benchmarks/external-location-ab-v3-report.md)。
+项目还保留固定 Commit 的外部代码定位 A/B。隔离的本地 AgentForge 检出上，5 条人工标注任务的历史一轮结果是：普通搜索通过 2/5，RepoMind MCP 通过 3/5；MCP 工具结果中的源码字符从 `1,032,948` 降至 `112,971`，但总输入 Token 仅从 `422,444` 降至 `399,563`。这只说明外部 Agent 在当时提示词、工具选择和 Windows 限制下的初步上下文收益，不代表完整开发任务、普遍节省 Token，也不能作为 MCP 工具本身的召回率。
+
+工具级质量以独立的固定 manifest 基准为准：生产 `locate_code` 在同一组 5 个标注代码位置上的 lexical 回归为 5/5，gold-location coverage 为 `1.000`，mean gold-location reciprocal rank 为 `0.578`。该基准直接评估工具返回的位置；它与外部 Agent A/B 的最终采纳行为、上下文消耗和任务完成率测量对象不同，不能将两组数字混为同一指标。完整条件和历史 A/B 细节见 [外部代码定位 A/B v3 报告](../examples/benchmarks/2026-07-26_EXTERNAL_LOCATION_AB_V3_REPORT_外部代码定位对比报告V3.md)；当前实现与后续执行关口见 [改进方案 V2.1](./后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md)。
 
 ## 只读工具
 
@@ -129,7 +156,7 @@ Codex 等支持标准 `stdio` MCP Server 的客户端可使用与“通用 MCP �
 | --- | --- | --- |
 | `list_repositories` | 发现仓库 ID、索引状态和活动 Snapshot，不返回本机绝对路径 | `limit?` |
 | `repo_overview` | 获取文件统计、语言分布、关键文件和推荐阅读顺序 | `repo_id`, `snapshot_id?` |
-| `locate_code` | 根据自然语言问题返回独立的候选位置与行号；未知符号、跨文件行为或多位置问题优先使用 | `repo_id`, `question`, `snapshot_id?`, `limit?` |
+| `locate_code` | 根据自然语言问题返回独立的候选位置与行号；未知符号、跨文件行为或多位置问题优先使用 | `repo_id`, `question`, `snapshot_id?`, `limit?`, `compact?` |
 | `search_code` | 关键词与可选语义混合检索，返回有界代码证据 | `repo_id`, `query`, `snapshot_id?`, `limit?` |
 | `get_symbol` | 按名称或限定名查询符号定义、关系和同名候选 | `repo_id`, `symbol_query`, `snapshot_id?` |
 | `analyze_impact` | 查询目标定义、已解析调用关系和引用候选 | `repo_id`, `symbol_query`, `snapshot_id?` |
@@ -163,6 +190,29 @@ Codex 等支持标准 `stdio` MCP Server 的客户端可使用与“通用 MCP �
 ```
 
 `locate_code.data.locations` 的每一项包含 `file_path`、`start_line`、`end_line`、`evidence_id` 和 `reason`。它适合先给出多个独立位置；只有需要验证具体语义时再调用 `search_code` 获取补充片段，避免把同一段源码反复传给外部 Agent。
+
+### Coding Agent 紧凑定位
+
+对 Coding Agent 的普通代码定位任务，调用 `locate_code(..., compact=true)`。成功时它只返回
+`repo_id`、`snapshot_id`、`commit`、`status` 和 `locations`；每个位置仅含
+`path`、`start_line`、`end_line`。这让 Agent 可以直接给出路径和行号，而不会重复接收问题文本、
+evidence ID、解释和常规限制说明。只有需要细节审计或补充源码片段时，才使用默认详细结果或
+`search_code`。
+
+当结果是 `degraded` 或 `not_found` 时，紧凑结果仍会包含 `retrieval_mode` 和 `limitations`，不能把
+紧凑格式误解为更强的检索保证。
+
+对于固定到单一已索引仓库和 Snapshot 的外部 Coding Agent，可启动更小的 profile：
+
+```powershell
+$env:REPOMIND_MCP_REPO_ID = "repo_..."
+$env:REPOMIND_MCP_SNAPSHOT_ID = "snap_..."
+python -m service.mcp_server --profile coding-agent
+```
+
+该 profile 只暴露 `locate_code(question, limit?)`，并始终使用紧凑返回。它不暴露仓库发现、通用搜索、
+符号或影响分析工具，也不要求 Agent 重复传入 `repo_id` 或 `snapshot_id`；适合受 manifest 绑定的
+benchmark 或单仓库工作会话。缺少 `REPOMIND_MCP_REPO_ID` 时调用会明确失败，不会退回用户默认数据库。
 
 `status` 可能为：
 

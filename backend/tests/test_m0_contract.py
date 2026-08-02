@@ -89,9 +89,9 @@ def test_health_exposes_backend_identity():
         "app_name": "RepoMind",
         "app_version": "0.1.0",
         "api_version": "v1",
-        "schema_version": "7",
-        "supported_schema_version": "7",
-        "database_schema_version": "7",
+        "schema_version": "9",
+        "supported_schema_version": "9",
+        "database_schema_version": "9",
         "backend_contract_version": "1",
         "instance_id": "repomind-desktop-backend",
     }

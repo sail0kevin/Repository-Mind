@@ -8,6 +8,8 @@ import uuid
 from service.core.retrieval.fusion import ReciprocalRankFusion
 from service.core.retrieval.lexical import LexicalRetriever
 from service.core.retrieval.planner import RetrievalPlanner
+from service.core.retrieval.relevance import RelevanceDecision, RelevancePolicy
+from service.core.retrieval.reranker import CandidateReranker, get_reranker_candidate_limit, resolve_reranker
 from service.core.retrieval.semantic import SemanticRetriever
 from service.core.retrieval.structural import StructuralExpander
 
@@ -27,6 +29,7 @@ class RetrievalRun:
     fused_count: int = 0
     expanded_count: int = 0
     returned_count: int = 0
+    relevance: RelevanceDecision | None = None
     events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -52,15 +55,26 @@ class HybridRetriever:
         semantic: SemanticRetriever | None = None,
         fusion: ReciprocalRankFusion | None = None,
         structural: StructuralExpander | None = None,
+        relevance: RelevancePolicy | None = None,
+        reranker: CandidateReranker | None = None,
+        reranker_candidate_limit: int | None = None,
     ) -> None:
         self.planner = planner or RetrievalPlanner()
         self.lexical = lexical or LexicalRetriever()
         self.semantic = semantic or SemanticRetriever()
         self.fusion = fusion or ReciprocalRankFusion()
         self.structural = structural or StructuralExpander()
+        self.relevance = relevance or RelevancePolicy()
+        self.reranker = reranker or resolve_reranker()
+        self.reranker_candidate_limit = (
+            get_reranker_candidate_limit()
+            if reranker_candidate_limit is None
+            else min(50, max(5, reranker_candidate_limit))
+        )
 
     def retrieve(self, repo_id: str, snapshot_id: str, query: str, limit: int) -> RetrievalResult:
         semantic_available = self.semantic.available(repo_id, snapshot_id)
+        semantic_unavailable_reason = getattr(self.semantic, "unavailable_reason", lambda: None)()
         plan = self.planner.plan(query, limit, semantic_available=semantic_available)
         now = datetime.now(timezone.utc).isoformat()
         run = RetrievalRun(
@@ -72,19 +86,64 @@ class HybridRetriever:
             started_at=now,
             events=[{"stage": "plan", **asdict(plan)}],
         )
+        if not semantic_available and semantic_unavailable_reason:
+            run.events.append({
+                "stage": "semantic_degraded",
+                "reason": semantic_unavailable_reason,
+                "planned_mode": "hybrid",
+                "effective_mode": "lexical",
+            })
 
         ranked_lists: list[list[dict]] = []
         lexical_hits = self.lexical.retrieve(repo_id, snapshot_id, plan.query, plan.candidate_limit)
         ranked_lists.append(lexical_hits)
         run.channels["lexical"] = len(lexical_hits)
 
+        semantic_hits: list[dict] = []
+        semantic_executed = False
         if plan.use_semantic:
-            semantic_hits = self.semantic.retrieve(repo_id, snapshot_id, plan.query, plan.candidate_limit)
-            ranked_lists.append(semantic_hits)
-            run.channels["semantic"] = len(semantic_hits)
+            retrieve_with_status = getattr(self.semantic, "retrieve_with_status", None)
+            if callable(retrieve_with_status):
+                semantic_hits, semantic_executed = retrieve_with_status(
+                    repo_id, snapshot_id, plan.query, plan.candidate_limit
+                )
+            else:
+                semantic_hits = self.semantic.retrieve(repo_id, snapshot_id, plan.query, plan.candidate_limit)
+                semantic_executed = True
+            if semantic_executed:
+                ranked_lists.append(semantic_hits)
+                run.channels["semantic"] = len(semantic_hits)
+
+        if plan.use_semantic and not semantic_executed:
+            run.mode = "lexical"
+            run.events.append({
+                "stage": "semantic_degraded",
+                "reason": "query_embedding_unavailable",
+                "planned_mode": plan.mode,
+                "effective_mode": run.mode,
+            })
 
         fused = self.fusion.fuse(ranked_lists)
+        rerank_applied = run.mode == "hybrid" and plan.limit >= 5 and self.reranker.available()
+        rerank_candidate_count = 0
+        if rerank_applied:
+            rerank_candidate_count = min(self.reranker_candidate_limit, len(fused))
+            head = self.reranker.rerank(plan.query, fused[:rerank_candidate_count], rerank_candidate_count)
+            seen = {self.fusion.identity(item) for item in head}
+            fused = head + [item for item in fused if self.fusion.identity(item) not in seen]
+        observation = self.relevance.observe(run.mode, lexical_hits, semantic_hits)
+        observation = type(observation)(**{**observation.to_dict(), "rrf_top_score": max((float(item.get("rrf_score", 0.0)) for item in fused), default=None)})
+        decision = self.relevance.decide(observation)
+        run.relevance = decision
         run.fused_count = len(fused)
+        if not decision.accepted:
+            run.events.extend([
+                {"stage": "retrieve", "channels": dict(run.channels)},
+                {"stage": "rerank", "applied": rerank_applied, "candidate_count": rerank_candidate_count},
+                {"stage": "relevance", **decision.to_dict()},
+            ])
+            run.completed_at = datetime.now(timezone.utc).isoformat()
+            return RetrievalResult(items=[], run=run)
         seed_limit = min(len(fused), plan.limit)
         seeds = fused[:seed_limit]
         expanded = self.structural.expand(
@@ -111,7 +170,9 @@ class HybridRetriever:
         run.events.extend([
             {"stage": "retrieve", "channels": dict(run.channels)},
             {"stage": "fuse", "count": run.fused_count, "algorithm": "rrf", "llm_reranker": False},
+            {"stage": "rerank", "applied": rerank_applied, "candidate_count": rerank_candidate_count},
             {"stage": "structural_expand", "count": run.expanded_count, "max_hops": 1, "observed_only": True},
+            {"stage": "relevance", **decision.to_dict()},
         ])
         run.completed_at = datetime.now(timezone.utc).isoformat()
         return RetrievalResult(items=combined, run=run)

@@ -16,6 +16,7 @@ from service.api.v1.repos import analysis_router, router as repos_router
 from service.api.v1.collaborate import router as collaborate_router
 from service.api.v1.code_graph import router as code_graph_router
 from service.api.v1.jobs import router as jobs_router
+from service.api.v1.metrics import router as metrics_router
 from service.api.v1.settings import router as settings_router
 from service.config.settings import get_settings
 from service.core.parent_watchdog import start_parent_lifetime_watchdog
@@ -114,6 +115,7 @@ def create_app() -> FastAPI:
     app.include_router(analysis_router, prefix="/api/v1")
     app.include_router(collaborate_router, prefix="/api/v1")
     app.include_router(jobs_router, prefix="/api/v1")
+    app.include_router(metrics_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
     app.include_router(code_graph_router, prefix="")
     return app
@@ -136,7 +138,7 @@ def main() -> None:
 
     settings = get_settings()
     start_parent_lifetime_watchdog(settings.electron_parent_pid)
-    uvicorn.run(app, host="127.0.0.1", port=settings.port)
+    uvicorn.run(app, host=settings.bind_host, port=settings.port)
 
 
 if __name__ == "__main__":

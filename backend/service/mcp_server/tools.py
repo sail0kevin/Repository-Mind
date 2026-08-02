@@ -4,7 +4,9 @@
 """
 from __future__ import annotations
 
+import logging
 import re
+from time import perf_counter
 
 from service.core.agent.models import AgentContext
 from service.core.agent.tools import _rank_target_symbols, dependency_impact, test_runtime
@@ -22,9 +24,12 @@ from service.mcp_server.snapshot_guard import SnapshotGuardError, resolve_repo_a
 from service.storage.chunk_store import count_chunks
 from service.storage.evidence_store import get_evidence_unit, list_evidence_units, list_relations, list_symbols
 from service.storage.repository_store import list_file_records, list_repo_records
+from service.storage.retrieval_metrics_store import record_retrieval_metric
 
 
 _LOCATION_TERM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_QUALIFIED_METHOD_RE = re.compile(r"\b([A-Z][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b")
+_QUALIFIED_SYMBOL_RE = re.compile(r"\b(?:[A-Za-z_][A-Za-z0-9_]*\.){2,}[A-Za-z_][A-Za-z0-9_]*\b")
 _LOCATION_STOP_WORDS = {
     "a", "after", "an", "and", "another", "are", "as", "asks", "at", "be", "before", "by",
     "code", "decide", "does", "for", "from", "function", "functions", "generates", "how", "in",
@@ -33,6 +38,42 @@ _LOCATION_STOP_WORDS = {
     "agent", "agents", "workflow", "workflows",
 }
 _SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cs", ".go", ".java", ".js", ".jsx", ".py", ".rb", ".rs", ".ts", ".tsx"}
+_LOCATION_QUERY_EXPANSIONS = {
+    "handler": "adapter",
+}
+
+
+def _record_mcp_retrieval_metric(
+    *,
+    repo_id: str,
+    snapshot_id: str,
+    tool_name: str,
+    query: str,
+    retrievals: list,
+    returned_count: int,
+    started_at: float,
+) -> None:
+    """指标异常不能影响 MCP 的只读检索结果。"""
+    try:
+        primary = retrievals[0]
+        scores = [
+            run.run.relevance.observation.rrf_top_score
+            for run in retrievals
+            if run.run.relevance is not None
+            and run.run.relevance.observation.rrf_top_score is not None
+        ]
+        record_retrieval_metric(
+            repo_id=repo_id,
+            snapshot_id=snapshot_id,
+            tool_name=tool_name,
+            retrieval_mode=primary.run.mode,
+            query=query,
+            returned_count=returned_count,
+            top_score=max(scores, default=None),
+            duration_ms=(perf_counter() - started_at) * 1000,
+        )
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).warning("failed to record MCP retrieval metric", exc_info=True)
 
 
 def _identifier_terms(value: str) -> set[str]:
@@ -47,11 +88,48 @@ def _identifier_terms(value: str) -> set[str]:
 
 def _location_terms(question: str) -> set[str]:
     """Keep meaningful English identifiers/words for narrow code-location windows."""
-    return {
+    terms = {
         term
         for term in _identifier_terms(question)
         if len(term) >= 3 and term.casefold() not in _LOCATION_STOP_WORDS
     }
+    for source, target in _LOCATION_QUERY_EXPANSIONS.items():
+        if source in terms:
+            terms.add(target)
+    return terms
+
+
+def _explicit_class_names(question: str) -> set[str]:
+    """Keep class-like identifiers exactly as written in a location question.
+
+    A capitalized identifier alone is not proof that it names a class. It only
+    becomes a ranking signal after it exactly matches a class component in a
+    parsed qualified symbol, such as ``HTTPAdapter`` in
+    ``requests.adapters.HTTPAdapter.send``.
+    """
+    return {
+        raw.casefold()
+        for raw in _LOCATION_TERM_RE.findall(question)
+        if any(character.isupper() for character in raw)
+    }
+
+
+def _explicit_qualified_methods(question: str) -> set[tuple[str, str]]:
+    """Extract only explicit ``Class.method`` clues from a natural-language question."""
+    return {
+        (class_name.casefold(), method_name.casefold())
+        for class_name, method_name in _QUALIFIED_METHOD_RE.findall(question)
+    }
+
+
+def _explicit_qualified_symbols(question: str) -> set[str]:
+    """Extract fully qualified symbol hints explicitly written by the caller.
+
+    Parsers may add a repository namespace such as ``src.``. A user normally
+    writes the import-facing name, so matching accepts only an exact qualified
+    name or a dot-boundary suffix, never an arbitrary substring.
+    """
+    return {value.casefold() for value in _QUALIFIED_SYMBOL_RE.findall(question)}
 
 
 def _location_queries(question: str) -> list[str]:
@@ -65,14 +143,28 @@ def _location_queries(question: str) -> list[str]:
     """
     normalized = " ".join(question.split())
     clauses = [normalized]
-    for part in re.split(r"\s*,?\s+and\s+(?=(?:where|the|how|a|an)\b)", normalized, flags=re.IGNORECASE):
+    paired_parts = re.split(
+        r"\s*,?\s+and\s+(?=(?:where|the|how|a|an)\b)", normalized, flags=re.IGNORECASE
+    )
+    if len(paired_parts) > 1:
+        leading = paired_parts[0].strip(" ,.;")
+        if len(_location_terms(leading)) >= 2 and leading not in clauses:
+            clauses.append(leading)
+    for part in paired_parts[1:]:
         part = part.strip(" ,.;")
         if len(_location_terms(part)) >= 3 and part not in clauses:
             clauses.append(part)
-    return clauses[:3]
+    expanded = []
+    for clause in clauses:
+        replacement = clause
+        for source, target in _LOCATION_QUERY_EXPANSIONS.items():
+            replacement = re.sub(rf"\b{source}\b", target, replacement, flags=re.IGNORECASE)
+        if replacement != clause and replacement not in clauses and replacement not in expanded:
+            expanded.append(replacement)
+    return (clauses + expanded)[:4]
 
 
-def _location_rank(location: dict) -> tuple[float, float, float, float, float, float, str, int]:
+def _location_rank(location: dict) -> tuple[float, float, float, float, float, float, float, float, float, float, str, int]:
     """Prefer executable source evidence before equally relevant prose mentions."""
     coverage = len(set(location.get("matched_terms") or []))
     path = str(location["file_path"]).replace("\\", "/").casefold()
@@ -81,9 +173,13 @@ def _location_rank(location: dict) -> tuple[float, float, float, float, float, f
         source_rank = 1.0
     return (
         source_rank,
+        float(location.get("explicit_qualified_symbol_match") or 0.0),
+        float(location.get("explicit_qualified_method_match") or 0.0),
+        float(location.get("explicit_class_match") or 0.0),
         float(location.get("exact_symbol_match") or 0.0),
         float(location.get("score") or 0.0),
         float(location.get("executable_matches") or 0.0),
+        float(location.get("relation_corroboration") or 0.0),
         float(location.get("symbol_compactness") or 0.0),
         float(coverage),
         path,
@@ -255,53 +351,155 @@ def _symbol_locations_for_windows(repo_id: str, snapshot_id: str, windows: list[
 
 
 def _symbol_locations_for_terms(
-    repo_id: str, snapshot_id: str, terms: set[str], *, minimum_matches: int = 1
+    repo_id: str,
+    snapshot_id: str,
+    terms: set[str],
+    *,
+    minimum_matches: int = 1,
+    explicit_class_names: set[str] | None = None,
+    explicit_qualified_methods: set[tuple[str, str]] | None = None,
+    explicit_qualified_symbols: set[str] | None = None,
 ) -> list[dict]:
     """Expose parsed definitions whose qualified names are explicit question clues."""
-    locations: list[dict] = []
+    explicit_class_names = explicit_class_names or set()
+    explicit_qualified_methods = explicit_qualified_methods or set()
+    explicit_qualified_symbols = explicit_qualified_symbols or set()
+    infos: list[dict] = []
     for symbol in list_symbols(repo_id, snapshot_id, limit=None):
         kind = str(symbol.get("symbol_kind") or "")
         start_line, end_line = symbol.get("start_line"), symbol.get("end_line")
         path = str(symbol.get("file_path") or "").replace("\\", "/")
         name_terms = _identifier_terms(str(symbol.get("name") or ""))
-        qualified_terms = _identifier_terms(str(symbol.get("qualified_name") or ""))
+        qualified_name = str(symbol.get("qualified_name") or "")
+        normalized_qualified_name = qualified_name.casefold()
+        qualified_terms = _identifier_terms(qualified_name)
         matched_terms = sorted((name_terms | qualified_terms) & terms)
+        qualified_parts = [part.casefold() for part in qualified_name.split(".")]
+        class_match = (
+            kind == "method"
+            and bool(set(qualified_parts[:-1]) & explicit_class_names)
+        )
+        qualified_method_match = (
+            kind == "method"
+            and len(qualified_parts) >= 2
+            and (qualified_parts[-2], qualified_parts[-1]) in explicit_qualified_methods
+        )
+        qualified_symbol_match = any(
+            normalized_qualified_name == hint or normalized_qualified_name.endswith(f".{hint}")
+            for hint in explicit_qualified_symbols
+        )
         if (
             kind not in {"function", "method", "class"}
             or not path
-            or len(matched_terms) < minimum_matches
+            or (len(matched_terms) < minimum_matches and not class_match and not qualified_symbol_match)
         ):
             continue
         if not isinstance(start_line, int) or not isinstance(end_line, int):
             continue
         qualified_bonus = len((qualified_terms & terms) - set(matched_terms))
-        evidence = get_evidence_unit(repo_id, str(symbol.get("evidence_id") or ""), snapshot_id)
+        # A looser class-overlap check that works even when kind != "method": any
+        # explicit class name from the question appears in the qualified path prefix.
+        # Used by Fix A to preserve single-term matches for explicitly named classes.
+        qualified_class_overlap = bool(set(qualified_parts[:-1]) & explicit_class_names)
+        infos.append({
+            "symbol_id": str(symbol.get("id") or ""),
+            "path": path,
+            "start_line": start_line,
+            "end_line": end_line,
+            "evidence_id": symbol.get("evidence_id") or "",
+            "matched_terms": matched_terms,
+            "exact_symbol_match": len(matched_terms) + qualified_bonus,
+            "explicit_class_match": 1.0 if class_match else 0.0,
+            "explicit_qualified_method_match": 1.0 if qualified_method_match else 0.0,
+            "explicit_qualified_symbol_match": 1.0 if qualified_symbol_match else 0.0,
+            "qualified_class_overlap": qualified_class_overlap,
+        })
+
+    # A symbol reached by a resolved, observed ``calls`` edge from a symbol that
+    # already matches the question strongly (an "anchor") is corroborated by the
+    # parsed call graph, not just word overlap. That structural signal should let
+    # it survive the per-file cap even when a compact, equally lexical, but
+    # unrelated same-name match would otherwise take the slot.
+    anchor_ids = {info["symbol_id"] for info in infos if info["exact_symbol_match"] >= 2}
+    corroborated_ids: set[str] = set()
+    if anchor_ids:
+        for relation in list_relations(repo_id, snapshot_id, limit=None):
+            if (
+                relation.get("relation_type") != "calls"
+                or relation.get("resolver_status") != "resolved"
+                or not relation.get("observed")
+            ):
+                continue
+            source_id = str(relation.get("source_symbol_id") or "")
+            target_id = str(relation.get("target_symbol_id") or "")
+            if source_id in anchor_ids and target_id:
+                corroborated_ids.add(target_id)
+            if target_id in anchor_ids and source_id:
+                corroborated_ids.add(source_id)
+
+    locations: list[dict] = []
+    for info in infos:
+        relation_corroboration = 1.0 if info["symbol_id"] in corroborated_ids else 0.0
+        evidence = get_evidence_unit(repo_id, str(info["evidence_id"] or ""), snapshot_id)
         # A two-term qualified match (for example, ``Response`` + ``status``)
         # is already precise enough to return the parser's full method boundary.
         # Do not let a small internal window outrank that boundary and force the
         # caller to fetch the surrounding branch or definition separately.
+        window_added = False
         if evidence is not None and minimum_matches < 2:
             for window in _location_windows(evidence, terms):
                 if not window.get("executable_matches"):
                     continue
                 window.update({
-                    "evidence_id": symbol.get("evidence_id") or window.get("evidence_id") or "",
+                    "evidence_id": info["evidence_id"] or window.get("evidence_id") or "",
                     "reason": "Executable source lines inside a parsed definition match the question",
-                    "exact_symbol_match": len(matched_terms) + qualified_bonus,
-                    "symbol_compactness": 1.0 / max(1, end_line - start_line + 1),
+                    "exact_symbol_match": info["exact_symbol_match"],
+                    "explicit_class_match": info["explicit_class_match"],
+                    "explicit_qualified_method_match": info["explicit_qualified_method_match"],
+                    "explicit_qualified_symbol_match": info["explicit_qualified_symbol_match"],
+                    "relation_corroboration": relation_corroboration,
+                    "symbol_compactness": 1.0 / max(1, info["end_line"] - info["start_line"] + 1),
                 })
                 locations.append(window)
-        locations.append({
-            "file_path": path,
-            "start_line": start_line,
-            "end_line": end_line,
-            "evidence_id": symbol.get("evidence_id") or "",
-            "reason": "Parsed definition whose symbol name matches the question",
-            "score": 1000.0 if minimum_matches >= 2 else 0.0,
-            "matched_terms": matched_terms,
-            "exact_symbol_match": len(matched_terms) + qualified_bonus,
-            "symbol_compactness": 1.0 / max(1, end_line - start_line + 1),
-        })
+                window_added = True
+        # Executable body lines matching query terms let this boundary entry outrank a
+        # symbol that only matched via its qualified name (Fix B). Reuse the already-
+        # fetched evidence; no extra DB round-trips needed.
+        boundary_exec = 0
+        if evidence is not None:
+            ev_lines = str(evidence.get("content") or "").splitlines()
+            boundary_exec = sum(_executable_match_count(ev_lines, terms).values())
+        # Fix A: skip the full-boundary entry for weak single-term matches in the
+        # fallback pass when the body has no real content evidence. A class-name-only
+        # overlap on a trivial dunder or stub method would otherwise outrank legitimately
+        # relevant methods via the symbol_compactness tie-breaker.
+        # qualified_class_overlap keeps symbols whose class is *explicitly named* in the
+        # query (e.g. "Session sends" → "Session" uppercase) even when kind != "method".
+        if (
+            minimum_matches >= 2
+            or window_added
+            or len(info["matched_terms"]) >= 2
+            or info["explicit_class_match"]
+            or info["explicit_qualified_method_match"]
+            or info["explicit_qualified_symbol_match"]
+            or info.get("qualified_class_overlap")
+        ):
+            locations.append({
+                "file_path": info["path"],
+                "start_line": info["start_line"],
+                "end_line": info["end_line"],
+                "evidence_id": info["evidence_id"],
+                "reason": "Parsed definition whose symbol name matches the question",
+                "score": 1000.0 if minimum_matches >= 2 else 0.0,
+                "matched_terms": info["matched_terms"],
+                "exact_symbol_match": info["exact_symbol_match"],
+                "explicit_class_match": info["explicit_class_match"],
+                "explicit_qualified_method_match": info["explicit_qualified_method_match"],
+                "explicit_qualified_symbol_match": info["explicit_qualified_symbol_match"],
+                "relation_corroboration": relation_corroboration,
+                "symbol_compactness": 1.0 / max(1, info["end_line"] - info["start_line"] + 1),
+                "executable_matches": boundary_exec,
+            })
     return locations
 
 
@@ -394,6 +592,7 @@ def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit:
     if not normalized_query:
         return error_envelope(repo_id, "query 不能为空。", status="error", snapshot_id=guard.snapshot["id"])
     normalized_limit = clamp_limit(limit, default=6, maximum=20)
+    started_at = perf_counter()
 
     try:
         retrieval = HybridRetriever().retrieve(
@@ -432,6 +631,15 @@ def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit:
         )
         for item in bundle.items
     ]
+    _record_mcp_retrieval_metric(
+        repo_id=repo_id,
+        snapshot_id=guard.snapshot["id"],
+        tool_name="search_code",
+        query=normalized_query,
+        retrievals=[retrieval],
+        returned_count=len(evidence),
+        started_at=started_at,
+    )
     if not evidence:
         limitations.append(
             "当前 Snapshot 中没有检索到可返回的代码证据；请改用更具体的符号名、文件路径或配置键，"
@@ -464,8 +672,20 @@ def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit:
     )
 
 
-def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, limit: int | None = None) -> dict:
-    """Return compact, independent candidate locations for a natural-language code question."""
+def locate_code(
+    repo_id: str,
+    question: str,
+    snapshot_id: str | None = None,
+    limit: int | None = None,
+    compact: bool = False,
+) -> dict:
+    """Return independent candidate locations for a natural-language code question.
+
+    ``compact`` is intended for coding agents that only need answer-ready line
+    locations.  It deliberately omits the echoed question, evidence identifiers,
+    explanation text, and normal-success limitations so one location lookup does
+    not consume context needed to reason about the returned source.
+    """
     guard, failure = _guard_or_envelope(repo_id, snapshot_id)
     if failure is not None:
         return failure
@@ -473,6 +693,7 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
     if not normalized_question:
         return error_envelope(repo_id, "question cannot be empty.", snapshot_id=guard.snapshot["id"])
     normalized_limit = clamp_limit(limit, default=6, maximum=12)
+    started_at = perf_counter()
 
     try:
         retriever = HybridRetriever()
@@ -480,11 +701,14 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
         retrieval = retriever.retrieve(
             repo_id, guard.snapshot["id"], retrieval_queries[0], max(normalized_limit * 2, 12)
         )
+        retrievals = [retrieval]
         candidate_by_id: dict[str, dict] = {}
         for query_index, query in enumerate(retrieval_queries):
             result = retrieval if query_index == 0 else retriever.retrieve(
                 repo_id, guard.snapshot["id"], query, max(normalized_limit, 6)
             )
+            if query_index != 0:
+                retrievals.append(result)
             for candidate in result.items:
                 identity = str(candidate.get("chunk_id") or candidate.get("id") or "")
                 if not identity:
@@ -501,6 +725,9 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
         return error_envelope(repo_id, f"Code location failed: {exc}", snapshot_id=guard.snapshot["id"])
 
     terms = _location_terms(normalized_question)
+    explicit_class_names = _explicit_class_names(normalized_question)
+    explicit_qualified_methods = _explicit_qualified_methods(normalized_question)
+    explicit_qualified_symbols = _explicit_qualified_symbols(normalized_question)
     locations: list[dict] = []
     seen: set[tuple[str, int, int]] = set()
     for candidate in primary_candidates:
@@ -517,7 +744,13 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
     # ``status``). Keep these hints even if broad lexical retrieval already returned
     # many weak candidates; otherwise a common-word query can hide the exact method.
     for location in _symbol_locations_for_terms(
-        repo_id, guard.snapshot["id"], terms, minimum_matches=2
+        repo_id,
+        guard.snapshot["id"],
+        terms,
+        minimum_matches=2,
+        explicit_class_names=explicit_class_names,
+        explicit_qualified_methods=explicit_qualified_methods,
+        explicit_qualified_symbols=explicit_qualified_symbols,
     ):
         identity = (str(location["file_path"]), int(location["start_line"]), int(location["end_line"]))
         if identity in seen:
@@ -532,6 +765,23 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
                     locations[index] = location
                     break
         else:
+            seen.add(identity)
+            locations.append(location)
+
+    # Behavior questions often describe a top-level helper without naming its
+    # symbol. Keep weak symbol matches only when their parsed body contains the
+    # question terms; this lets a public wrapper and its downstream method coexist
+    # without treating every one-word symbol overlap as a result.
+    for location in _symbol_locations_for_terms(
+        repo_id,
+        guard.snapshot["id"],
+        terms,
+        explicit_class_names=explicit_class_names,
+        explicit_qualified_methods=explicit_qualified_methods,
+        explicit_qualified_symbols=explicit_qualified_symbols,
+    ):
+        identity = (str(location["file_path"]), int(location["start_line"]), int(location["end_line"]))
+        if identity not in seen:
             seen.add(identity)
             locations.append(location)
 
@@ -559,6 +809,7 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
         try:
             for term in sorted(terms, key=lambda value: (-len(value), value))[:12]:
                 term_result = retriever.retrieve(repo_id, guard.snapshot["id"], term, 8)
+                retrievals.append(term_result)
                 for candidate in term_result.items:
                     identity = str(candidate.get("chunk_id") or candidate.get("id") or "")
                     if identity:
@@ -585,7 +836,14 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
             if identity not in seen:
                 seen.add(identity)
                 locations.append(location)
-        for location in _symbol_locations_for_terms(repo_id, guard.snapshot["id"], terms):
+        for location in _symbol_locations_for_terms(
+            repo_id,
+            guard.snapshot["id"],
+            terms,
+            explicit_class_names=explicit_class_names,
+            explicit_qualified_methods=explicit_qualified_methods,
+            explicit_qualified_symbols=explicit_qualified_symbols,
+        ):
             identity = (str(location["file_path"]), int(location["start_line"]), int(location["end_line"]))
             if identity not in seen:
                 seen.add(identity)
@@ -631,13 +889,19 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
             continue
         compact_locations.append(location)
     locations = compact_locations
-    # Return a small, diverse set. At most two locations from one file prevents a
-    # large module from consuming the caller's context budget.
+    # Return a small, diverse set. The top-ranked file may hold three locations
+    # when limit >= 6 — compound queries often target multiple sites within one
+    # large module (e.g. sessions.py).  All other files stay capped at two so
+    # diverse cross-file evidence is preserved.
+    leading_file: str | None = None
     selected: list[dict] = []
     selected_per_file: dict[str, int] = {}
     for item in locations:
         path = str(item["file_path"]).replace("\\", "/")
-        if selected_per_file.get(path, 0) >= 2:
+        if leading_file is None:
+            leading_file = path
+        cap = 3 if (path == leading_file and normalized_limit >= 6) else 2
+        if selected_per_file.get(path, 0) >= cap:
             continue
         selected.append(item)
         selected_per_file[path] = selected_per_file.get(path, 0) + 1
@@ -651,7 +915,26 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
     ]
     if mode != "hybrid":
         limitations.insert(0, "Semantic retrieval is unavailable for this snapshot; locations use lexical retrieval only.")
+    _record_mcp_retrieval_metric(
+        repo_id=repo_id,
+        snapshot_id=guard.snapshot["id"],
+        tool_name="locate_code",
+        query=normalized_question,
+        retrievals=retrievals,
+        returned_count=len(selected),
+        started_at=started_at,
+    )
     if not selected:
+        if compact:
+            return {
+                "repo_id": repo_id,
+                "snapshot_id": guard.snapshot["id"],
+                "commit": guard.snapshot["commit_hash"],
+                "status": "not_found",
+                "retrieval_mode": mode,
+                "locations": [],
+                "limitations": limitations,
+            }
         return envelope(
             repo_id=repo_id,
             snapshot_id=guard.snapshot["id"],
@@ -660,6 +943,27 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
             data={"question": normalized_question, "retrieval_mode": mode, "locations": []},
             limitations=limitations,
         )
+    if compact:
+        result = {
+            "repo_id": repo_id,
+            "snapshot_id": guard.snapshot["id"],
+            "commit": guard.snapshot["commit_hash"],
+            "status": status,
+            "locations": [
+                {
+                    "path": item["file_path"],
+                    "start_line": item["start_line"],
+                    "end_line": item["end_line"],
+                }
+                for item in selected
+            ],
+        }
+        # A degraded result changes the meaning of the candidate ranking, so it
+        # remains explicit even in the context-minimal representation.
+        if status == "degraded":
+            result["retrieval_mode"] = mode
+            result["limitations"] = limitations
+        return result
     return envelope(
         repo_id=repo_id,
         snapshot_id=guard.snapshot["id"],

@@ -20,6 +20,9 @@ class LexicalRetriever:
         for rank, row in enumerate(rows, start=1):
             item = dict(row)
             item["chunk_id"] = item.get("chunk_id") or item.get("id")
+            item["lexical_score"] = float(item.get("lexical_score", item.get("score", 0.0)))
+            item["exact_boost"] = float(item.get("exact_boost", 0.0))
+            item["lexical_final_score"] = float(item.get("lexical_final_score", item.get("score", 0.0)))
             item["retriever"] = self.name
             item["rank"] = rank
             item["signals"] = sorted(set(item.get("signals", [])) | {"lexical"})

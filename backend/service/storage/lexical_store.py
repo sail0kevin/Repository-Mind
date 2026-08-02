@@ -5,6 +5,7 @@ import re
 import sqlite3
 import time
 import uuid
+from itertools import combinations
 from typing import Any
 
 from service.storage.sqlite_db import get_connection
@@ -12,6 +13,12 @@ from service.storage.sqlite_db import get_connection
 # 中文连续文本、拉丁字母和数字分别取词；camelCase 会在下一步补充分段。
 _TOKEN_RE = re.compile(r"[㐀-鿿]+|[A-Za-z]+|\d+")
 _CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+_ENGLISH_STOP_WORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "can", "does", "do", "for",
+    "from", "how", "in", "is", "it", "of", "on", "or", "should", "the", "to", "when",
+    "what", "which", "why", "with",
+})
+_IDENTIFIER_OR_PATH_RE = re.compile(r"[_/\\.]|\b[a-z]+[A-Z][A-Za-z0-9]*\b")
 
 
 def normalize_query(query: str) -> list[str]:
@@ -38,9 +45,25 @@ def normalized_query_text(query: str) -> str:
     return " ".join(normalize_query(query))
 
 
-def _fts_match_expression(terms: list[str]) -> str:
-    """使用双引号构造纯词项 OR 查询，禁止用户输入进入 FTS5 语法。"""
+def _fts_match_expression(query: str, terms: list[str]) -> str:
+    """Construct a safe FTS5 expression with a precision-first English path.
+
+    Natural-language English questions otherwise match incidental words such as
+    ``function`` or ``state`` almost everywhere in a codebase. For those queries,
+    require four meaningful terms to co-occur. Explicit symbols, paths, and
+    Chinese queries keep the recall-oriented OR behavior used by the existing
+    identifier and Chinese tokenization paths.
+    """
     escaped = [term.replace('"', '""') for term in terms]
+    if not _IDENTIFIER_OR_PATH_RE.search(query) and query.isascii():
+        meaningful = [term for term in escaped if len(term) >= 3 and term not in _ENGLISH_STOP_WORDS]
+        meaningful = list(dict.fromkeys(meaningful))
+        if len(meaningful) >= 4:
+            quadruples = combinations(meaningful[:8], 4)
+            return " OR ".join(
+                f'("{first}" AND "{second}" AND "{third}" AND "{fourth}")'
+                for first, second, third, fourth in quadruples
+            )
     return " OR ".join(f'"{term}"' for term in escaped)
 
 
@@ -114,7 +137,7 @@ def search_fts_chunks(
     candidate_limit = min(max(safe_limit * 5, 25), 250)
     started = time.perf_counter()
     run_id = f"retrieval_{uuid.uuid4().hex}"
-    match_expression = _fts_match_expression(terms)
+    match_expression = _fts_match_expression(query, terms)
     with get_connection() as connection:
         selected = snapshot_id
         if selected is None:
@@ -189,6 +212,9 @@ def search_fts_chunks(
             data.pop("resolved_file_path", None)
             data["vector_score"] = 0.0
             data["score"] = float(score)
+            data["lexical_score"] = float(score - boost)
+            data["exact_boost"] = float(boost)
+            data["lexical_final_score"] = float(score)
             data["match_type"] = "lexical"
             data["retrieval_run_id"] = run_id
             results.append(data)

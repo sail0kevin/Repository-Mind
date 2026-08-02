@@ -49,6 +49,42 @@ def _load_location_index_script() -> ModuleType:
     return module
 
 
+def _load_location_retrieval_benchmark_script() -> ModuleType:
+    path = ROOT / "scripts" / "run_location_retrieval_benchmark.py"
+    spec = importlib.util.spec_from_file_location("repomind_location_retrieval_benchmark", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_retrieval_benchmark_script() -> ModuleType:
+    path = ROOT / "scripts" / "run_retrieval_benchmark.py"
+    spec = importlib.util.spec_from_file_location("repomind_retrieval_benchmark", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_relevance_calibration_script() -> ModuleType:
+    path = ROOT / "scripts" / "run_relevance_calibration.py"
+    spec = importlib.util.spec_from_file_location("repomind_relevance_calibration", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_retrieval_regression_gate_script() -> ModuleType:
+    path = ROOT / "scripts" / "verify_retrieval_regression.py"
+    spec = importlib.util.spec_from_file_location("repomind_retrieval_regression_gate", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_cross_file_gold_set_has_stable_snapshot_and_expected_evidence() -> None:
     path = Path(__file__).parents[2] / "examples" / "benchmarks" / "code-understanding-gold.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -138,6 +174,19 @@ def test_backend_understanding_gold_has_balanced_categories_and_valid_commit_pat
     assert labeled_paths <= commit_paths
 
 
+def test_backend_understanding_negative_fixture_is_reviewed_and_pinned() -> None:
+    positive = json.loads((ROOT / "examples" / "benchmarks" / "backend-understanding-gold.json").read_text(encoding="utf-8"))
+    negative = json.loads((ROOT / "examples" / "benchmarks" / "backend-understanding-negative-v1.json").read_text(encoding="utf-8"))
+    queries = negative["queries"]
+
+    assert negative["snapshot_commit"] == positive["snapshot_commit"]
+    assert 10 <= len(queries) <= 20
+    assert len({item["id"] for item in queries}) == len(queries)
+    assert all(item["query"].strip() for item in queries)
+    assert all(item["relevant_paths"] == [] for item in queries)
+    assert all(item["review_note"].strip() for item in queries)
+
+
 def test_backend_understanding_capture_matches_gold_contract() -> None:
     gold = json.loads(
         (ROOT / "examples" / "benchmarks" / "backend-understanding-gold.json").read_text(
@@ -178,6 +227,192 @@ def test_backend_understanding_published_metrics_are_recomputed_from_capture() -
     assert result["mrr"] == pytest.approx(0.2450297619)
     assert result["task_completion_rate"] == 0.55
     assert result["task_completion_reasons"]["completed"] == 22
+
+
+def test_backend_understanding_manifest_matches_gold_file_hash() -> None:
+    manifest = json.loads(
+        (ROOT / "examples" / "benchmarks" / "backend-understanding.manifest.example.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    gold = ROOT / manifest["gold_file"]
+
+    import hashlib
+
+    assert manifest["target"]["commit"] == json.loads(gold.read_text(encoding="utf-8"))["snapshot_commit"]
+    assert manifest["gold_sha256"] == hashlib.sha256(gold.read_bytes()).hexdigest()
+
+
+def test_backend_understanding_offline_regression_gate_recomputes_frozen_metrics() -> None:
+    gate = _load_retrieval_regression_gate_script()
+
+    result = gate.verify()
+
+    assert result["query_count"] == 40
+    assert result["recall_at_5"] == pytest.approx(0.26666666666666666)
+    assert result["recall_at_10"] == pytest.approx(0.37916666666666665)
+    assert result["mrr"] == pytest.approx(0.2450297619047619)
+    assert result["citation_hit_rate"] == pytest.approx(0.55)
+    assert result["task_completion_rate"] == pytest.approx(0.55)
+    assert result["tool_selection_exact_match_rate"] == pytest.approx(1.0)
+
+
+def test_backend_understanding_offline_regression_gate_rejects_capture_drift(tmp_path: Path) -> None:
+    gate = _load_retrieval_regression_gate_script()
+    gold_path = ROOT / "examples" / "benchmarks" / "backend-understanding-gold.json"
+    manifest_path = ROOT / "examples" / "benchmarks" / "backend-understanding.manifest.example.json"
+    capture = json.loads((ROOT / "examples" / "benchmarks" / "backend-understanding-capture-v2.json").read_text(encoding="utf-8"))
+    capture["queries"][0]["relevant"] = ["C:/not-a-safe-path.py"]
+    capture_path = tmp_path / "capture.json"
+    capture_path.write_text(json.dumps(capture), encoding="utf-8")
+
+    with pytest.raises(gate.RegressionGateError, match="drifted"):
+        gate.verify(gold_path, capture_path, manifest_path)
+
+
+def test_retrieval_benchmark_redaction_rejects_secrets_and_absolute_paths(tmp_path: Path) -> None:
+    runner = _load_retrieval_benchmark_script()
+    with pytest.raises(runner.BenchmarkError, match="local absolute path"):
+        runner._assert_redacted({"path": str(tmp_path)}, [str(tmp_path)])
+    with pytest.raises(runner.BenchmarkError, match="sensitive key"):
+        runner._assert_redacted({"api_key": "not-a-real-key"}, [])
+
+
+def test_retrieval_benchmark_rejects_unsafe_relative_paths() -> None:
+    runner = _load_retrieval_benchmark_script()
+    assert runner._safe_relative_path(r"backend\service\main.py") == "backend/service/main.py"
+    with pytest.raises(runner.BenchmarkError, match="Unsafe relative path"):
+        runner._safe_relative_path("C:/users/secret.txt")
+
+
+def test_retrieval_benchmark_prepares_backend_import_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_retrieval_benchmark_script()
+    backend_path = str(runner.BACKEND)
+    monkeypatch.setattr(runner.sys, "path", [path for path in runner.sys.path if path != backend_path])
+
+    runner._prepare_backend_imports()
+
+    assert runner.sys.path[0] == backend_path
+
+
+def test_retrieval_benchmark_embedding_configuration_records_batch_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_retrieval_benchmark_script()
+    settings: dict[str, object] = {}
+
+    class Secrets:
+        def set(self, key: str, value: str) -> None:
+            settings[key] = value
+
+    monkeypatch.setattr(runner, "_prepare_backend_imports", lambda: None)
+    runner._prepare_backend_imports()
+    import service.storage.secret_store as secret_store
+    import service.storage.settings_store as settings_store
+    monkeypatch.setattr(secret_store, "get_secret_store", lambda: Secrets())
+    monkeypatch.setattr(settings_store, "set_setting", lambda key, value: settings.__setitem__(key, value))
+    monkeypatch.setenv("TEST_BENCHMARK_EMBEDDING_KEY", "synthetic")
+    args = type("Args", (), {
+        "embedding_provider": "openai_compatible",
+        "embedding_base_url": "http://127.0.0.1:11434/v1",
+        "embedding_model": "all-minilm:latest",
+        "embedding_key_env": "TEST_BENCHMARK_EMBEDDING_KEY",
+        "embedding_max_input_characters": 128,
+        "embedding_batch_size": 4,
+    })()
+
+    config = runner._configure_embedding("hybrid", {}, args)
+
+    assert settings["embedding_batch_size"] == 4
+    assert config["batch_size"] == 4
+
+
+def test_retrieval_benchmark_reranker_configuration_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_retrieval_benchmark_script()
+    settings: dict[str, object] = {}
+
+    runner._prepare_backend_imports()
+    import service.storage.settings_store as settings_store
+
+    monkeypatch.setattr(settings_store, "set_setting", lambda key, value: settings.__setitem__(key, value))
+    args = type("Args", (), {
+        "reranker_provider": "flag_embedding",
+        "reranker_model": "BAAI/test-reranker",
+        "reranker_use_fp16": False,
+        "reranker_candidate_limit": 20,
+    })()
+
+    config = runner._configure_reranker("hybrid", args)
+
+    assert config == {
+        "provider": "flag_embedding", "model": "BAAI/test-reranker", "use_fp16": False,
+        "candidate_limit": 20,
+    }
+    assert settings["reranker_provider"] == "flag_embedding"
+    assert settings["reranker_candidate_limit"] == 20
+    with pytest.raises(runner.BenchmarkError, match="requires hybrid"):
+        runner._configure_reranker("lexical", args)
+
+
+def test_retrieval_benchmark_requires_rerank_audit_summary() -> None:
+    runner = _load_retrieval_benchmark_script()
+
+    assert runner._rerank_summary({"output_summary": {"rerank": {"applied": True, "candidate_count": 50}}}) == {
+        "applied": True, "candidate_count": 50,
+    }
+    with pytest.raises(runner.BenchmarkError, match="rerank audit"):
+        runner._rerank_summary({"output_summary": {}})
+
+
+def test_relevance_calibration_embedding_configuration_records_matching_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_relevance_calibration_script()
+    settings: dict[str, object] = {}
+
+    class Secrets:
+        def set(self, key: str, value: str) -> None:
+            settings[key] = value
+
+    import service.storage.secret_store as secret_store
+    import service.storage.settings_store as settings_store
+
+    monkeypatch.setattr(secret_store, "get_secret_store", lambda: Secrets())
+    monkeypatch.setattr(settings_store, "set_setting", lambda key, value: settings.__setitem__(key, value))
+    monkeypatch.setenv("TEST_CALIBRATION_EMBEDDING_KEY", "synthetic")
+    args = type("Args", (), {
+        "embedding_provider": "openai_compatible",
+        "embedding_base_url": "http://127.0.0.1:11434/v1",
+        "embedding_model": "all-minilm:latest",
+        "embedding_key_env": "TEST_CALIBRATION_EMBEDDING_KEY",
+        "embedding_max_input_characters": 128,
+        "embedding_batch_size": 4,
+    })()
+
+    config = runner._configure_embedding("hybrid", args)
+
+    assert settings["embedding_max_input_characters"] == 128
+    assert settings["embedding_batch_size"] == 4
+    assert config["max_input_characters"] == 128
+    assert config["batch_size"] == 4
+
+
+def test_retrieval_metrics_report_groups_rankings_by_category() -> None:
+    report = importlib.util.spec_from_file_location(
+        "repomind_report_retrieval_metrics_categories", ROOT / "scripts" / "report_retrieval_metrics.py",
+    )
+    assert report is not None and report.loader is not None
+    module = importlib.util.module_from_spec(report)
+    report.loader.exec_module(module)
+    payload = {
+        "queries": [
+            {"category": "symbol_navigation", "ranked": ["a"], "relevant": ["a"]},
+            {"category": "test_runtime", "ranked": ["x"], "relevant": ["b"]},
+        ]
+    }
+
+    categories = module._evaluate_categories(payload)
+
+    assert categories["symbol_navigation"]["recall_at_5"] == 1.0
+    assert categories["test_runtime"]["mrr"] == 0.0
 
 
 @pytest.mark.parametrize(
@@ -281,6 +516,59 @@ def test_location_benchmark_preflight_accepts_pinned_isolated_index(tmp_path: Pa
     assert result["task_count"] == 1
 
 
+def test_location_benchmark_preflight_accepts_equivalent_location_groups(tmp_path: Path) -> None:
+    preflight = _load_location_preflight_script()
+    manifest, _commit = _create_pinned_benchmark_fixture(tmp_path)
+    tasks_path = Path(json.loads(manifest.read_text(encoding="utf-8"))["task_file"])
+    tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+    task = tasks["tasks"][0]
+    tasks["task_type"] = "single_location_navigation"
+    task.pop("expected_locations")
+    task["acceptable_location_groups"] = [[
+        {"path": "src/service.py", "line_start": 1, "line_end": 1},
+        {"path": "src/service.py", "line_start": 2, "line_end": 2},
+    ]]
+    tasks_path.write_text(json.dumps(tasks), encoding="utf-8")
+
+    result = preflight.validate_manifest(manifest)
+
+    assert result["task_count"] == 1
+
+
+def test_location_benchmark_preflight_rejects_both_location_contracts(tmp_path: Path) -> None:
+    preflight = _load_location_preflight_script()
+    manifest, _commit = _create_pinned_benchmark_fixture(tmp_path)
+    tasks_path = Path(json.loads(manifest.read_text(encoding="utf-8"))["task_file"])
+    tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+    tasks["tasks"][0]["acceptable_location_groups"] = [[
+        {"path": "src/service.py", "line_start": 1, "line_end": 1},
+    ]]
+    tasks_path.write_text(json.dumps(tasks), encoding="utf-8")
+
+    with pytest.raises(preflight.BenchmarkValidationError, match="either expected_locations"):
+        preflight.validate_manifest(manifest)
+
+
+def test_external_token_click_v4_manifest_freezes_equivalent_prompt_locations() -> None:
+    artifact_dir = ROOT / "e2e-artifacts" / "external-token-study-20260801"
+    manifest = json.loads(
+        (artifact_dir / "click-eligible-manifest-v4.json").read_text(encoding="utf-8")
+    )
+    tasks = json.loads(
+        (artifact_dir / manifest["task_file"]).read_text(encoding="utf-8")
+    )
+
+    assert manifest["benchmark_id"] == "external-token-click-eligible-v4"
+    assert tasks["scoring_policy_version"] == "v4-equivalent-definition-or-implementation"
+    prompt_task = next(task for task in tasks["tasks"] if task["id"] == "click-prompt-helper")
+    assert "expected_locations" not in prompt_task
+    assert prompt_task["acceptable_location_groups"] == [[
+        {"path": "src/click/termui.py", "line_start": 138, "line_end": 149},
+        {"path": "src/click/termui.py", "line_start": 153, "line_end": 164},
+        {"path": "src/click/termui.py", "line_start": 167, "line_end": 285},
+    ]]
+
+
 def test_location_benchmark_preflight_rejects_index_for_other_checkout(tmp_path: Path) -> None:
     preflight = _load_location_preflight_script()
     manifest, _commit = _create_pinned_benchmark_fixture(tmp_path)
@@ -290,6 +578,33 @@ def test_location_benchmark_preflight_rejects_index_for_other_checkout(tmp_path:
 
     with pytest.raises(preflight.BenchmarkValidationError, match="indexed repo_path does not match"):
         preflight.validate_manifest(manifest)
+
+
+def test_location_retrieval_benchmark_scores_each_gold_line_and_summarizes_tasks() -> None:
+    runner = _load_location_retrieval_benchmark_script()
+    locations = [
+        {"file_path": "src/example.py", "start_line": 10, "end_line": 30},
+        {"file_path": "src/other.py", "start_line": 4, "end_line": 8},
+    ]
+    score = runner._score_locations(locations, [
+        {"path": "src/example.py", "line_start": 12, "line_end": 12},
+        {"path": "src/example.py", "line_start": 27, "line_end": 27},
+        {"path": "src/other.py", "line_start": 6, "line_end": 6},
+    ])
+
+    assert score["passed"] is True
+    assert score["location_hit_count"] == 3
+    assert [item["rank"] for item in score["location_checks"]] == [1, 1, 2]
+    assert score["mean_reciprocal_rank"] == pytest.approx(5 / 6)
+
+    summary = runner._summarize([{
+        "passed": score["passed"], "location_hit_count": score["location_hit_count"],
+        "location_count": score["location_count"], "mean_reciprocal_rank": score["mean_reciprocal_rank"],
+        "duration_ms": 42.0,
+    }])
+    assert summary["task_pass_rate"] == 1.0
+    assert summary["gold_location_coverage"] == 1.0
+    assert summary["mean_gold_location_reciprocal_rank"] == pytest.approx(5 / 6)
 
 
 def test_location_benchmark_retry_only_accepts_one_failed_snapshot_for_the_same_pin(tmp_path: Path) -> None:

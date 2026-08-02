@@ -166,13 +166,14 @@ def test_known_experimental_v003_requires_exact_structure(tmp_path: Path) -> Non
     connection = sqlite3.connect(database_path)
     try:
         run_migrations(connection, database_path)
-        connection.execute("DELETE FROM schema_migrations WHERE version IN (3, 4, 6, 7)")
+        connection.execute("DELETE FROM schema_migrations WHERE version IN (3, 4, 6, 7, 8, 9)")
         connection.execute("DROP TABLE agent_trace_steps")
         connection.execute("DROP TABLE agent_traces")
         connection.execute("DROP TABLE evidence_embeddings")
         connection.execute("DROP TABLE catalog_items")
         connection.execute("DROP TABLE retrieval_candidates")
         connection.execute("DROP TABLE retrieval_runs")
+        connection.execute("DROP TABLE retrieval_metrics")
         connection.execute("DROP TABLE evidence_fts")
         for name in ("trg_repository_snapshots_mirror_insert", "trg_repository_snapshots_mirror_update"):
             connection.execute(f'DROP TRIGGER "{name}"')
@@ -199,13 +200,14 @@ def test_experimental_v003_weak_same_name_table_is_rejected(tmp_path: Path) -> N
     connection = sqlite3.connect(database_path)
     try:
         run_migrations(connection, database_path)
-        connection.execute("DELETE FROM schema_migrations WHERE version IN (3, 4, 6, 7)")
+        connection.execute("DELETE FROM schema_migrations WHERE version IN (3, 4, 6, 7, 8, 9)")
         connection.execute("DROP TABLE agent_trace_steps")
         connection.execute("DROP TABLE agent_traces")
         connection.execute("DROP TABLE evidence_embeddings")
         connection.execute("DROP TABLE catalog_items")
         connection.execute("DROP TABLE retrieval_candidates")
         connection.execute("DROP TABLE retrieval_runs")
+        connection.execute("DROP TABLE retrieval_metrics")
         connection.execute("DROP TABLE evidence_fts")
         for name in ("trg_repository_snapshots_mirror_insert", "trg_repository_snapshots_mirror_update"):
             connection.execute(f'DROP TRIGGER "{name}"')

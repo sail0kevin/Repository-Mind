@@ -7,7 +7,7 @@
 ### 1. 项目说明和版本配置
 
 ```text
-README.md
+2026-08-01_REPOMIND_README_项目说明.md
 .gitignore
 .env.example
 .nvmrc
@@ -50,30 +50,36 @@ scripts/build_backend.ps1
 scripts/package_windows.ps1
 scripts/smoke_backend.ps1
 scripts/verify_identity_contract.ps1
+scripts/verify_runtime_contract.ps1
+scripts/verify_release_hashes.ps1
 .github/workflows/ci-windows.yml
 .github/workflows/release-windows.yml
 ```
 
 这些是从源码重新生成后端 EXE、Electron 应用、NSIS 安装包和 Portable 版本所必需的工程文件。
 
+Windows CI 和 Release 都会使用锁定的 Python `3.12`、Node `20.18.0`、npm `10.8.2` 执行同一套打包链。链路必须在包内后端 HTTP/MCP smoke、隔离的 Electron E2E 通过后，重新核验 `SHA256SUMS.txt`：清单必须覆盖 release 目录中除清单自身外的每一个文件，且没有重复、不安全路径或哈希不匹配。只有该 CI 产物或 tag Release 才可作为当前 schema v009 桌面包的发布证据。
+
 ### 5. 当前正式文档
 
 ```text
-docs/后续开发指导/DEVELOPMENT_REPORT.md
-docs/后续开发指导/ARCHITECTURE_FUTURE_ROADMAP.md
-docs/后续开发指导/RAG_VS_AGENTIC.md
-docs/后续开发指导/GITHUB_UPLOAD_GUIDE.md
+docs/2026-08-01_REPOMIND_README_项目说明.md
+docs/后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md
+docs/后续开发指导/2026-07-28_ARCHITECTURE_FUTURE_ROADMAP_未来架构路线图.md
+docs/后续开发指导/2026-07-26_RAG_VS_AGENTIC_RAG与智能体检索定位.md
+docs/后续开发指导/2026-08-01_GITHUB_UPLOAD_GUIDE_GitHub上传指南.md
+docs/旧的文件/
 ```
+
+`docs/旧的文件/` 中的资料用于保留已废弃决策的追溯链；其中不得包含密钥、真实仓库数据、运行数据库或机器专属路径。
 
 ## 二、本地保留，但不上传
 
 ```text
-docs/旧的文件/
 .claude/
 data/
 ```
 
-- `docs/旧的文件/` 是过时方案和历史资料，本机保留即可，不作为当前公开项目说明。
 - `.claude/` 包含本地会话、工具状态和历史 worktree。
 - `data/` 可能包含真实用户仓库、索引、问答、Evidence 和 Agent Trace。
 
@@ -128,7 +134,7 @@ git add -- .gitignore
 ### 第 2 批：README 和正式文档
 
 ```bash
-git add -- README.md "docs/后续开发指导"
+git add -- 2026-08-01_REPOMIND_README_项目说明.md "docs/后续开发指导"
 ```
 
 如果是在尚未完成旧文档迁移的工作树中整理，还需要先用 `git status` 确认旧路径确实存在，再显式暂存对应删除；全新 clone 不需要执行旧路径迁移命令。
@@ -187,7 +193,6 @@ release/
 dist-electron/
 dist-renderer/
 backend/tests/.tmp/
-docs/旧的文件/
 data/
 ```
 

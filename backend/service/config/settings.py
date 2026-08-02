@@ -4,9 +4,10 @@
 """
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -35,6 +36,8 @@ class Settings(BaseSettings):
     shutdown_token: str | None = None
     # 桌面版注入启动后端的 Electron 主进程 PID；后端仅监视经直接父子关系验证的 PID。
     electron_parent_pid: int | None = Field(default=None, ge=1)
+    # 默认只监听 loopback；显式绑定到其他地址时必须同时配置静态 API token。
+    bind_host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
     api_base_url: str = "http://127.0.0.1:8000/api/v1"
     # Electron 打包页使用 Origin: null；Vite 开发页必须匹配包含端口的完整 Origin。
@@ -49,6 +52,29 @@ class Settings(BaseSettings):
     class Config:
         env_prefix = "REPOMIND_"
         env_nested_delimiter = "__"
+
+    @model_validator(mode="after")
+    def validate_bind_security(self) -> "Settings":
+        host = self.bind_host.strip()
+        if not host:
+            raise ValueError("REPOMIND_BIND_HOST 不能为空")
+        self.bind_host = host
+        if self._is_loopback_host(host):
+            return self
+        if not self.api_token or not self.api_token.strip():
+            raise ValueError("非 loopback 绑定必须配置 REPOMIND_API_TOKEN")
+        self.api_token = self.api_token.strip()
+        return self
+
+    @staticmethod
+    def _is_loopback_host(host: str) -> bool:
+        normalized = host.strip().lower().strip("[]")
+        if normalized == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(normalized).is_loopback
+        except ValueError:
+            return False
 
 
 _settings: Settings | None = None

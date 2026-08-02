@@ -1,0 +1,17 @@
+{
+  "benchmark_id": "repomind-backend-understanding-negative-v1",
+  "snapshot_commit": "c92e2f9af153212074da62d2d7fc1418bfbc0d72",
+  "description": "Queries manually reviewed to have no relevant path in the pinned RepoMind snapshot. They exercise unrelated technology and domain vocabulary without asserting a code answer.",
+  "queries": [
+    {"id": "negative-kubernetes-helm", "query": "How does a Kubernetes Helm blue green rollout manage release traffic?", "relevant_paths": [], "review_note": "The pinned repository contains no Kubernetes or Helm deployment implementation."},
+    {"id": "negative-django-migrations", "query": "How should a Django migration add a nullable database field?", "relevant_paths": [], "review_note": "The pinned repository is not a Django application and has no Django migration files."},
+    {"id": "negative-jetpack-compose", "query": "How does Jetpack Compose navigation preserve screen state?", "relevant_paths": [], "review_note": "The pinned repository contains no Android or Kotlin application code."},
+    {"id": "negative-rust-lifetimes", "query": "Why does a Rust function need explicit lifetime annotations?", "relevant_paths": [], "review_note": "The pinned repository contains no Rust source files or lifetime-oriented implementation."},
+    {"id": "negative-react-native-metro", "query": "How can React Native Metro resolve a custom module alias?", "relevant_paths": [], "review_note": "The pinned repository contains no React Native application or Metro configuration."},
+    {"id": "negative-terraform-vpc", "query": "How do Terraform VPC flow logs publish to a cloud log group?", "relevant_paths": [], "review_note": "The pinned repository contains no Terraform infrastructure definition or VPC configuration."},
+    {"id": "negative-postgres-replication", "query": "How are PostgreSQL replication slots monitored and cleaned up?", "relevant_paths": [], "review_note": "The pinned repository has SQLite storage code only; it has no PostgreSQL replication implementation."},
+    {"id": "negative-kafka-reassignment", "query": "How should Kafka partition reassignment be throttled during a migration?", "relevant_paths": [], "review_note": "The pinned repository contains no Kafka client, broker, or migration implementation."},
+    {"id": "negative-spring-jpa", "query": "When does a Spring JPA entity listener receive a lifecycle callback?", "relevant_paths": [], "review_note": "The pinned repository contains no Java Spring or JPA source code."},
+    {"id": "negative-swiftui-lifecycle", "query": "How does SwiftUI scene lifecycle notify an application of backgrounding?", "relevant_paths": [], "review_note": "The pinned repository contains no Swift or SwiftUI source code."}
+  ]
+}

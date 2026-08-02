@@ -70,7 +70,7 @@ try {
     if ($health.status -ne "ok") { throw "Backend health status is not ok" }
     if ($health.instance_id -ne "repomind-desktop-backend") { throw "Backend identity mismatch" }
     if ($health.api_version -ne "v1") { throw "Backend API version mismatch" }
-    if ([int] $health.database_schema_version -ne 7) { throw "Database schema is not version 7" }
+    if ([int] $health.database_schema_version -ne 9) { throw "Database schema is not version 9" }
     if ($health.session_id -ne $sessionId) { throw "Backend session identity mismatch" }
     $pythonCommand = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } elseif (Get-Command py -ErrorAction SilentlyContinue) { "py" } else { throw "Python is required for smoke verification" }
     $backendSourceRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\backend"))
@@ -96,13 +96,13 @@ connection = sqlite3.connect(sys.argv[1])
 assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
-assert versions == [1, 2, 3, 4, 6, 7], versions
+assert versions == [1, 2, 3, 4, 6, 7, 8, 9], versions
 connection.execute("CREATE VIRTUAL TABLE temp.smoke_fts USING fts5(content)")
 connection.execute("INSERT INTO smoke_fts(content) VALUES ('repomind frozen lexical needle')")
 assert connection.execute("SELECT count(*) FROM smoke_fts WHERE smoke_fts MATCH 'needle'").fetchone()[0] == 1
-for table in ("evidence_fts", "agent_traces", "agent_trace_steps"):
+for table in ("evidence_fts", "agent_traces", "agent_trace_steps", "retrieval_metrics"):
     assert connection.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (table,)).fetchone(), table
-print("schema=7 fts5=ok migrations=" + ",".join(map(str, versions)))
+print("schema=9 fts5=ok migrations=" + ",".join(map(str, versions)))
 '@
     # Windows PowerShell 5.1 may alter quotes passed through `python -c`, so use a temporary script file.
     [System.IO.File]::WriteAllText($databaseCheckPath, $databaseCheck, [System.Text.UTF8Encoding]::new($false))
@@ -114,7 +114,7 @@ print("schema=7 fts5=ok migrations=" + ",".join(map(str, versions)))
     if ($publicSettings.llm_api_key_configured -or $publicSettings.embedding_api_key_configured) {
         throw "No-key smoke unexpectedly found a configured API key"
     }
-    Write-Host "Frozen backend smoke OK: port=$port schema=7 fts5=ok no-key=ok"
+    Write-Host "Frozen backend smoke OK: port=$port schema=9 fts5=ok metrics=ok no-key=ok"
 }
 finally {
     $cleanupFailure = $null

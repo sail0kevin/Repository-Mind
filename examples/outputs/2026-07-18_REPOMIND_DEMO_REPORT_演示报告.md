@@ -11,7 +11,7 @@ Workflow summary for RepoMind 内置 Demo: Code structure agent: 7 findings, Doc
 ## Code structure agent
 
 - **[info] 仓库结构概览**: 扫描到 10 个文件，10 个可索引文本文件；主要语言/文本类型：python, json, markdown。
-  - evidence: README.md
+  - evidence: 2026-08-01_REPOMIND_README_项目说明.md
   - evidence: config.json
   - evidence: expected/showcase.json
 - **[info] 可能入口文件**: 优先阅读这些文件理解启动链路：repomind_demo/app/main.py
@@ -29,8 +29,8 @@ Workflow summary for RepoMind 内置 Demo: Code structure agent: 7 findings, Doc
 
 ## Documentation understanding agent
 
-- **[info] 文档线索：README.md**: 主要章节：RepoMind Synthetic Demo、这个项目做什么、运行、测试、安全演示边界、预期展示；覆盖主题：API、测试
-  - evidence: README.md
+- **[info] 文档线索：2026-08-01_REPOMIND_README_项目说明.md**: 主要章节：RepoMind Synthetic Demo、这个项目做什么、运行、测试、安全演示边界、预期展示；覆盖主题：API、测试
+  - evidence: 2026-08-01_REPOMIND_README_项目说明.md
 
 ## Configuration & dependency agent
 
@@ -57,7 +57,7 @@ Workflow summary for RepoMind 内置 Demo: Code structure agent: 7 findings, Doc
   - recommended: 代码结构线索：repomind_demo/notifier.py
   - recommended: 代码结构线索：repomind_demo/security_examples.py
 - **Documentation understanding agent**: Documentation understanding agent gathered 1 findings.
-  - recommended: 文档线索：README.md
+  - recommended: 文档线索：2026-08-01_REPOMIND_README_项目说明.md
 - **Configuration & dependency agent**: Configuration & dependency agent gathered 2 findings.
   - recommended: 配置线索：config.json
   - recommended: 配置线索：expected/showcase.json

@@ -5,6 +5,9 @@ MCP 层只做参数转发和结果返回，所有实际逻辑都在 service.mcp_
 """
 from __future__ import annotations
 
+import argparse
+import os
+
 from mcp.server.fastmcp import FastMCP
 
 from service.mcp_server import tools as impl
@@ -12,7 +15,7 @@ from service.mcp_server import tools as impl
 mcp = FastMCP(
     name="repomind",
     instructions=(
-        "For natural-language code-location questions, unknown symbols, cross-file behavior, or questions that need multiple locations, call locate_code first. "
+        "For natural-language code-location questions, unknown symbols, cross-file behavior, or questions that need multiple locations, call locate_code once first with compact=true and answer directly from its locations when sufficient. "
         "Use get_symbol only when you already know the exact function, class, or qualified symbol name. "
         "Use search_code only when you need supporting snippets beyond the candidate locations. "
         "In your final answer, report every independently relevant location as PATH:START_LINE-END_LINE on its own line; do not merge separate locations into one broad file range. "
@@ -24,6 +27,74 @@ mcp = FastMCP(
         "search_code 返回 not_found 时表示没有可验证证据，外部 Agent 不应据此推断代码事实。"
     ),
 )
+
+coding_agent_mcp = FastMCP(
+    name="repomind-coding-agent",
+    instructions=(
+        "This server is bound to one indexed repository snapshot and exposes only concise code navigation. "
+        "For a code-location question, call locate_code once and answer directly from its returned PATH:START_LINE-END_LINE locations. "
+        "Do not call another discovery tool. The result contains no source text; only request detailed code evidence when the task cannot be answered from locations alone."
+    ),
+)
+
+coding_agent_location_1_mcp = FastMCP(
+    name="repomind-coding-agent-location-1",
+    instructions=(
+        "This server is bound to one indexed repository snapshot and exposes only concise code navigation. "
+        "For a single-location code question, call locate_code once; it returns only the strongest location. "
+        "Answer directly from the returned PATH:START_LINE-END_LINE location and always produce a final answer after the tool result. "
+        "Do not call another discovery tool."
+    ),
+)
+
+
+def _bound_agent_target() -> tuple[str, str | None]:
+    """Read the isolated benchmark target without exposing it in the tool schema."""
+    repo_id = os.environ.get("REPOMIND_MCP_REPO_ID", "").strip()
+    snapshot_id = os.environ.get("REPOMIND_MCP_SNAPSHOT_ID", "").strip() or None
+    if not repo_id:
+        raise ValueError(
+            "coding-agent MCP profile requires REPOMIND_MCP_REPO_ID in the server environment."
+        )
+    return repo_id, snapshot_id
+
+
+@coding_agent_mcp.tool()
+def locate_code(question: str, limit: int | None = None) -> dict:
+    """Return answer-ready code locations for the bound repository snapshot.
+
+    Call this once for a natural-language location, behavior, symbol, or cross-file
+    question. The response intentionally contains only snapshot proof and narrow
+    path/line ranges, so it can be used directly in a coding-agent answer.
+    """
+    try:
+        repo_id, snapshot_id = _bound_agent_target()
+    except ValueError as exc:
+        return {
+            "status": "error",
+            "locations": [],
+            "limitations": [str(exc)],
+        }
+    return impl.locate_code(repo_id, question, snapshot_id, limit, compact=True)
+
+
+@coding_agent_location_1_mcp.tool(name="locate_code")
+def locate_code_location_1(question: str, limit: int | None = None) -> dict:
+    """Return only the strongest answer-ready code location.
+
+    This is an explicitly separate experimental profile for single-location
+    navigation. The default is one location even when the client omits limit.
+    """
+    try:
+        repo_id, snapshot_id = _bound_agent_target()
+    except ValueError as exc:
+        return {
+            "status": "error",
+            "locations": [],
+            "limitations": [str(exc)],
+        }
+    requested_limit = 1 if limit is None else min(limit, 1)
+    return impl.locate_code(repo_id, question, snapshot_id, requested_limit, compact=True)
 
 
 @mcp.tool()
@@ -61,7 +132,13 @@ def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit:
 
 
 @mcp.tool()
-def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, limit: int | None = None) -> dict:
+def locate_code(
+    repo_id: str,
+    question: str,
+    snapshot_id: str | None = None,
+    limit: int | None = None,
+    compact: bool = False,
+) -> dict:
     """Locate one or more code locations for a natural-language question.
 
     Prefer this tool when the symbol name is unknown, the behavior crosses files, or the final
@@ -72,8 +149,11 @@ def locate_code(repo_id: str, question: str, snapshot_id: str | None = None, lim
         question: Natural-language behavior, responsibility, or code-location question.
         snapshot_id: Optional succeeded snapshot ID for this repository.
         limit: Optional candidate-location limit (default 6, maximum 12).
+        compact: Return only answer-ready path and line locations for a coding agent. Use true
+            for ordinary location questions; use false only when evidence IDs and explanations
+            are required for a human-facing audit.
     """
-    return impl.locate_code(repo_id, question, snapshot_id, limit)
+    return impl.locate_code(repo_id, question, snapshot_id, limit, compact)
 
 
 @mcp.tool()
@@ -114,7 +194,19 @@ def find_related_tests(repo_id: str, symbol_query: str | None = None, snapshot_i
 
 
 def main() -> None:
-    mcp.run(transport="stdio")
+    parser = argparse.ArgumentParser(description="Run the RepoMind read-only MCP server.")
+    parser.add_argument(
+        "--profile",
+        choices=("full", "coding-agent", "coding-agent-location-1"),
+        default="full",
+        help="Expose the complete read-only API or only the bound coding-agent locator.",
+    )
+    args = parser.parse_args()
+    if args.profile == "coding-agent-location-1":
+        server = coding_agent_location_1_mcp
+    else:
+        server = coding_agent_mcp if args.profile == "coding-agent" else mcp
+    server.run(transport="stdio")
 
 
 if __name__ == "__main__":

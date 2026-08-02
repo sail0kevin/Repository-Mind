@@ -44,6 +44,9 @@ class ReciprocalRankFusion:
                     current["signals"] = sorted(set(current.get("signals", [])) | set(item.get("signals", [])))
                     if not current.get("content") and item.get("content"):
                         current["content"] = item["content"]
+                    for score_key in ("lexical_score", "exact_boost", "lexical_final_score", "semantic_score", "vector_score"):
+                        if score_key in item and score_key not in current:
+                            current[score_key] = item[score_key]
 
         fused: list[dict] = []
         for identity, item in selected.items():

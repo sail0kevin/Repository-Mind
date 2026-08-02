@@ -38,6 +38,7 @@ from service.storage.snapshot_store import (
     retry_failed_snapshot,
     set_active_snapshot,
 )
+from service.storage.settings_store import get_setting
 from service.storage.sqlite_db import get_connection
 
 _LOCKS_GUARD = threading.Lock()
@@ -249,6 +250,8 @@ def ingest_repository_snapshot(repo_id: str, progress_callback=None, expected_co
                     }
                     for item in evidence
                 ],
+                batch_size=get_setting("embedding_batch_size", 64),
+                max_input_characters=get_setting("embedding_max_input_characters", None),
             )
             if embedding_result.warning:
                 callback(0.75, f"向量阶段 {embedding_result.status}: {embedding_result.warning}")

@@ -8,6 +8,7 @@ param(
     [string]$McpBackendPath,
     [string]$McpDatabasePath,
     [string]$McpDataDir,
+    [ValidateSet("full", "coding-agent", "coding-agent-location-1")][string]$McpProfile = "coding-agent",
     [string]$Commit = "540ec0aac47fd648d1c31edd620a3860a5d515ef",
     [string]$RepositoryPath = ".",
     [string]$OutputDir = "e2e-artifacts/codex-location-ab-v2",
@@ -18,6 +19,7 @@ param(
     [string]$Model = "gpt-5.6-terra",
     [ValidateSet("minimal", "low", "medium", "high")][string]$ReasoningEffort = "low",
     [int]$TimeoutSeconds = 120,
+    [string]$RepeatId = "repeat-1",
     [switch]$Force
 )
 
@@ -74,13 +76,15 @@ if ($resolvedMcpDatabasePath) {
     $toml = @"
 [mcp_servers."$McpName"]
 command = '$resolvedMcpPythonExe'
-args = ["-m", "service.mcp_server"]
+args = ["-m", "service.mcp_server", "--profile", "$McpProfile"]
 
 [mcp_servers."$McpName".env]
 PYTHONIOENCODING = "utf-8"
 PYTHONPATH = '$resolvedMcpBackendPath'
 REPOMIND_PATHS__DATABASE_PATH = '$resolvedMcpDatabasePath'
 REPOMIND_PATHS__DATA_DIR = '$resolvedMcpDataDir'
+REPOMIND_MCP_REPO_ID = '$RepoId'
+REPOMIND_MCP_SNAPSHOT_ID = '$SnapshotId'
 "@
     [System.IO.File]::WriteAllText($mcpProfilePath, $toml, [System.Text.UTF8Encoding]::new($false))
 }
@@ -107,6 +111,7 @@ $taskFile = if ([string]::IsNullOrWhiteSpace($TaskFile)) {
 $tasks = Get-Content -LiteralPath $taskFile -Raw -Encoding utf8 | ConvertFrom-Json
 $selectedTasks = @($tasks.tasks | Where-Object { -not $TaskId -or $TaskId -contains $_.id })
 if ($selectedTasks.Count -eq 0) { throw "No benchmark task matched -TaskId." }
+if ([string]::IsNullOrWhiteSpace($RepeatId)) { throw "-RepeatId must be non-empty." }
 $selectedModes = if ($Mode -eq "all") { @("baseline", "treatment") } else { @($Mode) }
 
 function Test-CompletedRun([string]$Path) {
@@ -116,8 +121,9 @@ function Test-CompletedRun([string]$Path) {
     return [bool]($hasUsage -and $hasAnswer)
 }
 
-function Get-RunStatus([string]$Path, [string]$ErrorPath) {
+function Get-RunStatus([string]$Path, [string]$ErrorPath, [string]$TimeoutPath) {
     if (Test-CompletedRun $Path) { return "completed" }
+    if (Test-Path -LiteralPath $TimeoutPath -PathType Leaf) { return "timeout" }
     if (Test-Path -LiteralPath $ErrorPath -PathType Leaf) {
         if (Select-String -LiteralPath $ErrorPath -SimpleMatch "timed out" -Quiet) {
             return "timeout"
@@ -125,6 +131,40 @@ function Get-RunStatus([string]$Path, [string]$ErrorPath) {
     }
     if (Test-Path -LiteralPath $Path -PathType Leaf) { return "incomplete" }
     return "not_run"
+}
+
+function Get-TraceDiagnostics([string]$Path, [string]$Status) {
+    $events = @()
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        $events = @(Get-Content -LiteralPath $Path -Encoding utf8 | ForEach-Object {
+            try { $_ | ConvertFrom-Json } catch { $null }
+        } | Where-Object { $_ })
+    }
+    $mcpCalls = @($events | Where-Object {
+        $_.type -eq "item.completed" -and $_.item.type -eq "mcp_tool_call"
+    }).Count
+    $finalAnswer = @($events | Where-Object {
+        $_.type -eq "item.completed" -and $_.item.type -eq "agent_message"
+    }).Count -gt 0
+    $lastEvent = if ($events.Count -gt 0) { [string]$events[-1].type } else { $null }
+    $failureClass = $null
+    if ($Status -ne "completed") {
+        if ($Status -eq "timeout" -and $mcpCalls -eq 0) {
+            $failureClass = "timeout_before_mcp_call"
+        } elseif ($Status -eq "timeout" -and $mcpCalls -gt 0 -and -not $finalAnswer) {
+            $failureClass = "timeout_after_mcp_before_final_answer"
+        } elseif ($mcpCalls -gt 0 -and -not $finalAnswer) {
+            $failureClass = "incomplete_after_mcp_before_final_answer"
+        } else {
+            $failureClass = "incomplete_before_mcp_call"
+        }
+    }
+    return [ordered]@{
+        mcp_tool_call_count = $mcpCalls
+        final_answer_present = $finalAnswer
+        last_event_type = $lastEvent
+        failure_class = $failureClass
+    }
 }
 
 function Get-ReportedLocations([string]$Answer) {
@@ -143,6 +183,21 @@ function Get-ReportedLocations([string]$Answer) {
     return $locations
 }
 
+function Get-ExpectedLocationGroups($Task) {
+    if ($null -ne $Task.acceptable_location_groups) {
+        return @($Task.acceptable_location_groups | ForEach-Object { ,@($_) })
+    }
+    $expectedLocations = @($Task.expected_locations)
+    if ($expectedLocations.Count -eq 0 -and $Task.expected_path) {
+        $expectedLocations = @([pscustomobject]@{
+            path = $Task.expected_path
+            line_start = $Task.line_start
+            line_end = $Task.line_end
+        })
+    }
+    return @($expectedLocations | ForEach-Object { ,@($_) })
+}
+
 function Invoke-LocationRun([string]$Mode, $Task) {
     $common = "Read-only code-location task. Do not load skills or project instruction files. At commit $Commit, $($Task.query) Do not modify files. You must complete the task with a final answer after any search or MCP tool returns; never end the turn immediately after a tool call. Return only one or more locations in the form PATH:START_LINE-END_LINE, one per line."
     if ($Mode -eq "baseline") {
@@ -155,7 +210,12 @@ function Invoke-LocationRun([string]$Mode, $Task) {
         if (-not $resolvedMcpDatabasePath) {
             throw "Treatment runs require -McpDatabasePath and -McpDataDir. Refusing to use an implicit user-level MCP index."
         }
-        $prompt = "$common Do not use shell or local file reads. Use only the $McpName MCP tools with repo_id $RepoId and snapshot $SnapshotId."
+        $profileInstruction = if ($McpProfile -eq "coding-agent") {
+            "Call locate_code once; the MCP server is already bound to the target repository and snapshot."
+        } else {
+            "Use only the $McpName MCP tools with repo_id $RepoId and snapshot $SnapshotId."
+        }
+        $prompt = "$common Do not use shell or local file reads. $profileInstruction"
         # The profile defines an MCP server that is bound to this exact index.
         # It is deleted when the benchmark ends and never changes global config.
         $extra = @("-p", $mcpProfileName)
@@ -167,6 +227,7 @@ function Invoke-LocationRun([string]$Mode, $Task) {
     }
     $promptPath = Join-Path $output "$Mode-$($Task.id).prompt.txt"
     $errorPath = Join-Path $output "$Mode-$($Task.id).stderr.log"
+    $timeoutPath = Join-Path $output "$Mode-$($Task.id).timeout.json"
     Set-Content -LiteralPath $promptPath -Value $prompt -Encoding utf8
     $args = @("--disable", "plugins", "--disable", "remote_plugin", "--disable", "multi_agent", "--model", $Model,
         "--config", "model_reasoning_effort=`"$ReasoningEffort`"") +
@@ -185,6 +246,15 @@ function Invoke-LocationRun([string]$Mode, $Task) {
         -WindowStyle Hidden -PassThru
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        # Write a separate marker before trying to append stderr. Windows can keep
+        # redirected stderr locked briefly after Stop-Process, but timeout status
+        # must survive independently of that diagnostic append.
+        [ordered]@{
+            mode = $Mode
+            task_id = $Task.id
+            timeout_seconds = $TimeoutSeconds
+            timed_out_at = (Get-Date).ToUniversalTime().ToString("o")
+        } | ConvertTo-Json | Set-Content -LiteralPath $timeoutPath -Encoding utf8
         # A killed Codex process can briefly retain the redirected stderr handle
         # on Windows. The timeout outcome is still valid even when the note
         # cannot be appended, so never let diagnostic logging abort the cohort.
@@ -228,8 +298,10 @@ foreach ($task in $selectedTasks) {
     foreach ($mode in @("baseline", "treatment")) {
         $path = Join-Path $output "$mode-$($task.id).jsonl"
         $errorPath = Join-Path $output "$mode-$($task.id).stderr.log"
-        $status = Get-RunStatus $path $errorPath
+        $timeoutPath = Join-Path $output "$mode-$($task.id).timeout.json"
+        $status = Get-RunStatus $path $errorPath $timeoutPath
         if ($status -ne "completed") {
+            $diagnostics = Get-TraceDiagnostics $path $status
             $rows += [ordered]@{
                 task_id = $task.id
                 mode = $mode
@@ -238,60 +310,74 @@ foreach ($task in $selectedTasks) {
                 cached_input_tokens = 0
                 output_tokens = 0
                 source_characters_received = 0
+                usage_provenance = $null
+                raw_trace_sha256 = $null
                 answer = ""
                 location_checks = @()
                 passed = $false
+                mcp_tool_call_count = $diagnostics.mcp_tool_call_count
+                final_answer_present = $diagnostics.final_answer_present
+                last_event_type = $diagnostics.last_event_type
+                failure_class = $diagnostics.failure_class
             }
             continue
         }
         $events = Get-Content -LiteralPath $path -Encoding utf8 | ForEach-Object {
             try { $_ | ConvertFrom-Json } catch { $null }
         }
+        $diagnostics = Get-TraceDiagnostics $path $status
         $usage = @($events | Where-Object { $_.type -eq "turn.completed" } | Select-Object -Last 1).usage
         $messages = @($events | Where-Object { $_.type -eq "item.completed" -and $_.item.type -eq "agent_message" })
         $text = ($messages | Select-Object -Last 1).item.text
         $normalized = ($text -replace "`r|`n", " ").Trim()
-        $expectedLocations = @($task.expected_locations)
-        if ($expectedLocations.Count -eq 0 -and $task.expected_path) {
-            $expectedLocations = @([pscustomobject]@{
-                path = $task.expected_path
-                line_start = $task.line_start
-                line_end = $task.line_end
-            })
-        }
+        $expectedGroups = @(Get-ExpectedLocationGroups $task)
         $reportedLocations = @(Get-ReportedLocations $normalized)
         $locationChecks = @()
-        foreach ($expected in $expectedLocations) {
-            $expectedPath = ([string]$expected.path).Replace("\\", "/")
-            $goldStart = [int]$expected.line_start
-            # A complete method range legitimately covers multiple annotated behavior
-            # points inside that method. One reported location may therefore satisfy
-            # more than one gold location; this benchmark evaluates code location, not
-            # the number of lines repeated in the final answer.
-            $reported = @(
-                $reportedLocations | Where-Object {
-                    $_.path -ieq $expectedPath -and $_.start -le $goldStart -and $_.end -ge $goldStart
-                } | Select-Object -First 1
-            )
-            if ($reported.Count -gt 0) {
-                $reportedStart = $reported[0].start
-                $reportedEnd = $reported[0].end
+        for ($groupIndex = 0; $groupIndex -lt $expectedGroups.Count; $groupIndex++) {
+            $group = @($expectedGroups[$groupIndex])
+            $matchedExpected = $null
+            $matchedReported = $null
+            foreach ($expected in $group) {
+                $expectedPath = ([string]$expected.path).Replace("\\", "/")
+                $goldStart = [int]$expected.line_start
+                $reported = @(
+                    $reportedLocations | Where-Object {
+                        $_.path -ieq $expectedPath -and $_.start -le $goldStart -and $_.end -ge $goldStart
+                    } | Select-Object -First 1
+                )
+                if ($reported.Count -gt 0) {
+                    $matchedExpected = $expected
+                    $matchedReported = $reported[0]
+                    break
+                }
+            }
+            if ($null -ne $matchedExpected) {
+                $reportedStart = $matchedReported.start
+                $reportedEnd = $matchedReported.end
                 $locationPassed = $true
             } else {
+                $matchedExpected = $group[0]
                 $reportedStart = 0
                 $reportedEnd = 0
                 $locationPassed = $false
             }
             $locationChecks += [ordered]@{
-                path = $expected.path
-                gold_start = $goldStart
-                gold_end = [int]$expected.line_end
+                group = $groupIndex
+                path = $matchedExpected.path
+                gold_start = [int]$matchedExpected.line_start
+                gold_end = [int]$matchedExpected.line_end
+                acceptable_locations = @($group | ForEach-Object {
+                    [ordered]@{ path = $_.path; line_start = [int]$_.line_start; line_end = [int]$_.line_end }
+                })
                 reported_start = $reportedStart
                 reported_end = $reportedEnd
                 passed = $locationPassed
             }
         }
         $passed = $locationChecks.Count -gt 0 -and (@($locationChecks | Where-Object { -not $_.passed }).Count -eq 0)
+        # Keep completed-but-unscored answers distinct from process failures. This
+        # lets the paired report separate location precision from startup/timeout risk.
+        $failureClass = if ($passed) { $null } else { "rubric_failed" }
         $sourceCharacters = 0
         foreach ($event in $events) {
             if ($event.type -eq "item.completed" -and $event.item.type -eq "command_execution") {
@@ -310,9 +396,15 @@ foreach ($task in $selectedTasks) {
             cached_input_tokens = [int]($usage.cached_input_tokens)
             output_tokens = [int]($usage.output_tokens)
             source_characters_received = $sourceCharacters
+            usage_provenance = "codex_exec_json.turn.completed"
+            raw_trace_sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
             answer = $normalized
             location_checks = $locationChecks
             passed = $passed
+            mcp_tool_call_count = $diagnostics.mcp_tool_call_count
+            final_answer_present = $diagnostics.final_answer_present
+            last_event_type = $diagnostics.last_event_type
+            failure_class = $failureClass
         }
     }
 }
@@ -325,6 +417,8 @@ $metadata = [ordered]@{
     reasoning_effort = $ReasoningEffort
     bypass_sandbox = $BypassSandbox
     timeout_seconds = $TimeoutSeconds
+    mcp_profile = $McpProfile
+    repeat_id = $RepeatId
     modes = $selectedModes
     commit = $Commit
     repository_path = $targetRepository

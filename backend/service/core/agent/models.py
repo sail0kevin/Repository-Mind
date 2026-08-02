@@ -31,6 +31,8 @@ class AgentPlan:
 
     intent: str
     tools: tuple[ToolDecision, ...]
+    debate_roles: tuple[str, ...] = ()
+    debate_reason: str | None = None
     planner_version: str = "rule-router-v1"
 
 

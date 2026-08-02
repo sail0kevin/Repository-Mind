@@ -1,5 +1,7 @@
 # RepoMind 可验证成果计划
 
+> 归档说明：本计划基于已被替代的 benchmark 流程和完成假设。当前可对外说明的指标与下一步执行入口以 `docs/后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md` 为准；本文仅用于追溯历史。
+
 这份文档把简历中的“效果”拆成可以重复运行、可以解释、不会夸大的工程证据。所有对外数字都必须来自本地运行结果；没有测过的指标保留为待办，不写进简历。
 
 ## 当前已经可以对外说明的事实
@@ -73,12 +75,12 @@
 已从仓库内置 Demo 的真实 Trace 整理出一份首个 capture：
 `examples/benchmarks/demo-evidence-capture.json`。它覆盖 3 条已有 Demo 问题，评估的是证据路径引用，不评价自然语言答案质量；运行报告时应同时保留其 limitations。
 
-当前 capture 的报告见 `examples/benchmarks/demo-evidence-report.md`：证据引用命中率 **0.667**、引用精确率 **0.667**。其中依赖影响问题命中了错误的 `expected/showcase.json`，说明该能力仍需要修正，不能把该数字表述为整体准确率。该 capture 是修复前基线；修复后需重新运行 Demo 再做前后对比。
+当前 capture 的报告见 `examples/benchmarks/2026-07-19_DEMO_EVIDENCE_REPORT_演示证据报告.md`：证据引用命中率 **0.667**、引用精确率 **0.667**。其中依赖影响问题命中了错误的 `expected/showcase.json`，说明该能力仍需要修正，不能把该数字表述为整体准确率。该 capture 是修复前基线；修复后需重新运行 Demo 再做前后对比。
 
 修复后的真实 API/Trace capture 与报告已经生成：
 
 - `examples/benchmarks/demo-evidence-capture-post-fix.json`
-- `examples/benchmarks/demo-evidence-report-post-fix.md`
+- `examples/benchmarks/2026-07-20_DEMO_EVIDENCE_POST_FIX_REPORT_修复后演示证据报告.md`
 - `examples/outputs/repomind-demo-trace.post-fix.json`
 
 三问 synthetic Demo 的修复后结果为 Recall@5 **0.667**、Recall@10 **0.667**、MRR **0.833**、Citation hit rate **1.000**、Citation precision **0.750**；修复前标准 Recall@5/10 为 **0.556**。依赖影响问题的最终 Evidence 覆盖定义、入口引用候选和测试；由于实例方法调用边尚未完整解析，入口与测试只能称为源码引用候选，不能称为已证明的调用边。

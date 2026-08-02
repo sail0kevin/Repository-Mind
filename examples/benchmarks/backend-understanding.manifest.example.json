@@ -1,0 +1,22 @@
+{
+  "benchmark_id": "repomind-backend-understanding-v1",
+  "target": {
+    "repository_path": "<supply-with---repository>",
+    "commit": "c92e2f9af153212074da62d2d7fc1418bfbc0d72"
+  },
+  "gold_file": "examples/benchmarks/backend-understanding-gold.json",
+  "gold_sha256": "5aadace0da4a260826882b198778436c52f5b0116cbe4135126fbb8907d4f331",
+  "retrieval": {
+    "result_limit": 8,
+    "candidate_multiplier": 4,
+    "max_candidates": 200,
+    "rrf_k": 60,
+    "structural_expansion": true
+  },
+  "embedding": {
+    "provider": "disabled",
+    "base_url": null,
+    "model": null,
+    "key_environment_variable": "REPOMIND_BENCH_EMBEDDING_API_KEY"
+  }
+}

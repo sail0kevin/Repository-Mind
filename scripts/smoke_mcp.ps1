@@ -56,7 +56,7 @@ async def main():
             names = {tool.name for tool in listed.tools}
             expected = {
                 "list_repositories", "repo_overview", "search_code",
-                "get_symbol", "analyze_impact", "find_related_tests",
+                "locate_code", "get_symbol", "analyze_impact", "find_related_tests",
             }
             assert names == expected, (names, expected)
             result = await session.call_tool("list_repositories", {})
@@ -74,7 +74,7 @@ async def main():
             else:
                 assert payload["data"] == {"repositories": [], "total": 0, "indexed_count": 0}, payload
     mode = "shared-index" if expected_alias else "empty-database"
-    print(f"Frozen MCP stdio OK: tools=6 discovery=ok mode={mode}")
+    print(f"Frozen MCP stdio OK: tools=7 discovery=ok mode={mode}")
 
 
 asyncio.run(main())

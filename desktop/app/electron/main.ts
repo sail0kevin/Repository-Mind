@@ -5,7 +5,7 @@ import * as fs from "fs";
 import * as http from "http";
 import * as net from "net";
 import { randomUUID } from "crypto";
-import { computeDatabaseIdentity, createSingleFlight, ownsBackendSession, pythonLauncherCandidates, revalidateTrackedBackend } from "./backendLifecycle";
+import { computeDatabaseIdentity, createSingleFlight, isCompatibleBackendHealth as isCompatibleHealth, ownsBackendSession, pythonLauncherCandidates, revalidateTrackedBackend } from "./backendLifecycle";
 import { validateSaveTextRequest } from "./exportContract";
 import type { PythonLauncher } from "./backendLifecycle";
 import type { BackendStartResult, DemoPrepareResult, SaveTextResult } from "./bridgeContract";
@@ -14,7 +14,6 @@ const APP_ID = "com.repomind.app";
 const USER_DATA_BASENAME = "repomind-desktop";
 const EXPECTED_INSTANCE_ID = "repomind-desktop-backend";
 const EXPECTED_BACKEND_CONTRACT_VERSION = "1";
-export const MIN_BACKEND_SCHEMA_VERSION = 7;
 
 export function resolveUserDataPath(appDataPath: string, overridePath?: string): string {
   return overridePath
@@ -98,24 +97,6 @@ function logBackend(message: string): void {
   console.log(message);
 }
 
-export function isCompatibleBackendHealth(
-  statusCode: number | undefined,
-  health: BackendHealth,
-  expectedDatabaseIdentity?: string,
-  expectedSessionId?: string,
-): boolean {
-  const schemaVersion = Number.parseInt(health.database_schema_version || health.schema_version, 10);
-  return statusCode === 200
-    && health.status === "ok"
-    && health.instance_id === EXPECTED_INSTANCE_ID
-    && health.api_version === "v1"
-    && health.backend_contract_version === EXPECTED_BACKEND_CONTRACT_VERSION
-    && Number.isInteger(schemaVersion)
-    && schemaVersion >= MIN_BACKEND_SCHEMA_VERSION
-    && (!expectedDatabaseIdentity || health.database_identity === expectedDatabaseIdentity)
-    && (!expectedSessionId || health.session_id === expectedSessionId);
-}
-
 function reserveFreePort(): Promise<number> {
   // 让系统分配空闲高端口，避免误复用 8000 上的其他服务。
   return new Promise((resolve, reject) => {
@@ -190,9 +171,11 @@ async function waitForBackendReady(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const probe = await requestHealth(port);
-    if (probe.health && isCompatibleBackendHealth(
+    if (probe.health && isCompatibleHealth(
       probe.statusCode,
       probe.health,
+      EXPECTED_INSTANCE_ID,
+      EXPECTED_BACKEND_CONTRACT_VERSION,
       expectedDatabaseIdentity,
       sessionId,
     )) {
@@ -213,7 +196,14 @@ async function startBackendImpl(): Promise<BackendStartResult> {
     sessionId: backendSessionId,
     expectedDatabaseIdentity: computeDatabaseIdentity(databasePath),
     requestHealth,
-    isCompatibleHealth: isCompatibleBackendHealth,
+    isCompatibleHealth: (statusCode, health, expectedDatabaseIdentity, expectedSessionId) => isCompatibleHealth(
+      statusCode,
+      health,
+      EXPECTED_INSTANCE_ID,
+      EXPECTED_BACKEND_CONTRACT_VERSION,
+      expectedDatabaseIdentity,
+      expectedSessionId,
+    ),
   });
   if (reusableBackend) {
     return { started: true, ...reusableBackend };
