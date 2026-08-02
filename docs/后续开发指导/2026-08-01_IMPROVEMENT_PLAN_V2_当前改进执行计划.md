@@ -572,8 +572,9 @@ def test_locate_code_benchmark():
 **桌面运行态与 schema 契约复核（2026-08-01）：** 桌面主进程此前仅要求后端 schema `>=7`，与迁移后的 telemetry 契约不一致；现已将健康兼容检查收敛到 `desktop/app/electron/backendLifecycle.ts`，要求 schema `>=9`，且添加回归覆盖：schema `9` 通过、schema `8` 被拒绝。当前源码的 Electron 生命周期单测为 `10 passed`，完整后端回归为 `262 passed, 72 warnings`，新冻结后端的 schema-9 HTTP smoke 已通过。历史完整目录包的 schema-8 结果及其 SHA-256 只代表当时的 v008 构建；必须在锁定运行时重建完整桌面包，才可将 v009 的冻结后端纳入可发布目录和生成新的哈希清单。
 
 同一未签名 `win-unpacked` 包还通过隔离 Playwright Electron E2E：`npm run test:e2e:packaged` 在临时 `REPOMIND_USER_DATA_PATH` 中用时 `34.5 s`，实际启动桌面程序和内嵌后端，完成内置 Demo 的 ingest、问答、证据/Trace、工作流和 JSON/Markdown 导出。该测试刻意使用新的临时 userData，未读取、修改或填充真实桌面库 `%%APPDATA%%/repomind-desktop/backend-data/repomind.sqlite3`，因此它只证明运行闭环，不构成真实 MCP 遥测数据。
-
 ```
+
+**锁定环境复核（2026-08-02）：** 再次执行 `scripts/verify_runtime_contract.ps1 -PythonCommand python`，门禁在 Node 版本检查处按预期失败：要求 `20.18.0`，本机为 `24.14.1`；本机已检查常见 Node、nvm/fnm、IDE 与工具目录，未发现 `20.18.0`。尝试获取官方便携版 Node `20.18.0` 时下载未在当前网络条件下稳定完成，因此没有绕过门禁、没有执行不符合契约的桌面重打包，也没有把历史 schema-8 包升级标记为 v009。当前可发布状态仍为：源码回归、后端 schema-9 smoke、发布哈希校验器和 CI 发布链已就绪；完整 v009 桌面包与真实 `/api/v1/metrics` 遥测仍需锁定运行环境或 GitHub Windows CI 实际运行后确认。
 第1阶段: P0-0（现状审计、冻结 commit/config；已完成）
 第2阶段: 修复“索引有向量但 query embedding provider 未配置或本地端点不可达”时的快速 lexical 降级，并用固定 locate_code 基准验证质量不变、延迟恢复正常。该项已完成，是 P0-1 的运行前置，不产生 Hybrid 指标。
 第3阶段: P0-1（runner、BM25 复现与真实 all-minilm Hybrid 对照已完成；all-minilm 只作 provisional baseline）
