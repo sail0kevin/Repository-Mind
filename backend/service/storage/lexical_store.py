@@ -8,6 +8,7 @@ import uuid
 from itertools import combinations
 from typing import Any
 
+from service.config.settings import get_settings
 from service.storage.sqlite_db import get_connection
 
 # 中文连续文本、拉丁字母和数字分别取词；camelCase 会在下一步补充分段。
@@ -137,6 +138,7 @@ def search_fts_chunks(
     candidate_limit = min(max(safe_limit * 5, 25), 250)
     started = time.perf_counter()
     run_id = f"retrieval_{uuid.uuid4().hex}"
+    persist_audit = not get_settings().sqlite_read_only
     match_expression = _fts_match_expression(query, terms)
     with get_connection() as connection:
         selected = snapshot_id
@@ -194,14 +196,15 @@ def search_fts_chunks(
             boost = _exact_boost(row, query, terms)
             scored.append((lexical_score + boost, boost, row))
         scored.sort(key=lambda item: (-item[0], item[2]["file_path"] or "", item[2]["id"]))
-        elapsed_ms = (time.perf_counter() - started) * 1000
-        connection.execute(
-            """INSERT INTO retrieval_runs (
-                   id, repo_id, snapshot_id, query, normalized_query, retrieval_type,
-                   requested_limit, candidate_count, duration_ms
-               ) VALUES (?, ?, ?, ?, ?, 'lexical', ?, ?, ?)""",
-            (run_id, repo_id, selected, query, " ".join(terms), safe_limit, len(scored), elapsed_ms),
-        )
+        if persist_audit:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            connection.execute(
+                """INSERT INTO retrieval_runs (
+                       id, repo_id, snapshot_id, query, normalized_query, retrieval_type,
+                       requested_limit, candidate_count, duration_ms
+                   ) VALUES (?, ?, ?, ?, ?, 'lexical', ?, ?, ?)""",
+                (run_id, repo_id, selected, query, " ".join(terms), safe_limit, len(scored), elapsed_ms),
+            )
         results: list[dict] = []
         for rank, (score, boost, row) in enumerate(scored[:safe_limit], start=1):
             data = dict(row)
@@ -218,10 +221,11 @@ def search_fts_chunks(
             data["match_type"] = "lexical"
             data["retrieval_run_id"] = run_id
             results.append(data)
-            connection.execute(
-                """INSERT INTO retrieval_candidates (
-                       run_id, evidence_id, rank, lexical_score, exact_boost, final_score
-                   ) VALUES (?, ?, ?, ?, ?, ?)""",
-                (run_id, row["id"], rank, score - boost, boost, score),
-            )
+            if persist_audit:
+                connection.execute(
+                    """INSERT INTO retrieval_candidates (
+                           run_id, evidence_id, rank, lexical_score, exact_boost, final_score
+                       ) VALUES (?, ?, ?, ?, ?, ?)""",
+                    (run_id, row["id"], rank, score - boost, boost, score),
+                )
     return results

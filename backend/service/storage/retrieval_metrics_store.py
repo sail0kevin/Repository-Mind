@@ -5,6 +5,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from service.config.settings import get_settings
 from service.storage.sqlite_db import get_connection
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,8 @@ def record_retrieval_metric(
     duration_ms: float,
 ) -> None:
     """保存一条不含原始查询文本的指标，并在连续低分时发出一次 warning。"""
+    if get_settings().sqlite_read_only:
+        return
     # 保留参数兼容 MCP 调用方，但在线聚合不需要也不应持久化用户查询。
     _ = query
     score = None if top_score is None else float(top_score)

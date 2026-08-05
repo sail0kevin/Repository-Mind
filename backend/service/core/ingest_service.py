@@ -13,6 +13,7 @@ import threading
 from service.core.embeddings.service import embed_snapshot_evidence
 from service.core.catalog.builder import build_catalog
 from service.core.parsing import Diagnostic, SourceDocument, default_registry
+from service.core.parsing.chunk_splitter import split_oversized_in_result
 from service.storage.evidence_store import (
     list_evidence_units,
     list_symbols,
@@ -82,6 +83,29 @@ def _clear_failed_snapshot(repo_id: str, snapshot_id: str) -> None:
             } else f"DELETE FROM {table} WHERE snapshot_id = ?", (repo_id, snapshot_id) if table not in {
                 "parser_diagnostics", "relations", "symbols", "evidence_units"
             } else (snapshot_id,))
+
+
+def _index_symbol_relations(relations: list) -> dict[str, dict[str, list[str]]]:
+    """建立 symbol_id → {imports, calls} 索引，供结构化 Embedding 输入使用。
+
+    只取 observed 的 imports/calls 关系，避免推测性关系污染 Embedding。
+    每个符号最多保留 5 个 imports 和 5 个 calls，控制前缀长度。
+    """
+    index: dict[str, dict[str, list[str]]] = {}
+    for relation in relations:
+        if not relation.observed:
+            continue
+        if relation.kind == "imports" and relation.target_ref:
+            entry = index.setdefault(relation.source_id, {"imports": [], "calls": []})
+            imports = entry["imports"]
+            if len(imports) < 5 and relation.target_ref not in imports:
+                imports.append(relation.target_ref)
+        elif relation.kind == "calls" and relation.target_ref:
+            entry = index.setdefault(relation.source_id, {"imports": [], "calls": []})
+            calls = entry["calls"]
+            if len(calls) < 5 and relation.target_ref not in calls:
+                calls.append(relation.target_ref)
+    return index
 
 
 def _capture_documents(repo_id: str, snapshot_id: str, files: list[dict], captured: dict[str, bytes] | None = None) -> list[SourceDocument]:
@@ -226,6 +250,10 @@ def ingest_repository_snapshot(repo_id: str, progress_callback=None, expected_co
 
             callback(0.20, f"统一解析 {len(documents)} 个文件")
             results = [_normalize_parse_result(item) for item in default_registry().parse_all(documents)]
+            # 解析器只产出语言事实，不关心 token budget。归一化后对超预算的
+            # Evidence（如 FallbackParser 的整文件证据、超长函数）按行拆分，
+            # 使每条 Evidence 都适合 Embedding 和检索。
+            results = [split_oversized_in_result(item) for item in results]
             _update_parse_statuses(repo_id, snapshot_id, results)
             failed = [item.document.path for item in results if item.status == "failed"]
             if failed:
@@ -239,6 +267,8 @@ def ingest_repository_snapshot(repo_id: str, progress_callback=None, expected_co
             callback(0.55, "规范解析事实已保存")
 
             chunk_count = project_evidence_to_chunks(repo_id, snapshot_id)
+            # 构造 symbol_id → relations 的索引，用于提取 imports/calls。
+            symbol_relations = _index_symbol_relations(relations)
             embedding_result = embed_snapshot_evidence(
                 repo_id,
                 snapshot_id,
@@ -247,6 +277,15 @@ def ingest_repository_snapshot(repo_id: str, progress_callback=None, expected_co
                         "id": item.id,
                         "content": item.content,
                         "content_hash": hashlib.sha256(item.content.encode("utf-8")).hexdigest(),
+                        # 结构化 Embedding 输入的元数据。
+                        "file_path": item.path,
+                        "kind": item.kind,
+                        "unit_type": item.kind,
+                        "symbol_name": item.metadata.get("symbol_name") if item.metadata else None,
+                        "title": item.title,
+                        "symbol_id": item.symbol_id,
+                        "imports": symbol_relations.get(item.symbol_id, {}).get("imports", []),
+                        "calls": symbol_relations.get(item.symbol_id, {}).get("calls", []),
                     }
                     for item in evidence
                 ],

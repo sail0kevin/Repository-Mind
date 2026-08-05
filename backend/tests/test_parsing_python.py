@@ -151,6 +151,87 @@ def test_imported_class_constructor_method_resolves_through_package_reexport() -
     assert factory_call.resolver_status == "unresolved"
 
 
+def test_oversized_function_splits_at_nested_definition_boundaries() -> None:
+    """超长函数应按嵌套定义边界拆分成多条 Evidence，保持语义相干。"""
+    from service.core.evidence.budget import estimate_tokens
+
+    # 构造超长函数：嵌套定义分布在函数体中间，把函数切成多段。
+    body_lines = ["def big_function():"]
+    # 第一段：30 行主体。
+    for i in range(30):
+        body_lines.append(f"    total += compute_value_{i}({'x' * 20})  # accumulate")
+    # 嵌套定义 1：应成为切分边界。
+    body_lines.append("    def inner_helper():")
+    body_lines.append("        return total * 2")
+    body_lines.append("")
+    # 第二段：30 行主体。
+    for i in range(30, 60):
+        body_lines.append(f"    total += compute_value_{i}({'x' * 20})  # accumulate")
+    # 嵌套定义 2：应成为切分边界。
+    body_lines.append("    class InnerState:")
+    body_lines.append("        def __init__(self):")
+    body_lines.append("            self.value = inner_helper()")
+    body_lines.append("")
+    # 第三段：20 行主体。
+    for i in range(60, 80):
+        body_lines.append(f"    total += compute_value_{i}({'x' * 20})  # accumulate")
+    body_lines.append("    return InnerState()")
+    source = "\n".join(body_lines)
+
+    doc = SourceDocument(snapshot_id="snap", path="big.py", content=source, language="python")
+    result = PythonParser().parse(doc)
+
+    # 找到 big_function 对应的 Evidence（symbol_name 是 qualified name）。
+    big_evidence = [e for e in result.evidence if e.metadata.get("symbol_name") == "big.big_function"]
+    # 超长函数应被拆成多条（而不是 1 条巨大的）。
+    assert len(big_evidence) >= 2, f"超长函数应被拆分，实际 {len(big_evidence)} 条"
+    # 每条都比原始（~1200 token）小，且包含函数头的第一片应明显小于整体。
+    original_tokens = estimate_tokens(source)
+    for chunk in big_evidence:
+        assert estimate_tokens(chunk.content) < original_tokens
+    # 所有切片的 logical_id 应唯一。
+    logical_ids = [e.logical_id for e in big_evidence]
+    assert len(logical_ids) == len(set(logical_ids))
+    # 嵌套定义 inner_helper 和 InnerState 应作为独立 Symbol 存在。
+    nested_names = {s.name for s in result.symbols if s.name in {"inner_helper", "InnerState"}}
+    assert nested_names == {"inner_helper", "InnerState"}
+
+
+def test_oversized_function_without_nested_defs_falls_back_to_line_split() -> None:
+    """无嵌套定义的超长函数应回退到行级均匀切片。"""
+    from service.core.evidence.budget import estimate_tokens
+    from service.core.parsing.python_parser import _MAX_FUNCTION_TOKENS
+
+    body_lines = ["def huge_single_function():"]
+    for i in range(200):
+        body_lines.append(f"    result_{i} = process_item_{i}({'y' * 25})  # work")
+    body_lines.append("    return result_199")
+    source = "\n".join(body_lines)
+
+    doc = SourceDocument(snapshot_id="snap", path="huge.py", content=source, language="python")
+    result = PythonParser().parse(doc)
+
+    big_evidence = [e for e in result.evidence if e.metadata.get("symbol_name") == "huge.huge_single_function"]
+    assert len(big_evidence) >= 2, f"应回退到行级拆分，实际 {len(big_evidence)} 条"
+    for chunk in big_evidence:
+        assert estimate_tokens(chunk.content) <= _MAX_FUNCTION_TOKENS + 100
+
+
+def test_short_function_is_not_split() -> None:
+    """未超预算的函数应保持单条 Evidence。"""
+    source = (
+        "def short():\n"
+        "    x = 1\n"
+        "    y = 2\n"
+        "    return x + y\n"
+    )
+    doc = SourceDocument(snapshot_id="snap", path="short.py", content=source, language="python")
+    result = PythonParser().parse(doc)
+
+    short_evidence = [e for e in result.evidence if e.metadata.get("symbol_name") == "short.short"]
+    assert len(short_evidence) == 1
+
+
 def test_imported_class_variable_method_call_resolves_and_projects_to_code_edges() -> None:
     """A direct constructor binding can safely navigate a later receiver method call."""
     from service.storage.evidence_store import replace_all_snapshot_parse_results

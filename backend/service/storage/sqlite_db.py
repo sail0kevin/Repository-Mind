@@ -16,6 +16,10 @@ from service.storage.migrations import run_migrations
 _INITIALIZE_LOCK = threading.Lock()
 _INITIALIZED_DATABASES: set[str] = set()
 
+def _read_only_database_uri(database_path: Path) -> str:
+    """Return an immutable SQLite URI for a frozen audit database."""
+    return f"{database_path.resolve().as_uri()}?mode=ro&immutable=1"
+
 
 def require_fts5(connection: sqlite3.Connection) -> None:
     """启动时实际创建临时 FTS5 表，缺少能力时给出明确错误。"""
@@ -35,17 +39,23 @@ def reset_database_initialization(database_path: Path | str | None = None) -> No
             _INITIALIZED_DATABASES.discard(str(database_path))
 
 
-def _configure_connection(connection: sqlite3.Connection, database_path: Path) -> None:
+def _configure_connection(
+    connection: sqlite3.Connection, database_path: Path, *, read_only: bool = False
+) -> None:
     """为每条连接设置并发和约束参数。"""
     connection.execute("PRAGMA busy_timeout = 30000")
     connection.execute("PRAGMA foreign_keys = ON")
-    if str(database_path) != ":memory:":
+    if not read_only and str(database_path) != ":memory:":
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = NORMAL")
 
 
-def _ensure_initialized(connection: sqlite3.Connection, database_path: Path) -> None:
+def _ensure_initialized(
+    connection: sqlite3.Connection, database_path: Path, *, read_only: bool = False
+) -> None:
     """在进程内串行且只执行一次迁移，避免每个请求都跑 integrity_check。"""
+    if read_only:
+        return
     key = str(database_path)
     if key in _INITIALIZED_DATABASES:
         return
@@ -62,13 +72,19 @@ def get_connection() -> Iterator[sqlite3.Connection]:
     """提供一个带自动提交/回滚事务的 SQLite 连接。"""
     settings = get_settings()
     database_path = settings.paths.database_path
-    connection = sqlite3.connect(str(database_path), timeout=30.0)
+    read_only = settings.sqlite_read_only
+    connection = sqlite3.connect(
+        _read_only_database_uri(database_path) if read_only else str(database_path),
+        timeout=30.0,
+        uri=read_only,
+    )
     connection.row_factory = sqlite3.Row
     try:
-        _configure_connection(connection, database_path)
-        _ensure_initialized(connection, database_path)
+        _configure_connection(connection, database_path, read_only=read_only)
+        _ensure_initialized(connection, database_path, read_only=read_only)
         yield connection
-        connection.commit()
+        if not read_only:
+            connection.commit()
     except Exception:
         connection.rollback()
         raise

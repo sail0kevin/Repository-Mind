@@ -93,6 +93,11 @@ def test_report_uses_only_both_passed_tasks_and_reports_total_tokens(tmp_path: P
     assert aggregate["total_tokens_saving_percent"] == pytest.approx(41.67)
     assert aggregate["baseline_pass_rate"] == 1.0
     assert aggregate["treatment_pass_rate"] == 0.5
+    assert report["cost_comparison"]["total_task_count"] == 2
+    assert report["cost_comparison"]["paired_cost_task_count"] == 1
+    assert report["cost_comparison"]["token_totals_include"] == (
+        "Only paired tasks passed by both baseline and treatment."
+    )
 
 
 def test_report_rejects_missing_usage_provenance_for_a_successful_task(tmp_path: Path) -> None:
@@ -264,6 +269,9 @@ def test_report_exposes_paired_outcome_matrix(tmp_path: Path) -> None:
     assert aggregate["treatment_only_passed_count"] == 1
     assert aggregate["both_failed_count"] == 1
     assert "baseline-only **1**; MCP-only **1**; both failed **1**" in REPORTER.render_markdown(report)
+    assert "Token cost comparison denominator: **1** paired tasks (of **4** total tasks)." in (
+        REPORTER.render_markdown(report)
+    )
 
 
 def test_acceptance_counts_distinct_repositories_not_repeat_runs(tmp_path: Path) -> None:

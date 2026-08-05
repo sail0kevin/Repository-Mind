@@ -1,6 +1,11 @@
 """
-这个文件负责把单个文本文件切成知识片段。
-它在整个框架里扮演"文本切片层"的角色：把源码或文档拆成适合检索的小块，并为每块保留路径、行号等上下文。
+遗留文本切片层（已弃用）。
+
+.. deprecated::
+    主 ingest 管线已统一到 ``ParserRegistry``（见 ``ingest_service.py``），
+    由具体语言解析器产出结构化 Evidence，再经 ``chunk_splitter`` 按 token
+    预算拆分。本模块的 40 行固定切片不再被任何内部代码调用，保留仅作参考。
+    新代码请使用 ``ParserRegistry`` 或 ``chunk_splitter``。
 """
 from __future__ import annotations
 

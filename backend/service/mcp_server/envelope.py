@@ -40,7 +40,7 @@ def clamp_text(value: str | None, max_length: int = MAX_QUERY_CHARS) -> str:
 
 def evidence_item(row: dict[str, Any], *, reason: str | None = None) -> dict[str, Any]:
     """把内部证据行统一转换成 MCP 返回结构里的证据条目。"""
-    return {
+    item = {
         "evidence_id": str(row.get("chunk_id") or row.get("id") or row.get("evidence_id") or ""),
         "file_path": str(row.get("file_path") or row.get("path") or ""),
         "start_line": row.get("start_line"),
@@ -48,6 +48,16 @@ def evidence_item(row: dict[str, Any], *, reason: str | None = None) -> dict[str
         "snippet": build_snippet(str(row.get("content") or row.get("snippet") or "")),
         "reason": str(reason if reason is not None else (row.get("reason") or "")),
     }
+    symbol = row.get("symbol") or row.get("qualified_name") or row.get("symbol_name") or row.get("name")
+    if isinstance(symbol, str) and symbol.strip():
+        item["symbol"] = symbol.strip()
+    role = row.get("role") or row.get("context_role")
+    if isinstance(role, str) and role.strip():
+        item["role"] = role.strip()
+    relation = row.get("relation")
+    if isinstance(relation, str) and relation.strip():
+        item["relation"] = relation.strip()
+    return item
 
 
 def envelope(

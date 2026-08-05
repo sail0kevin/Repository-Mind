@@ -25,6 +25,8 @@ class EvidenceBundleItem:
     source_type: str = "unknown"
     title: str | None = None
     symbol_name: str | None = None
+    context_role: str | None = None
+    relation: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -207,6 +209,8 @@ class EvidenceAssembler:
                 source_type=str(candidate.get("source_type") or candidate.get("unit_type") or "unknown"),
                 title=candidate.get("title"),
                 symbol_name=candidate.get("symbol_name"),
+                context_role=candidate.get("context_role") or candidate.get("role"),
+                relation=candidate.get("relation"),
             ))
             used_ids.add(chunk_id)
             total_tokens += token_count

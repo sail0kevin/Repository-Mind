@@ -6,10 +6,15 @@ from dataclasses import replace
 from pathlib import PurePosixPath
 from typing import Iterable
 
+from service.core.evidence.budget import estimate_tokens
 from service.core.parsing.base import ParserAdapter
 from service.core.parsing.models import (
     Diagnostic, EvidenceUnit, ParseResult, Relation, SourceDocument, Symbol,
 )
+
+# 函数级 Evidence 超过此 token 数时，按嵌套定义边界拆分成多条。
+# 与 EvidenceBudget.max_evidence_tokens 保持一致。
+_MAX_FUNCTION_TOKENS = 600
 
 
 class PythonParser(ParserAdapter):
@@ -254,9 +259,111 @@ class _PythonCollector(ast.NodeVisitor):
         )
         symbol = replace(symbol, evidence_id=evidence.id)
         self.result.symbols.append(symbol)
+        # 超长函数按嵌套定义边界拆分，避免一条 Evidence 吞掉整个大函数。
+        if kind in {"function", "method"} and estimate_tokens(source) > _MAX_FUNCTION_TOKENS:
+            sub_units = self._split_function_at_definitions(node, evidence, kind, qualified)
+            if len(sub_units) > 1:
+                self.result.evidence.extend(sub_units)
+                self._add_relation("contains", parent, qualified, node, target_id=symbol.id, observed=True, inferred=False, confidence=1.0)
+                return symbol
         self.result.evidence.append(evidence)
         self._add_relation("contains", parent, qualified, node, target_id=symbol.id, observed=True, inferred=False, confidence=1.0)
         return symbol
+
+    def _split_function_at_definitions(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        original: EvidenceUnit,
+        kind: str,
+        qualified: str,
+    ) -> list[EvidenceUnit]:
+        """把超长函数按嵌套定义边界拆成多条 Evidence。
+
+        每条切片都落在嵌套函数/类的起始行，保持每个切片的语义相干。
+        如果函数里没有嵌套定义（单个巨大函数），则回退到行级拆分。
+        """
+        lines = original.content.splitlines()
+        # 收集直接嵌套定义的起始行（相对函数体的行号）。
+        nested_starts = [
+            getattr(child, "lineno", 0) - node.lineno
+            for child in node.body
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and getattr(child, "lineno", 0) > node.lineno
+        ]
+        if not nested_starts:
+            # 没有嵌套定义：回退到行级均匀切片。
+            return self._split_function_by_lines(node, original, kind, qualified, lines)
+
+        slices: list[EvidenceUnit] = []
+        part = 0
+        cursor = 0
+        boundaries = sorted(set(nested_starts))
+        boundaries.append(len(lines))
+        for boundary in boundaries:
+            if boundary <= cursor:
+                continue
+            part += 1
+            chunk_lines = lines[cursor:boundary]
+            slices.append(self._make_function_slice(
+                self.document, original, chunk_lines, node.lineno + cursor - 1, kind, qualified, part,
+            ))
+            cursor = boundary
+        return slices
+
+    def _split_function_by_lines(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        original: EvidenceUnit,
+        kind: str,
+        qualified: str,
+        lines: list[str],
+    ) -> list[EvidenceUnit]:
+        """无嵌套定义时，按行级 token budget 均匀切片。"""
+        slices: list[EvidenceUnit] = []
+        part = 0
+        cursor = 0
+        while cursor < len(lines):
+            chunk_lines: list[str] = []
+            chunk_tokens = 0
+            while cursor < len(lines):
+                line = lines[cursor]
+                line_tokens = estimate_tokens(line)
+                if chunk_lines and chunk_tokens + line_tokens > _MAX_FUNCTION_TOKENS:
+                    break
+                chunk_lines.append(line)
+                chunk_tokens += line_tokens
+                cursor += 1
+            if chunk_lines:
+                part += 1
+                slices.append(self._make_function_slice(
+                    self.document, original, chunk_lines, node.lineno + cursor - len(chunk_lines) - 1,
+                    kind, qualified, part,
+                ))
+        return slices
+
+    @staticmethod
+    def _make_function_slice(
+        document: SourceDocument,
+        original: EvidenceUnit,
+        chunk_lines: list[str],
+        start_line: int,
+        kind: str,
+        qualified: str,
+        part: int,
+    ) -> EvidenceUnit:
+        content = "\n".join(chunk_lines)
+        return EvidenceUnit.create(
+            document,
+            start_line,
+            start_line + len(chunk_lines) - 1,
+            kind=kind,
+            content=content,
+            symbol_id=original.symbol_id,
+            parent_id=original.parent_id,
+            title=original.title,
+            metadata={**(original.metadata or {}), "symbol_name": qualified, "part": part},
+            identity=(qualified, f"part-{part}"),
+        )
 
     def _add_relation(
         self,

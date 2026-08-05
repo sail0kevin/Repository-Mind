@@ -1,18 +1,73 @@
 """
-这个文件负责并行解析文件与并行构建向量嵌入。
-它在整个框架里扮演"索引加速层"的角色：用多线程把 I/O 密集型的文件解析和 embedding 计算拆开来跑。
+并行解析文件入口（遗留兼容层）。
+
+.. deprecated::
+    主 ingest 管线已统一到 ``ParserRegistry``（见 ``ingest_service.py``）。
+    本模块保留作为兼容入口，内部已改为调用 ``default_registry()``，
+    产出与主 ingest 一致的 Evidence 结构，不再使用旧 ``chunker.py`` 的
+    40 行固定切片。外部新代码请直接使用 ``ParserRegistry``。
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Iterable
 
-from service.core.chunker import parse_text_file
+from service.core.parsing import SourceDocument, default_registry
+
+
+def _to_source_document(file_record: dict) -> SourceDocument | None:
+    """把文件记录转换为 SourceDocument，读取失败时返回 None。"""
+    from pathlib import Path
+
+    absolute_path = file_record.get("absolute_path") or file_record.get("repo_path")
+    if not absolute_path:
+        return None
+    path = Path(absolute_path)
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    if not content:
+        return None
+    return SourceDocument(
+        snapshot_id=file_record.get("snapshot_id", "legacy"),
+        path=file_record.get("relative_path", ""),
+        content=content,
+        language=file_record.get("language"),
+        repo_id=file_record.get("repo_id"),
+        file_id=file_record.get("id"),
+        metadata={"absolute_path": absolute_path, "is_test_file": bool(file_record.get("is_test_file"))},
+    )
 
 
 def _thread_local_safe_parse(file_record: dict, progress_callback) -> tuple[str, list[dict]]:
     """在单个线程中解析一个文件，并回调一次进度。"""
-    chunks = parse_text_file(file_record)
+    document = _to_source_document(file_record)
+    if document is None:
+        return file_record.get("relative_path", ""), []
+    # 使用统一的 ParserRegistry，产出与主 ingest 一致的 Evidence。
+    result = default_registry().parse(document)
+    chunks = [
+        {
+            "file_id": file_record.get("id"),
+            "file_path": file_record.get("relative_path"),
+            "chunk_type": evidence.kind,
+            "title": evidence.title,
+            "symbol_name": evidence.metadata.get("symbol_name"),
+            "start_line": evidence.start_line,
+            "end_line": evidence.end_line,
+            "content": evidence.content,
+            "content_hash": evidence.content_hash,
+            "token_count": len(evidence.content.split()),
+            "embedding_status": "pending",
+            "source_type": file_record.get("file_type", "text"),
+            "metadata_json": evidence.metadata,
+            "parent_id": evidence.parent_id,
+        }
+        for evidence in result.evidence
+    ]
     if progress_callback is not None:
         progress_callback(0.1, f"已解析 {file_record.get('relative_path')}")
     return file_record.get("relative_path", ""), chunks
@@ -23,7 +78,11 @@ def parallel_parse_files(
     max_workers: int = 4,
     progress_callback=None,
 ) -> dict[str, list[dict]]:
-    """并行把多个文件解析成知识片段。"""
+    """并行把多个文件解析成知识片段。
+
+    内部已改为使用统一的 ``ParserRegistry``，产出与主 ingest 一致的
+    Evidence 结构。不再依赖旧 ``chunker.py`` 的 40 行固定切片。
+    """
     file_list = list(files)
     results: dict[str, list[dict]] = {}
     if not file_list:

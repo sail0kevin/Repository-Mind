@@ -47,6 +47,8 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
     debug: bool = False
+    # Frozen evaluation indexes must not create WAL files, migrations, or telemetry.
+    sqlite_read_only: bool = False
     paths: Paths = Field(default_factory=Paths)
 
     class Config:

@@ -108,6 +108,55 @@ def embed_query(text: str) -> list[float] | None:
         return None
 
 
+def build_structured_embedding_input(item: dict) -> str:
+    """把 Evidence 元数据和正文组合成结构化 Embedding 输入。
+
+    结构化输入让 Embedding 模型感知代码的语义上下文，而不仅是裸代码文本。
+    格式：[path/to/file.py] [function: MyClass.method] [title: 章节标题] <summary or body>
+
+    - path：文件路径，让模型知道代码所在模块
+    - kind + symbol：Evidence 类型（class/function/method/section）和符号名
+    - title：人类可读标题（Markdown 章节标题或符号签名）
+    - imports：该符号静态导入的模块（最多 5 个）
+    - calls：该符号静态调用的函数（最多 5 个）
+    - content：原始正文（最后出现，作为 body）
+    """
+    parts: list[str] = []
+    path = str(item.get("file_path") or item.get("path") or "").strip()
+    if path:
+        parts.append(f"[{path}]")
+    kind = str(item.get("kind") or item.get("unit_type") or "").strip()
+    symbol = str(item.get("symbol_name") or "").strip()
+    if kind and symbol:
+        parts.append(f"[{kind}: {symbol}]")
+    elif symbol:
+        parts.append(f"[symbol: {symbol}]")
+    elif kind:
+        parts.append(f"[{kind}]")
+    title = str(item.get("title") or "").strip()
+    if title:
+        parts.append(f"[title: {title}]")
+    # imports / calls 从 metadata 或顶层字段读取。
+    imports = item.get("imports") or []
+    if isinstance(imports, str):
+        imports = [part.strip() for part in imports.split(",") if part.strip()]
+    if imports:
+        parts.append(f"[imports: {', '.join(str(v).strip() for v in imports[:5])}]")
+    calls = item.get("calls") or []
+    if isinstance(calls, str):
+        calls = [part.strip() for part in calls.split(",") if part.strip()]
+    if calls:
+        parts.append(f"[calls: {', '.join(str(v).strip() for v in calls[:5])}]")
+    summary = str(item.get("summary") or "").strip()
+    if summary:
+        parts.append(f"[summary: {summary}]")
+    # body 始终放在最后，保证核心内容完整。
+    body = str(item.get("content") or "")
+    if parts:
+        return " ".join(parts) + "\n" + body
+    return body
+
+
 def embed_snapshot_evidence(repo_id: str, snapshot_id: str, evidence: list[dict], *, provider: EmbeddingProvider | None = None,
                             batch_size: int = 64, max_input_characters: int | None = None) -> EmbeddingRunStatus:
     """复用同 provider/model/content_hash 的向量，仅为缺失内容调用供应商。"""
@@ -126,7 +175,8 @@ def embed_snapshot_evidence(repo_id: str, snapshot_id: str, evidence: list[dict]
     records: list[dict] = []
     missing: list[dict] = []
     for item in evidence:
-        content = str(item.get("content") or "")
+        # 结构化输入：把路径/符号/标题等元数据前缀到正文，让 Embedding 模型感知语义上下文。
+        content = build_structured_embedding_input(item)
         embedded_content = content[:max_input_characters] if max_input_characters is not None else content
         # Cache identity must represent exactly what was sent to the provider.
         embedded_hash = (

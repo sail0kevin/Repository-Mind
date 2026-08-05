@@ -18,8 +18,9 @@ class MarkdownParser(ParserAdapter):
     languages = frozenset({"markdown", "md"})
     extensions = frozenset({".md", ".markdown"})
 
-    def __init__(self, max_chars: int = 1500) -> None:
+    def __init__(self, max_chars: int = 1500, overlap_chars: int = 120) -> None:
         self.max_chars = max_chars
+        self.overlap_chars = overlap_chars
 
     def parse(self, document: SourceDocument) -> ParseResult:
         result = ParseResult(document=document)
@@ -103,7 +104,14 @@ class MarkdownParser(ParserAdapter):
                 if current and len("\n".join([*current, line])) > self.max_chars:
                     part += 1
                     self._add_paragraph(document, result, current, chunk_start, line_index - 1, active, part)
-                    current, chunk_start = [line], line_index
+                    # overlap：回退若干行作为下一段的起始，避免跨段上下文被切断。
+                    overlap_lines, overlap_chars = [], 0
+                    for back in range(len(current) - 1, -1, -1):
+                        overlap_lines.insert(0, current[back])
+                        overlap_chars += len(current[back]) + 1
+                        if overlap_chars >= self.overlap_chars:
+                            break
+                    current, chunk_start = overlap_lines[:], chunk_start + len(current) - len(overlap_lines)
                 else: current.append(line)
             if current:
                 part += 1

@@ -15,6 +15,9 @@ from service.mcp_server import tools as impl
 mcp = FastMCP(
     name="repomind",
     instructions=(
+        "Pass the user's original wording as question. After locate_code returns, always continue to a final answer; the result is navigation evidence rather than source text, so do not invent unreturned behavior. "
+        "Prefer rank=1 or is_primary=true when it answers the question. "
+        "For example, ask locate_code with question='Where is authenticate defined?' and limit=3 before answering. "
         "For natural-language code-location questions, unknown symbols, cross-file behavior, or questions that need multiple locations, call locate_code once first with compact=true. The first candidate is the highest-ranked candidate; prefer it when it answers the question, and treat is_primary=true as the preferred candidate. Report multiple independent locations separately without merging ranges. "
         "Use get_symbol only when you already know the exact function, class, or qualified symbol name. "
         "Use search_code only when you need supporting snippets beyond the candidate locations. "
@@ -32,6 +35,9 @@ coding_agent_mcp = FastMCP(
     name="repomind-coding-agent",
     instructions=(
         "This server is bound to one indexed repository snapshot and exposes only concise code navigation. "
+        "For every natural-language location, behavior, unknown-symbol, or cross-file question, pass the user's original wording to locate_code first. "
+        "After the tool returns, always produce a final answer; prefer rank=1 or is_primary=true, and never invent source details that were not returned. "
+        "When status is not_found, state that the indexed snapshot did not return a verified location. "
         "For a code-location question, call locate_code once and answer directly from its returned ranked PATH:START_LINE-END_LINE locations. The first candidate is the current strongest candidate and is_primary=true marks it as preferred. Keep multiple independent locations separate. "
         "Do not call another discovery tool. The result contains no source text; only request detailed code evidence when compact fields are insufficient."
     ),
@@ -41,12 +47,28 @@ coding_agent_location_1_mcp = FastMCP(
     name="repomind-coding-agent-location-1",
     instructions=(
         "This server is bound to one indexed repository snapshot and exposes only concise code navigation. "
+        "For every single-location natural-language question, pass the user's original wording to locate_code first. "
+        "After the tool returns, always produce a final PATH:START_LINE-END_LINE answer; do not stop at the tool call or invent source details. "
+        "When no verified location is returned, state that explicitly. "
         "For a single-location code question, call locate_code once; it returns the current strongest candidate. "
         "Answer directly from the returned PATH:START_LINE-END_LINE location and always produce a final answer after the tool result. "
         "Do not call another discovery tool."
     ),
 )
 
+coding_agent_context_mcp = FastMCP(
+    name="repomind-coding-agent-context",
+    instructions=(
+        "This server is bound to one indexed repository snapshot and provides concise navigation plus budgeted source evidence for complex coding questions. "
+        "Pass the user's original wording to locate_code first for every natural-language location, behavior, unknown-symbol, or cross-file question. "
+        "For a simple location request, answer from locate_code and do not request more context. "
+        "Call get_code_context at most once only when the user needs implementation details, cross-file behavior, change impact, or supporting source evidence. "
+        "After either tool returns, always produce a final answer. Prefer rank=1 or is_primary=true, and distinguish returned source evidence from inferences. "
+        "When status is not_found, state that the indexed snapshot did not return verified evidence; never invent source details. "
+        "If get_code_context includes recommended_follow_up, follow that reading order before asking for any more context. "
+        "This is a read-only service. The context tool returns a deliberately small, token-budgeted evidence set rather than complete files."
+    ),
+)
 
 def _bound_agent_target() -> tuple[str, str | None]:
     """Read the isolated benchmark target without exposing it in the tool schema."""
@@ -109,6 +131,45 @@ def locate_code_location_1(question: str, limit: int | None = None) -> dict:
             if isinstance(item, dict)
         ]
     return result
+
+
+@coding_agent_context_mcp.tool(name="locate_code")
+def locate_code_context(question: str, limit: int | None = None) -> dict:
+    """Return compact, answer-ready locations for the bound repository snapshot.
+
+    Use this first for location, behavior, symbol, and cross-file questions. For
+    simple location requests, answer from this result without calling
+    ``get_code_context``.
+    """
+    try:
+        repo_id, snapshot_id = _bound_agent_target()
+    except ValueError as exc:
+        return {
+            "status": "error",
+            "locations": [],
+            "limitations": [str(exc)],
+        }
+    return impl.locate_code(repo_id, question, snapshot_id, limit, compact=True)
+
+
+@coding_agent_context_mcp.tool()
+def get_code_context(question: str, limit: int | None = None) -> dict:
+    """Return a small, read-only source-evidence set for a complex question.
+
+    Call only after ``locate_code`` when compact paths and lines are insufficient
+    to explain implementation behavior, cross-file flow, or likely change impact.
+    The result is token-budgeted and never includes an entire repository or file.
+    """
+    try:
+        repo_id, snapshot_id = _bound_agent_target()
+    except ValueError as exc:
+        return {
+            "status": "error",
+            "evidence": [],
+            "limitations": [str(exc)],
+        }
+    requested_limit = 4 if limit is None else min(limit, 4)
+    return impl.get_code_context(repo_id, question, snapshot_id, requested_limit)
 
 
 @mcp.tool()
@@ -211,13 +272,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the RepoMind read-only MCP server.")
     parser.add_argument(
         "--profile",
-        choices=("full", "coding-agent", "coding-agent-location-1"),
+        choices=("full", "coding-agent", "coding-agent-location-1", "coding-agent-context"),
         default="full",
-        help="Expose the complete read-only API or only the bound coding-agent locator.",
+        help="Expose the complete read-only API, compact locator, or bound budgeted-context profile.",
     )
     args = parser.parse_args()
     if args.profile == "coding-agent-location-1":
         server = coding_agent_location_1_mcp
+    elif args.profile == "coding-agent-context":
+        server = coding_agent_context_mcp
     else:
         server = coding_agent_mcp if args.profile == "coding-agent" else mcp
     server.run(transport="stdio")

@@ -66,3 +66,24 @@ def test_specialist_priority_stays_inside_item_and_token_budgets() -> None:
     assert len(bundle.items) <= 2
     assert bundle.total_tokens <= 10
     assert bundle.items[0].path == "src/service.py"
+
+
+def test_parent_and_child_evidence_both_survive_assembly() -> None:
+    """父子 Evidence 同时命中时都保留。
+
+    曾尝试过"子联合覆盖父 ≥80% 就移除父"的去重策略，但 holdout 实测显示
+    get_code_context 的 required_affected_path_coverage 从 0.636 掉到 0.273：
+    行范围覆盖不等于信息覆盖，class header / 装饰器 / 导入等关键上下文恰好
+    落在未被 method 覆盖的那部分行里。该策略已移除，这个测试锁定当前行为。
+    """
+    bundle = EvidenceAssembler(EvidenceBudget(max_items=10, min_sources=1)).assemble(
+        [
+            _candidate("src/service.py", "class-ev", "class body", start_line=1, end_line=100, score=80),
+            _candidate("src/service.py", "method-1", "method 1", start_line=10, end_line=50, score=75),
+            _candidate("src/service.py", "method-2", "method 2", start_line=50, end_line=95, score=78),
+        ],
+        commit="a" * 40,
+        limit=10,
+    )
+    chunk_ids = {item.chunk_id for item in bundle.items}
+    assert {"class-ev", "method-1", "method-2"}.issubset(chunk_ids)

@@ -728,6 +728,532 @@ def search_code(repo_id: str, query: str, snapshot_id: str | None = None, limit:
     )
 
 
+_CONTEXT_INTENT_MARKERS = {
+    "behavior": (
+        "behavior",
+        "flow",
+        "works",
+        "called",
+        "invoked",
+        "returns",
+        "logic",
+        "process",
+        "how does",
+        "what happens",
+        "实现",
+        "行为",
+        "流程",
+        "逻辑",
+        "如何",
+        "怎么",
+        "调用",
+        "返回",
+    ),
+    "impact": (
+        "impact",
+        "affected",
+        "caller",
+        "callers",
+        "reference",
+        "references",
+        "depend",
+        "dependency",
+        "modify",
+        "change",
+        "break",
+        "callers are affected",
+        "depends on",
+        "影响",
+        "受影响",
+        "修改",
+        "变更",
+        "改动",
+        "依赖",
+        "调用方",
+        "引用",
+        "哪些文件",
+    ),
+    "test": (
+        "test",
+        "tests",
+        "testing",
+        "coverage",
+        "verify",
+        "validation",
+        "pytest",
+        "unittest",
+        "which tests",
+        "测试",
+        "测试用例",
+        "验证",
+        "覆盖",
+        "单测",
+        "单元测试",
+    ),
+}
+
+
+def _context_intents(question: str) -> set[str]:
+    normalized = " ".join(question.casefold().split())
+    terms = _identifier_terms(question)
+    intents: set[str] = set()
+    for intent, markers in _CONTEXT_INTENT_MARKERS.items():
+        for marker in markers:
+            folded = marker.casefold()
+            if re.fullmatch(r"[a-z0-9_]+", folded):
+                if folded in terms:
+                    intents.add(intent)
+                    break
+                continue
+            if folded in normalized:
+                intents.add(intent)
+                break
+    return intents
+
+
+def _path_is_test(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/").casefold()
+    return (
+        normalized.startswith("tests/")
+        or "/tests/" in f"/{normalized}"
+        or normalized.startswith("test_")
+        or ".test." in normalized
+        or ".spec." in normalized
+    )
+
+
+def _evidence_path(item: dict) -> str:
+    return str(item.get("file_path") or item.get("path") or "").replace("\\", "/")
+
+
+def _evidence_identity(item: dict) -> tuple[str, str, object, object]:
+    return (
+        str(item.get("evidence_id") or item.get("chunk_id") or item.get("id") or ""),
+        _evidence_path(item),
+        item.get("start_line"),
+        item.get("end_line"),
+    )
+
+
+def _evidence_is_definition(item: dict) -> bool:
+    descriptor = " ".join(
+        str(item.get(key) or "")
+        for key in ("context_role", "reason", "evidence_id", "title", "symbol_name")
+    ).casefold()
+    return any(token in descriptor for token in ("definition", "implementation", "target symbol", "symbol definition"))
+
+
+def _evidence_is_impact(item: dict) -> bool:
+    descriptor = " ".join(
+        str(item.get(key) or "")
+        for key in ("context_role", "reason", "evidence_id")
+    ).casefold()
+    return any(token in descriptor for token in ("impact", "caller", "callee", "reference"))
+
+
+def _evidence_coverage(evidence: list[dict]) -> dict[str, int | bool]:
+    paths = {_evidence_path(item) for item in evidence if _evidence_path(item)}
+    return {
+        "evidence_count": len(evidence),
+        "file_count": len(paths),
+        "test_file_count": sum(1 for path in paths if _path_is_test(path)),
+        "definition_count": sum(1 for item in evidence if _evidence_is_definition(item)),
+        "impact_evidence_count": sum(1 for item in evidence if _evidence_is_impact(item)),
+    }
+
+
+def _context_needs_supplement(primary: dict, intents: set[str]) -> bool:
+    """Treat shallow hits as incomplete evidence for non-location questions."""
+    if not intents:
+        return False
+    evidence = primary.get("evidence") or []
+    if not evidence:
+        return True
+    paths = {_evidence_path(item) for item in evidence}
+    paths.discard("")
+    if len(evidence) < 2 or len(paths) < 2:
+        return True
+    if intents.intersection({"impact", "test"}) and len(evidence) < 3:
+        return True
+    if "behavior" in intents and not any(_evidence_is_definition(item) for item in evidence):
+        return True
+    if "impact" in intents and not any(_evidence_is_impact(item) for item in evidence):
+        return True
+    if "test" in intents and not any(_path_is_test(_evidence_path(item)) for item in evidence):
+        return True
+    return False
+
+
+def _merge_context_evidence(
+    primary: list[dict], supplemental: list[dict], *, intents: set[str], max_items: int = 8
+) -> list[dict]:
+    """Deduplicate evidence while reserving slots for intent-specific proof."""
+    ordered = supplemental + primary if intents.intersection({"impact", "test"}) else primary + supplemental
+    unique: list[dict] = []
+    seen: set[tuple[str, str, object, object]] = set()
+    for item in ordered:
+        identity = _evidence_identity(item)
+        if identity in seen or not identity[1]:
+            continue
+        seen.add(identity)
+        unique.append(item)
+
+    selected: list[dict] = []
+    selected_ids: set[tuple[str, str, object, object]] = set()
+
+    def reserve(predicate) -> None:
+        for candidate in unique:
+            identity = _evidence_identity(candidate)
+            if identity in selected_ids or not predicate(candidate):
+                continue
+            selected.append(candidate)
+            selected_ids.add(identity)
+            return
+
+    if "impact" in intents:
+        reserve(_evidence_is_impact)
+    if "test" in intents:
+        reserve(lambda item: _path_is_test(_evidence_path(item)))
+        reserve(lambda item: not _path_is_test(_evidence_path(item)))
+    if not intents.intersection({"impact", "test"}) and any(_evidence_is_definition(item) for item in unique):
+        reserve(lambda item: _evidence_is_definition(item) and not _path_is_test(_evidence_path(item)))
+    if "behavior" in intents and "impact" not in intents and "test" not in intents:
+        reserve(lambda item: not _path_is_test(_evidence_path(item)))
+
+    for item in unique:
+        identity = _evidence_identity(item)
+        if identity in selected_ids:
+            continue
+        selected.append(item)
+        selected_ids.add(identity)
+        if len(selected) >= max_items:
+            break
+    return selected[:max_items]
+
+
+def _context_target_location(
+    repo_id: str, question: str, snapshot_id: str | None, intents: set[str]
+) -> dict | None:
+    """Resolve one high-signal implementation symbol before structured follow-up."""
+    located = locate_code(repo_id, question, snapshot_id, limit=4, compact=True)
+    locations = located.get("locations", [])
+    if not isinstance(locations, list) or not locations:
+        return None
+
+    question_terms = _location_terms(question) or _identifier_terms(question)
+
+    def score(location: dict) -> tuple[int, int, int, int, int, int, str, int]:
+        symbol = str(location.get("symbol") or "")
+        path = str(location.get("path") or location.get("file_path") or "").replace("\\", "/")
+        symbol_terms = _identifier_terms(symbol)
+        path_terms = _identifier_terms(path)
+        overlap = len(question_terms & (symbol_terms | path_terms))
+        match_rank = {
+            "exact_symbol": 3,
+            "body_match": 2,
+            "symbol_match": 1,
+            "retrieval": 0,
+        }.get(str(location.get("match_basis") or "retrieval"), 0)
+        kind_rank = {
+            "function": 3,
+            "method": 3,
+            "class": 2,
+            "module": 1,
+            "unknown": 0,
+        }.get(str(location.get("kind") or "unknown"), 0)
+        intent_rank = 0
+        if "test" in intents and _path_is_test(path):
+            intent_rank += 1
+        if "impact" in intents and not _path_is_test(path):
+            intent_rank += 1
+        primary_rank = 1 if bool(location.get("is_primary")) else 0
+        symbol_rank = 1 if symbol.strip() else 0
+        return (
+            symbol_rank,
+            primary_rank,
+            intent_rank,
+            match_rank,
+            kind_rank,
+            overlap,
+            0 if _path_is_test(path) else 1,
+            -int(location.get("rank") or 0),
+        )
+
+    ranked = sorted(locations, key=score, reverse=True)
+    return ranked[0] if ranked else None
+
+
+def _context_target_symbol(
+    repo_id: str, question: str, snapshot_id: str | None, intents: set[str]
+) -> str | None:
+    location = _context_target_location(repo_id, question, snapshot_id, intents)
+    symbol = location.get("symbol") if isinstance(location, dict) else None
+    if isinstance(symbol, str) and symbol.strip():
+        return symbol.strip()
+    return None
+
+
+def _needs_symbol_definition(primary_evidence: list[dict], intents: set[str]) -> bool:
+    if not primary_evidence:
+        return True
+    if "test" in intents:
+        return not any(not _path_is_test(_evidence_path(item)) for item in primary_evidence)
+    return not any(_evidence_is_definition(item) for item in primary_evidence)
+
+
+def _context_next_steps(intents: set[str], evidence: list[dict]) -> list[str]:
+    """Return a short, deterministic reading order for complex questions."""
+    steps: list[str] = []
+    if "impact" in intents:
+        steps.append("Start with the caller evidence, then verify the related tests before editing.")
+    elif "test" in intents:
+        steps.append("Start with the related tests, then trace back to the implementation they exercise.")
+    elif "behavior" in intents:
+        steps.append("Start with the implementation definition evidence, then follow callees or references.")
+    else:
+        steps.append("Read the returned evidence in rank order and answer only from verified source.")
+
+    if any(_path_is_test(_evidence_path(item)) for item in evidence) and "test" not in intents:
+        steps.append("Keep test evidence separate from implementation evidence.")
+    elif any(_evidence_is_impact(item) for item in evidence) and "impact" not in intents:
+        steps.append("Use the impact evidence only as supporting context.")
+    elif any(_evidence_is_definition(item) for item in evidence) and "behavior" not in intents:
+        steps.append("Treat the definition evidence as the primary anchor.")
+    return steps[:2]
+
+
+def _supplement_context_evidence(
+    repo_id: str,
+    question: str,
+    snapshot_id: str | None,
+    intents: set[str],
+    *,
+    primary_evidence: list[dict] | None = None,
+    target_symbol: str | None = None,
+) -> tuple[list[dict], list[str], str | None]:
+    """Use one or two bounded structured tools to fill the detected evidence gap."""
+    try:
+        symbol = target_symbol or _context_target_symbol(repo_id, question, snapshot_id, intents)
+        if not symbol:
+            return [], ["Evidence coverage was insufficient, but no parsed target symbol was resolved."], None
+
+        evidence: list[dict] = []
+        limitations = [
+            "Primary retrieval had shallow evidence coverage; bounded structured follow-up was added.",
+        ]
+        primary_items = list(primary_evidence or [])
+        plans: list[tuple[str, object]] = []
+        if "impact" in intents:
+            plans.append(("static_impact_evidence", analyze_impact))
+            if "test" in intents:
+                plans.append(("related_test", find_related_tests))
+            elif _needs_symbol_definition(primary_items, intents):
+                plans.append(("symbol_definition", get_symbol))
+        elif "test" in intents:
+            plans.append(("related_test", find_related_tests))
+            if _needs_symbol_definition(primary_items, intents):
+                plans.append(("symbol_definition", get_symbol))
+        else:
+            plans.append(("symbol_behavior_evidence", get_symbol))
+
+        for role, tool in plans[:2]:
+            structured = tool(repo_id, symbol, snapshot_id)
+            for item in structured.get("evidence", [])[:4]:
+                packaged = dict(item)
+                packaged["context_role"] = role
+                packaged["reason"] = f"{role}: {item.get('reason') or 'structured read-only analysis'}"
+                evidence.append(packaged)
+            limitations.extend(str(item) for item in structured.get("limitations", [])[:2])
+        return evidence, limitations, symbol
+    except Exception as exc:  # noqa: BLE001 - supplemental evidence must not hide primary results
+        return [], [f"Structured evidence supplement failed: {exc}"], None
+
+
+def _apply_context_supplement(primary: dict, repo_id: str, question: str, snapshot_id: str | None) -> dict:
+    intents = _context_intents(question)
+    if not _context_needs_supplement(primary, intents):
+        return primary
+
+    supplemental, supplement_limits, symbol = _supplement_context_evidence(
+        repo_id,
+        question,
+        snapshot_id,
+        intents,
+        primary_evidence=list(primary.get("evidence") or []),
+    )
+    data = primary.get("data")
+    if isinstance(data, dict):
+        primary_evidence = list(primary.get("evidence") or [])
+
+        question_terms = {
+            term
+            for term in _identifier_terms(question)
+            if len(term) >= 3 and term.casefold() not in _LOCATION_STOP_WORDS
+        }
+        if question_terms:
+            relevant_supplemental = [
+                item
+                for item in supplemental
+                if question_terms & _identifier_terms(item.get("file_path") or item.get("path") or "")
+            ]
+        else:
+            relevant_supplemental = supplemental
+
+        merged = _merge_context_evidence(
+            primary_evidence, relevant_supplemental, intents=intents, max_items=8
+        )
+        primary["evidence"] = merged
+        data["query"] = question
+        data["context_intent"] = sorted(intents)
+        data["target_symbol"] = symbol
+        data["evidence_coverage"] = {
+            **_evidence_coverage(merged),
+            "supplemented": bool(supplemental),
+        }
+        data["recommended_follow_up"] = _context_next_steps(intents, merged)
+    primary.setdefault("limitations", []).extend(supplement_limits)
+    return primary
+
+
+def _recover_context_from_structure(
+    repo_id: str,
+    question: str,
+    snapshot_id: str | None,
+    limit: int | None,
+    intents: set[str],
+) -> dict | None:
+    guard, failure = _guard_or_envelope(repo_id, snapshot_id)
+    if failure is not None:
+        return failure
+
+    symbol = _context_target_symbol(repo_id, question, snapshot_id, intents)
+    if not symbol:
+        return None
+
+    symbol_recovery = search_code(repo_id, symbol, snapshot_id, limit)
+    if symbol_recovery.get("evidence"):
+        data = symbol_recovery.get("data")
+        if isinstance(data, dict):
+            data["query"] = question
+            data["retrieval_query"] = symbol
+            data["context_recovery"] = "symbol_search"
+        limitations = symbol_recovery.get("limitations")
+        if isinstance(limitations, list):
+            limitations.append(
+                "The original natural-language query returned no direct evidence; a bounded symbol recovery query was used."
+            )
+        recovered = _apply_context_supplement(symbol_recovery, repo_id, question, snapshot_id)
+        recovered_data = recovered.get("data")
+        if isinstance(recovered_data, dict):
+            recovered_data["recommended_follow_up"] = _context_next_steps(
+                intents, list(recovered.get("evidence") or [])
+            )
+        return recovered
+
+    supplemental, supplement_limits, recovered_symbol = _supplement_context_evidence(
+        repo_id,
+        question,
+        snapshot_id,
+        intents,
+        primary_evidence=[],
+        target_symbol=symbol,
+    )
+    if not supplemental:
+        return None
+
+    normalized_limit = clamp_limit(limit, default=6, maximum=20)
+    bundle = EvidenceAssembler(EvidenceBudget(
+        total_tokens=1200,
+        max_file_ratio=0.5,
+        max_evidence_tokens=320,
+        min_sources=2,
+        max_items=6,
+    )).assemble(supplemental, commit=guard.snapshot["commit_hash"], limit=normalized_limit)
+    evidence = [
+        evidence_item(
+            {
+                "chunk_id": item.chunk_id,
+                "file_path": item.path,
+                "start_line": item.start_line,
+                "end_line": item.end_line,
+                "content": item.content,
+            },
+            reason=item.reason,
+        )
+        for item in bundle.items
+    ]
+    if not evidence:
+        return None
+
+    limitations = [
+        "The original natural-language query returned no direct evidence; this result uses bounded structural recovery from parsed symbols.",
+    ]
+    limitations.extend(supplement_limits[:3])
+    return envelope(
+        repo_id=repo_id,
+        snapshot_id=guard.snapshot["id"],
+        commit=guard.snapshot["commit_hash"],
+        status="degraded",
+        data={
+            "query": question,
+            "retrieval_query": recovered_symbol or symbol,
+            "retrieval_mode": "structured_recovery",
+            "evidence_budget": bundle.stats,
+            "context_intent": sorted(intents),
+            "target_symbol": recovered_symbol or symbol,
+            "context_recovery": "structured_lookup",
+            "evidence_coverage": {
+                **_evidence_coverage(evidence),
+                "supplemented": True,
+            },
+            "recommended_follow_up": _context_next_steps(intents, evidence),
+        },
+        evidence=evidence,
+        limitations=limitations,
+    )
+
+
+def get_code_context(
+    repo_id: str,
+    question: str,
+    snapshot_id: str | None = None,
+    limit: int | None = None,
+) -> dict:
+    """Return budgeted source evidence with bounded lexical fallback for a complex question.
+
+    The original natural-language question is always attempted first. Only when it
+    yields no evidence do we retry up to two narrower identifier queries. The
+    response preserves the original question and reports the fallback query so an
+    agent can distinguish verified evidence from the recovery mechanism.
+    """
+    normalized_question = clamp_text(question)
+    primary = search_code(repo_id, normalized_question, snapshot_id, limit)
+    if primary.get("status") != "not_found":
+        return _apply_context_supplement(primary, repo_id, normalized_question, snapshot_id)
+
+    for retry_query in _location_retry_queries(normalized_question, [normalized_question]):
+        recovered = search_code(repo_id, retry_query, snapshot_id, limit)
+        if not recovered.get("evidence"):
+            continue
+        data = recovered.get("data")
+        if isinstance(data, dict):
+            data["query"] = normalized_question
+            data["retrieval_query"] = retry_query
+        limitations = recovered.get("limitations")
+        if isinstance(limitations, list):
+            limitations.append(
+                "The original natural-language query returned no evidence; this result uses a bounded identifier fallback."
+            )
+        return _apply_context_supplement(recovered, repo_id, normalized_question, snapshot_id)
+
+    intents = _context_intents(normalized_question)
+    recovered = _recover_context_from_structure(repo_id, normalized_question, snapshot_id, limit, intents)
+    if recovered is not None:
+        return recovered
+
+    return primary
+
+
 def locate_code(
     repo_id: str,
     question: str,
@@ -776,6 +1302,28 @@ def locate_code(
                     current["score"] = max(
                         float(current.get("score") or 0.0), float(candidate.get("score") or 0.0)
                     )
+        retry_threshold = max(2, min(normalized_limit, 3))
+        if (
+            len(retrieval_queries) == 1
+            and len(candidate_by_id) < retry_threshold
+            and len(_location_terms(normalized_question)) >= 2
+        ):
+            for retry_query in _location_retry_queries(normalized_question, retrieval_queries):
+                retry_result = retriever.retrieve(
+                    repo_id, guard.snapshot["id"], retry_query, max(normalized_limit * 2, 12)
+                )
+                retrievals.append(retry_result)
+                for candidate in retry_result.items:
+                    identity = str(candidate.get("chunk_id") or candidate.get("id") or "")
+                    if not identity:
+                        continue
+                    current = candidate_by_id.get(identity)
+                    if current is None:
+                        candidate_by_id[identity] = dict(candidate)
+                    else:
+                        current["score"] = max(
+                            float(current.get("score") or 0.0), float(candidate.get("score") or 0.0)
+                        )
         primary_candidates = list(candidate_by_id.values())
     except Exception as exc:  # noqa: BLE001
         return error_envelope(repo_id, f"Code location failed: {exc}", snapshot_id=guard.snapshot["id"])
@@ -1350,3 +1898,39 @@ def find_related_tests(repo_id: str, symbol_query: str | None = None, snapshot_i
         ],
         limitations=limitations,
     )
+def _location_retry_queries(question: str, existing_queries: list[str]) -> list[str]:
+    """Build a small fallback query set only for an underfilled initial recall.
+
+    The original question remains the primary retrieval query. When it produces
+    too few candidates, remove instruction words and retry with the meaningful
+    terms in their original order. This recovers natural-language questions
+    whose wording differs from source code without widening normal requests
+    into unbounded word-by-word searches.
+    """
+    existing = {" ".join(query.split()).casefold() for query in existing_queries}
+    ordered_terms: list[str] = []
+    seen: set[str] = set()
+    for raw in _LOCATION_TERM_RE.findall(question):
+        for part in re.split(r"_|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", raw):
+            normalized = part.casefold()
+            if (
+                len(normalized) < 3
+                or normalized in _LOCATION_STOP_WORDS
+                or normalized in seen
+            ):
+                continue
+            seen.add(normalized)
+            ordered_terms.append(normalized)
+    for source, target in _LOCATION_QUERY_EXPANSIONS.items():
+        if source in seen and target not in seen:
+            seen.add(target)
+            ordered_terms.append(target)
+
+    retries: list[str] = []
+    if len(ordered_terms) >= 2:
+        retries.append(" ".join(ordered_terms[:6]))
+    if ordered_terms:
+        # A leading identifier often names the target symbol when the complete
+        # natural-language query has no lexical overlap with its implementation.
+        retries.append(ordered_terms[0])
+    return [query for query in retries if query.casefold() not in existing][:2]

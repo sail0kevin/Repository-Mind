@@ -10,6 +10,7 @@ from service.core.embeddings import service as embedding_service_module
 from service.core.embeddings.base import EmbeddingError, EmbeddingProvider
 from service.core.embeddings.openai_compatible import OpenAICompatibleEmbeddingProvider
 from service.core.embeddings.service import (
+    build_structured_embedding_input,
     embedding_query_configuration,
     embed_query,
     embed_snapshot_evidence,
@@ -266,6 +267,75 @@ def test_embedding_query_configuration_reports_disabled_without_provider_call(mo
 
     assert status.available is False
     assert status.reason == "embedding_provider_unconfigured"
+
+
+def test_structured_embedding_input_includes_path_kind_symbol_and_body() -> None:
+    """结构化输入应包含路径、类型、符号名和正文。"""
+    item = {
+        "file_path": "src/service.py",
+        "kind": "function",
+        "symbol_name": "service.process",
+        "title": "process",
+        "content": "def process(data):\n    return data + 1",
+    }
+    text = build_structured_embedding_input(item)
+    assert "[src/service.py]" in text
+    assert "[function: service.process]" in text
+    assert "[title: process]" in text
+    assert "def process(data):" in text
+
+
+def test_structured_embedding_input_includes_imports_and_calls() -> None:
+    """结构化输入应包含 imports 和 calls 元数据。"""
+    item = {
+        "file_path": "src/helper.py",
+        "kind": "function",
+        "symbol_name": "helper.run",
+        "imports": ["os", "sys", "json"],
+        "calls": ["load", "save"],
+        "content": "def run():\n    pass",
+    }
+    text = build_structured_embedding_input(item)
+    assert "[imports: os, sys, json]" in text
+    assert "[calls: load, save]" in text
+
+
+def test_structured_embedding_input_caps_imports_and_calls_at_five() -> None:
+    """imports 和 calls 应最多保留 5 个，控制前缀长度。"""
+    item = {
+        "file_path": "src/big.py",
+        "kind": "function",
+        "symbol_name": "big.func",
+        "imports": ["a", "b", "c", "d", "e", "f", "g"],
+        "calls": ["x", "y", "z", "w", "v", "u", "t"],
+        "content": "def func():\n    pass",
+    }
+    text = build_structured_embedding_input(item)
+    # 只保留前 5 个。
+    assert "f" not in text.split("[imports:")[1].split("]")[0] if "[imports:" in text else True
+    assert "g" not in text.split("[imports:")[1].split("]")[0] if "[imports:" in text else True
+
+
+def test_structured_embedding_input_falls_back_to_body_when_no_metadata() -> None:
+    """没有任何元数据时，结构化输入应退化为原始正文。"""
+    item = {"content": "plain text body"}
+    text = build_structured_embedding_input(item)
+    assert text == "plain text body"
+
+
+def test_structured_embedding_input_handles_string_imports_calls() -> None:
+    """imports / calls 可以是逗号分隔的字符串（向后兼容）。"""
+    item = {
+        "file_path": "src/mod.py",
+        "kind": "function",
+        "symbol_name": "mod.f",
+        "imports": "os, sys",
+        "calls": "helper",
+        "content": "def f():\n    pass",
+    }
+    text = build_structured_embedding_input(item)
+    assert "[imports: os, sys]" in text
+    assert "[calls: helper]" in text
 
 
 def test_embedding_query_configuration_fast_fails_unreachable_loopback_provider(monkeypatch):

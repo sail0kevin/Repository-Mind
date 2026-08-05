@@ -331,6 +331,18 @@ def build_report(batch_path: Path) -> dict[str, Any]:
         "comparison_rule": "Token totals include only tasks passed by both cohorts.",
         "source_character_note": "Source characters are a context-volume proxy, not model-billed tokens.",
         "aggregate": totals,
+        "cost_comparison": {
+            "total_task_count": totals["task_count"],
+            "paired_cost_task_count": totals["both_passed_count"],
+            "baseline_passed": totals["baseline_passed"],
+            "treatment_passed": totals["treatment_passed"],
+            "token_totals_include": "Only paired tasks passed by both baseline and treatment.",
+            "token_totals_exclude": "Tasks not passed by both cohorts are excluded from token totals.",
+            "denominator_description": (
+                "Token saving percentages use the baseline token total over paired tasks passed by both "
+                "cohorts as the denominator."
+            ),
+        },
         "runs": per_run,
         "failure_classes": failure_classes,
         "failure_classes_by_cohort": failure_classes_by_cohort,
@@ -357,6 +369,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"Both cohorts passed **{aggregate['both_passed_count']}/{aggregate['task_count']}** tasks. "
             f"Baseline pass rate: **{aggregate['baseline_pass_rate']:.2%}**; "
             f"MCP pass rate: **{aggregate['treatment_pass_rate']:.2%}**.",
+            f"Token cost comparison denominator: **{report['cost_comparison']['paired_cost_task_count']}** "
+            f"paired tasks (of **{report['cost_comparison']['total_task_count']}** total tasks).",
             "",
             "Outcome matrix: "
             f"baseline-only **{aggregate['baseline_only_passed_count']}**; "
@@ -380,6 +394,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"({aggregate['source_character_saving_percent'] if aggregate['source_character_saving_percent'] is not None else 'n/a'}%).",
             "",
             f"Comparison rule: {report['comparison_rule']}",
+            f"Token denominator: {report['cost_comparison']['denominator_description']}",
             "",
             f"Failure classes: `{json.dumps(report['failure_classes'], ensure_ascii=False, sort_keys=True)}`",
             "Failure classes by cohort: "
