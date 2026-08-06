@@ -752,15 +752,21 @@ _CONTEXT_INTENT_MARKERS = {
     "impact": (
         "impact",
         "affected",
+        "affects",
         "caller",
         "callers",
         "reference",
         "references",
         "depend",
+        "depends",
         "dependency",
         "modify",
+        "modifies",
         "change",
+        "changes",
+        "changing",
         "break",
+        "breaks",
         "callers are affected",
         "depends on",
         "影响",
@@ -793,9 +799,95 @@ _CONTEXT_INTENT_MARKERS = {
 }
 
 
+_RESPONSE_SCHEMA_MARKERS = (
+    "return json",
+    "return only json",
+    "return a json",
+    "respond with json",
+    "reply with json",
+    "output json",
+    "json only",
+)
+
+
+def _strip_response_schema(question: str) -> str:
+    """去掉"响应格式要求"那部分句子，只留真正的信息需求。
+
+    复杂问题常在结尾附一句输出契约，例如
+    "Return JSON only with evidence, claims, affected_paths, test_paths, and summary."
+    这句描述的是**返回结构**，不是要找的代码。但它把 affected / test 这类词带进了问题，
+    会让意图识别误判成"影响面分析"和"测试查找"，进而让补充证据走错工具；它也会稀释
+    词法检索的查询词。所以在识别意图和抽取关键短语之前，先剔除这类句子。
+    """
+    normalized = " ".join(str(question or "").split())
+    if not normalized:
+        return ""
+    sentences = re.split(r"(?<=[.!?;])\s+", normalized)
+    kept = [
+        sentence
+        for sentence in sentences
+        if not any(marker in sentence.casefold() for marker in _RESPONSE_SCHEMA_MARKERS)
+    ]
+    # 万一整个问题都像格式要求，保留原文；宁可不剔除，也不能把问题清空。
+    return " ".join(kept).strip() or normalized
+
+
+def _question_terms(question: str) -> set[str]:
+    """问题里可用于比对的实词，已剔除响应格式要求和停用词。"""
+    return {
+        term
+        for term in _identifier_terms(_strip_response_schema(question))
+        if len(term) >= 3 and term not in _LOCATION_STOP_WORDS
+    }
+
+
+def _keyphrase_queries(question: str, *, max_queries: int = 6) -> list[str]:
+    """把问题切成连续实词短语，作为窄召回查询。
+
+    一整句自然语言问题在词法索引里就是几十个词的词袋，真正指向代码的信号会被通用词
+    淹没，目标文件可能一条候选都进不了。但同一个问题里的连续实词短语往往能精确命中
+    ——"local development user"、"model provider address" 这种。
+
+    这里按停用词边界切出连续实词段，并对每段额外产出"去掉左侧修饰词"的后缀短语：
+    名词短语的中心词在右侧，逐个丢弃左侧修饰词就是从最具体逐步放宽。这是通用的关键
+    短语近似规则，不针对任何具体问题。
+    """
+    words = _LOCATION_TERM_RE.findall(_strip_response_schema(question))
+    runs: list[list[str]] = []
+    current: list[str] = []
+    for word in words:
+        folded = word.casefold()
+        if len(folded) < 3 or folded in _LOCATION_STOP_WORDS:
+            if len(current) >= 2:
+                runs.append(current)
+            current = []
+            continue
+        current.append(word)
+    if len(current) >= 2:
+        runs.append(current)
+
+    # 长段更具体，优先；段内再从完整短语逐步去掉左侧修饰词。
+    runs.sort(key=len, reverse=True)
+    queries: list[str] = []
+    seen: set[str] = set()
+    for run in runs:
+        # range 到 len-1：单个词太泛，不单独作为查询。
+        for start in range(len(run) - 1):
+            phrase = " ".join(run[start:])
+            folded = phrase.casefold()
+            if folded in seen:
+                continue
+            seen.add(folded)
+            queries.append(phrase)
+            if len(queries) >= max_queries:
+                return queries
+    return queries
+
+
 def _context_intents(question: str) -> set[str]:
-    normalized = " ".join(question.casefold().split())
-    terms = _identifier_terms(question)
+    stripped = _strip_response_schema(question)
+    normalized = " ".join(stripped.casefold().split())
+    terms = _identifier_terms(stripped)
     intents: set[str] = set()
     for intent, markers in _CONTEXT_INTENT_MARKERS.items():
         for marker in markers:
@@ -827,26 +919,51 @@ def _evidence_path(item: dict) -> str:
 
 
 def _evidence_identity(item: dict) -> tuple[str, str, object, object]:
+    """按"位置"而不是"记录 ID"标识证据。
+
+    同一段源码区域可能来自多条记录（切片投影、结构化补充、检索候选），它们的
+    chunk_id 各不相同但指向同一批行。如果把 ID 放进去重键，这些近似重复项会各占
+    一个证据槽位，把其他文件的证据挤出预算。去重必须只看 (路径, 起始行, 结束行)。
+    """
     return (
-        str(item.get("evidence_id") or item.get("chunk_id") or item.get("id") or ""),
+        "",
         _evidence_path(item),
         item.get("start_line"),
         item.get("end_line"),
     )
 
 
+def _evidence_has_line_range(item: dict) -> bool:
+    """证据必须带可核对的行范围。
+
+    工具契约要求调用方"先核对返回的行再下结论"。缺行号的证据无法核对，却会占用
+    有限的证据预算，把可核对的证据挤掉。这类项一律不进入最终证据集。
+    """
+    start, end = item.get("start_line"), item.get("end_line")
+    if start is None or end is None:
+        return False
+    try:
+        return int(start) >= 0 and int(end) >= 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _evidence_is_definition(item: dict) -> bool:
+    # 必须同时读 context_role 和 role：内部证据行用 context_role，而经过
+    # envelope.evidence_item() 之后该键被重命名为 role。_apply_context_supplement
+    # 处理的正是 envelope 形态的数据，只读 context_role 会让定义保护槽位恒不生效。
     descriptor = " ".join(
         str(item.get(key) or "")
-        for key in ("context_role", "reason", "evidence_id", "title", "symbol_name")
+        for key in ("context_role", "role", "reason", "evidence_id", "title", "symbol_name")
     ).casefold()
     return any(token in descriptor for token in ("definition", "implementation", "target symbol", "symbol definition"))
 
 
 def _evidence_is_impact(item: dict) -> bool:
+    # 同上：envelope 转换后 context_role 变成 role，两个键都要读。
     descriptor = " ".join(
         str(item.get(key) or "")
-        for key in ("context_role", "reason", "evidence_id")
+        for key in ("context_role", "role", "reason", "evidence_id")
     ).casefold()
     return any(token in descriptor for token in ("impact", "caller", "callee", "reference"))
 
@@ -862,13 +979,71 @@ def _evidence_coverage(evidence: list[dict]) -> dict[str, int | bool]:
     }
 
 
-def _context_needs_supplement(primary: dict, intents: set[str]) -> bool:
-    """Treat shallow hits as incomplete evidence for non-location questions."""
-    if not intents:
+def _evidence_question_overlap(item: dict, question_terms: set[str]) -> int:
+    """证据的路径/符号与问题实词的重叠词数，用作"是否切题"的可计算信号。"""
+    if not question_terms:
+        return 0
+    descriptor = " ".join(
+        str(item.get(key) or "") for key in ("file_path", "path", "symbol", "symbol_name", "title")
+    )
+    return len(question_terms & _identifier_terms(descriptor))
+
+
+def _context_evidence_is_off_topic(evidence: list[dict], question_terms: set[str]) -> bool:
+    """整批证据与问题没有任何词面交集时，视为跑题。
+
+    词法检索用整句问题查询时，通用词会把真正的目标文件挤出候选，返回一批路径与问题
+    毫无关系的证据。这种结果条数和文件数都"够"，却答不了问题，必须触发补充召回。
+    """
+    if not evidence or not question_terms:
         return False
+    return not any(_evidence_question_overlap(item, question_terms) for item in evidence)
+
+
+def _keyphrase_recall_evidence(
+    repo_id: str,
+    question: str,
+    snapshot_id: str | None,
+    *,
+    per_query_limit: int = 4,
+    max_items_per_query: int = 2,
+) -> list[dict]:
+    """用问题里的连续实词短语做几次窄召回，补回整句查询漏掉的证据。
+
+    只读、有界：查询条数由 _keyphrase_queries 封顶，每条只取前几项带行号的证据。
+    """
+    recalled: list[dict] = []
+    for phrase in _keyphrase_queries(question):
+        try:
+            found = search_code(repo_id, phrase, snapshot_id, per_query_limit)
+        except Exception:  # noqa: BLE001 - 窄召回是补充手段，失败不能影响主结果
+            continue
+        kept = 0
+        for item in found.get("evidence", []):
+            if not isinstance(item, dict) or not _evidence_has_line_range(item):
+                continue
+            packaged = dict(item)
+            packaged["context_role"] = "keyphrase_recall"
+            packaged["reason"] = f"keyphrase_recall({phrase}): {item.get('reason') or 'lexical match'}"
+            recalled.append(packaged)
+            kept += 1
+            if kept >= max_items_per_query:
+                break
+    return recalled
+
+
+def _context_needs_supplement(primary: dict, intents: set[str], question: str = "") -> bool:
+    """Treat shallow hits as incomplete evidence for non-location questions."""
     evidence = primary.get("evidence") or []
     if not evidence:
         return True
+    # 计算一次词面交集，供后面所有检查复用，避免重复调用 _question_terms。
+    qt = _question_terms(question)
+    # 跑题判定先于意图判定：意图识别失败只说明"分不出类"，不代表证据够用。
+    if _context_evidence_is_off_topic(evidence, qt):
+        return True
+    if not intents:
+        return False
     paths = {_evidence_path(item) for item in evidence}
     paths.discard("")
     if len(evidence) < 2 or len(paths) < 2:
@@ -879,19 +1054,68 @@ def _context_needs_supplement(primary: dict, intents: set[str]) -> bool:
         return True
     if "impact" in intents and not any(_evidence_is_impact(item) for item in evidence):
         return True
-    if "test" in intents and not any(_path_is_test(_evidence_path(item)) for item in evidence):
-        return True
+    if "test" in intents:
+        # 测试类问题需要同时找到：
+        # (1) 相关的测试文件（与问题词面 overlap ≥ 1）
+        # (2) 相关的实现文件（与问题词面 overlap ≥ 2）
+        # overlap=1 可能只是文件名里偶然含有 "test" 等通用词，阈值略高避免误判。
+        # 任一缺失则触发补全，让 find_related_tests / get_symbol 补齐另一侧。
+        has_relevant_test = any(
+            _path_is_test(_evidence_path(item))
+            and _evidence_question_overlap(item, qt) >= 1
+            for item in evidence
+            if _evidence_path(item)
+        )
+        has_relevant_impl = any(
+            not _path_is_test(_evidence_path(item))
+            and _evidence_question_overlap(item, qt) >= 2
+            for item in evidence
+            if _evidence_path(item)
+        )
+        if not has_relevant_test or not has_relevant_impl:
+            return True
     return False
 
 
 def _merge_context_evidence(
-    primary: list[dict], supplemental: list[dict], *, intents: set[str], max_items: int = 8
+    primary: list[dict],
+    supplemental: list[dict],
+    *,
+    intents: set[str],
+    max_items: int = 8,
+    question_terms: set[str] | None = None,
 ) -> list[dict]:
-    """Deduplicate evidence while reserving slots for intent-specific proof."""
-    ordered = supplemental + primary if intents.intersection({"impact", "test"}) else primary + supplemental
+    """Deduplicate evidence while reserving slots for intent-specific proof.
+
+    keyphrase_recall 项（context_role='keyphrase_recall'）已经经过词法精确匹配，
+    优先级高于普通 supplemental；零词面交集的 primary 项在槽位填满后才能进入。
+    """
+    qt = question_terms or set()
+
+    # keyphrase 候选提前分拣出来——它们是靶向召回结果，不参与普通优先级逻辑。
+    keyphrase = [
+        item for item in supplemental
+        if (item.get("context_role") or item.get("role") or "") == "keyphrase_recall"
+    ]
+    other_supplemental = [
+        item for item in supplemental
+        if (item.get("context_role") or item.get("role") or "") != "keyphrase_recall"
+    ]
+
+    ordered = other_supplemental + primary if intents.intersection({"impact", "test"}) else primary + other_supplemental
+
+    # 缺行范围的证据无法核对，先剔除；但如果剔完就没有证据了，宁可退回原集合，
+    # 也不能返回空证据。
+    verifiable = [item for item in ordered if _evidence_has_line_range(item)]
+    if verifiable:
+        ordered = verifiable
+
+    # keyphrase 放最前：不管顺序如何，先保证靶向召回进入候选池。
+    full_ordered = [item for item in keyphrase if _evidence_has_line_range(item)] + ordered
+
     unique: list[dict] = []
     seen: set[tuple[str, str, object, object]] = set()
-    for item in ordered:
+    for item in full_ordered:
         identity = _evidence_identity(item)
         if identity in seen or not identity[1]:
             continue
@@ -910,6 +1134,18 @@ def _merge_context_evidence(
             selected_ids.add(identity)
             return
 
+    # keyphrase 项无条件保留：最多预留 2 个槽，避免无关 keyphrase 占满预算。
+    keyphrase_count = 0
+    for item in unique:
+        if (item.get("context_role") or item.get("role") or "") == "keyphrase_recall":
+            identity = _evidence_identity(item)
+            if identity not in selected_ids:
+                selected.append(item)
+                selected_ids.add(identity)
+                keyphrase_count += 1
+                if keyphrase_count >= 2:
+                    break
+
     if "impact" in intents:
         reserve(_evidence_is_impact)
     if "test" in intents:
@@ -920,7 +1156,11 @@ def _merge_context_evidence(
     if "behavior" in intents and "impact" not in intents and "test" not in intents:
         reserve(lambda item: not _path_is_test(_evidence_path(item)))
 
-    for item in unique:
+    # 按词面交集降序填充剩余槽位：有交集的项排在零交集项前面。
+    remaining = [item for item in unique if _evidence_identity(item) not in selected_ids]
+    if qt:
+        remaining.sort(key=lambda item: -_evidence_question_overlap(item, qt))
+    for item in remaining:
         identity = _evidence_identity(item)
         if identity in selected_ids:
             continue
@@ -1051,7 +1291,16 @@ def _supplement_context_evidence(
                 plans.append(("symbol_definition", get_symbol))
         elif "test" in intents:
             plans.append(("related_test", find_related_tests))
-            if _needs_symbol_definition(primary_items, intents):
+            # 只有在 primary 里没有与问题词面 overlap≥2 的实现文件时，才调用 get_symbol 补充定义。
+            # 仅有噪音非测试文件（如 registry.ts）不算有效实现覆盖，应继续触发 get_symbol。
+            qt_local = _question_terms(question)
+            has_relevant_impl = any(
+                not _path_is_test(_evidence_path(item))
+                and _evidence_question_overlap(item, qt_local) >= 2
+                for item in primary_items
+                if _evidence_path(item)
+            )
+            if not has_relevant_impl:
                 plans.append(("symbol_definition", get_symbol))
         else:
             plans.append(("symbol_behavior_evidence", get_symbol))
@@ -1071,7 +1320,7 @@ def _supplement_context_evidence(
 
 def _apply_context_supplement(primary: dict, repo_id: str, question: str, snapshot_id: str | None) -> dict:
     intents = _context_intents(question)
-    if not _context_needs_supplement(primary, intents):
+    if not _context_needs_supplement(primary, intents, question):
         return primary
 
     supplemental, supplement_limits, symbol = _supplement_context_evidence(
@@ -1081,26 +1330,33 @@ def _apply_context_supplement(primary: dict, repo_id: str, question: str, snapsh
         intents,
         primary_evidence=list(primary.get("evidence") or []),
     )
+
+    # 关键短语召回：当整句查询因词汇饱和返回跑题结果时，用问题里的连续实词短语做
+    # 几次窄召回，把整句漏掉的证据（如同文件的兄弟函数定义）补进来。这是靶向召回，
+    # 已经过短语词法精确匹配，不做路径词重叠过滤。
+    keyphrase_ev = _keyphrase_recall_evidence(repo_id, question, snapshot_id)
+
     data = primary.get("data")
     if isinstance(data, dict):
         primary_evidence = list(primary.get("evidence") or [])
+        qt = _question_terms(question)
 
-        question_terms = {
-            term
-            for term in _identifier_terms(question)
-            if len(term) >= 3 and term.casefold() not in _LOCATION_STOP_WORDS
-        }
-        if question_terms:
+        # 普通 supplemental 走路径词重叠过滤（keyphrase 已靶向，不过滤）。
+        if qt:
             relevant_supplemental = [
                 item
                 for item in supplemental
-                if question_terms & _identifier_terms(item.get("file_path") or item.get("path") or "")
+                if qt & _identifier_terms(item.get("file_path") or item.get("path") or "")
             ]
         else:
             relevant_supplemental = supplemental
 
         merged = _merge_context_evidence(
-            primary_evidence, relevant_supplemental, intents=intents, max_items=8
+            primary_evidence,
+            keyphrase_ev + relevant_supplemental,
+            intents=intents,
+            max_items=8,
+            question_terms=qt,
         )
         primary["evidence"] = merged
         data["query"] = question
