@@ -58,12 +58,32 @@ finally {
     Pop-Location
 }
 
+$currentStage = "prebuilt demo index"
+& (Join-Path $scriptRoot "build_prebuilt_index.ps1") -PythonCommand $PythonCommand
 $currentStage = "frozen backend build"
 & (Join-Path $scriptRoot "build_backend.ps1") -PythonCommand $PythonCommand
 $currentStage = "frozen backend HTTP smoke"
 & (Join-Path $scriptRoot "smoke_backend.ps1") -ExePath $backendExe
-$currentStage = "frozen backend MCP smoke"
+$currentStage = "frozen backend MCP smoke (prebuilt index)"
 & (Join-Path $scriptRoot "smoke_mcp.ps1") -ExePath $backendExe -PythonCommand $PythonCommand
+$currentStage = "frozen backend MCP smoke (empty database)"
+$emptySmokeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("RepoMind-EmptyDb-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Force -Path $emptySmokeDir | Out-Null
+$emptySmokeDb = Join-Path $emptySmokeDir "repomind.sqlite3"
+New-Item -ItemType File -Force -Path $emptySmokeDb | Out-Null
+& (Join-Path $scriptRoot "smoke_mcp.ps1") `
+    -ExePath $backendExe `
+    -PythonCommand $PythonCommand `
+    -DatabasePath $emptySmokeDb
+$currentStage = "frozen backend --index smoke"
+$demoCheckout = Join-Path ([System.IO.Path]::GetTempPath()) ("RepoMind-Demo-" + [guid]::NewGuid().ToString("N"))
+& (Join-Path $scriptRoot "prepare_demo_checkout.ps1") -OutputDir $demoCheckout -Force
+$demoAlias = "RepoMind " + (-join [char[]](0x5185, 0x7F6E)) + " Demo"
+& (Join-Path $scriptRoot "smoke_mcp.ps1") `
+    -ExePath $backendExe `
+    -PythonCommand $PythonCommand `
+    -IndexRepo $demoCheckout `
+    -ExpectedRepositoryAlias $demoAlias
 
 function Invoke-NativeBuildStep {
     param(

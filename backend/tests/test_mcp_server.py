@@ -13,6 +13,7 @@ from service.core.embeddings.base import EmbeddingBatch, EmbeddingProvider
 from service.core.embeddings.service import embed_snapshot_evidence
 from service.core.retrieval import HybridRetriever
 from service.core.retrieval.semantic import SemanticRetriever
+from service.mcp_server import __main__ as mcp_main
 from service.mcp_server import tools as mcp_tools
 from service.mcp_server.envelope import MAX_QUERY_CHARS
 from service.mcp_server.tools import (
@@ -1341,5 +1342,60 @@ def test_locate_code_allows_three_slots_per_file_for_large_limit(
     )
     starts4 = {item["start_line"] for item in result4["data"]["locations"]}
     assert len([s for s in starts4 if s in {10, 30, 70}]) <= 2, "at most 2 from the same file when limit=4"
+
+
+def test_prebuilt_index_detection_sets_read_only_default(monkeypatch, tmp_path: Path) -> None:
+    """有 _MEIPASS + index.marker 且未显式指定库时，指向捆绑索引并默认只读。"""
+    meipass = tmp_path / "meipass"
+    index_dir = meipass / "index"
+    index_dir.mkdir(parents=True)
+    (index_dir / "index.marker").write_text("{}", encoding="utf-8")
+    (index_dir / "repomind.sqlite3").write_bytes(b"x")
+    monkeypatch.setattr(sys, "_MEIPASS", str(meipass), raising=False)
+    affected = ("REPOMIND_PATHS__DATABASE_PATH", "REPOMIND_PATHS__DATA_DIR", "REPOMIND_SQLITE_READ_ONLY")
+    for key in affected:
+        monkeypatch.delenv(key, raising=False)
+
+    try:
+        mcp_main._apply_prebuilt_index_if_present()
+
+        assert os.environ["REPOMIND_PATHS__DATABASE_PATH"] == str(index_dir / "repomind.sqlite3")
+        assert os.environ["REPOMIND_PATHS__DATA_DIR"] == str(index_dir)
+        assert os.environ["REPOMIND_SQLITE_READ_ONLY"] == "true"
+    finally:
+        # 被测函数直接写 os.environ，monkeypatch 不会自动还原；这里手动清掉，
+        # 避免 REPOMIND_* 泄漏影响后续从环境构造 Settings 的测试。
+        for key in affected:
+            os.environ.pop(key, None)
+
+
+def test_prebuilt_index_detection_respects_explicit_database_path(monkeypatch, tmp_path: Path) -> None:
+    """用户显式指定库时，检测不改路径、也不强制只读（避免破坏用户自己的库）。"""
+    meipass = tmp_path / "meipass"
+    index_dir = meipass / "index"
+    index_dir.mkdir(parents=True)
+    (index_dir / "index.marker").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(sys, "_MEIPASS", str(meipass), raising=False)
+    monkeypatch.setenv("REPOMIND_PATHS__DATABASE_PATH", "C:/explicit/repomind.sqlite3")
+    monkeypatch.delenv("REPOMIND_PATHS__DATA_DIR", raising=False)
+    monkeypatch.delenv("REPOMIND_SQLITE_READ_ONLY", raising=False)
+
+    mcp_main._apply_prebuilt_index_if_present()
+
+    assert os.environ["REPOMIND_PATHS__DATABASE_PATH"] == "C:/explicit/repomind.sqlite3"
+    assert "REPOMIND_PATHS__DATA_DIR" not in os.environ
+    assert "REPOMIND_SQLITE_READ_ONLY" not in os.environ
+
+
+def test_prebuilt_index_detection_is_noop_without_meipass(monkeypatch) -> None:
+    """源码运行（无 _MEIPASS）时检测不改变任何环境变量。"""
+    monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+    for key in ("REPOMIND_PATHS__DATABASE_PATH", "REPOMIND_PATHS__DATA_DIR", "REPOMIND_SQLITE_READ_ONLY"):
+        monkeypatch.delenv(key, raising=False)
+
+    mcp_main._apply_prebuilt_index_if_present()
+
+    for key in ("REPOMIND_PATHS__DATABASE_PATH", "REPOMIND_PATHS__DATA_DIR", "REPOMIND_SQLITE_READ_ONLY"):
+        assert key not in os.environ
 
 

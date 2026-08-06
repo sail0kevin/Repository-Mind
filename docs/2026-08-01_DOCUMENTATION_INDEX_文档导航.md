@@ -23,6 +23,7 @@
 | [产品上线与交付审计](./2026-08-01_PRODUCT_READINESS_AUDIT_产品上线与交付审计.md) | 面向真实用户和企业试点的可交付范围、证据、风险和上线门槛 |
 | [MCP 服务使用指南](./2026-08-01_MCP_SERVER_GUIDE_MCP服务使用指南.md) | 配置只读 MCP Server、调用工具并了解能力边界 |
 | [当前改进执行计划](./后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md) | 当前唯一的改进任务清单、依赖顺序、验收指标和交接关口 |
+| [MCP 零配置接入方案](./后续开发指导/2026-08-06_MCP_ZERO_CONFIG_INSTALLER_PLAN_MCP零配置接入方案.md) | MCP 零配置接入的执行方案（预建索引 + `--index` CLI + 一键注册 + 安装器） |
 | [未来架构路线图](./后续开发指导/2026-07-28_ARCHITECTURE_FUTURE_ROADMAP_未来架构路线图.md) | 宏观演进方向；具体执行以前一项为准 |
 | [MCP 节省 Token 执行方案](./后续开发指导/2026-08-01_MCP_TOKEN_SAVINGS_EXECUTION_MCP节省Token执行方案.md) | Token 假设、A/B 协议和结果解释边界 |
 | [RAG 与智能体检索定位](./后续开发指导/2026-07-26_RAG_VS_AGENTIC_RAG与智能体检索定位.md) | 产品架构定位与能力分工 |

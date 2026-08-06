@@ -18,6 +18,19 @@ MCP Server 只查询已经完成的索引：
 
 ## 前置条件
 
+### 首次使用需要先建索引
+
+RepoMind 不做"边扫边答"——它先把仓库解析成符号、关系和证据，建成可检索的 SQLite 索引（FTS5 词法 + 可选向量），之后的查询全部走索引。**不建索引，`list_repositories` 为空，任何工具都无法返回结果。**
+
+首次建索引耗时（实测，词法/无 Key 模式，数据来源：`index_location_benchmark.py` 与 `runtime-manifest.local.json`）：
+
+| 场景 | 规模 | 实测耗时 |
+| --- | --- | --- |
+| 内置 demo 仓库 | 10 文件 / 159 chunks | 约 1.5 秒 |
+| 中型仓库 | 196 文件 / 8,386 chunks | 约 61 秒 |
+
+启用语义索引（embedding）会显著变慢：每个 chunk 都要调用 embedding 模型生成向量（网络 + 计算密集），同样 196 文件仓库实测约 5~20 分钟（依赖 provider 延迟），因此默认不启用。索引建立后，后续查询直接复用，不再重复建。
+
 1. 准备 RepoMind 使用的 Python 环境并安装依赖：
 
    ```powershell
@@ -25,11 +38,22 @@ MCP Server 只查询已经完成的索引：
    python -m pip install -r backend\requirements.txt
    ```
 
-2. 先在 RepoMind 中注册目标仓库并完成一次 ingest。
+2. 注册目标仓库并完成一次 ingest（安装版已内置 demo 预建索引，可先跳过本步直接用内置 demo 验证）：
+   - 桌面端导入：在 RepoMind 桌面端注册并索引目标仓库。
+   - 命令行导入：`backend-dist\repomind-backend.exe --index --repo <git路径> --data-dir <目录>`。该命令会先打印预计耗时，再提示"正在建索引，请不要中断"，最后打印实际耗时与 `repo_id`。
 3. 确认该仓库至少存在一个状态为 `succeeded` 的 Snapshot。
 4. 连接后先调用 `list_repositories` 获取 `repo_id`；其余上下文工具都要求显式传入该值。
 
 MCP Server 与完成 ingest 的 RepoMind 实例必须指向同一个数据目录和 SQLite 数据库。
+
+## 零配置一键接入
+
+目标是：下载 → 安装 → 重开 Claude Code / Codex 会话 → `/mcp` 里直接看到 `repomind` 并可用 7 个只读工具。
+
+- **安装器用户**：Windows Setup 安装版内置 demo 预建索引，安装完成后自动注册到 Claude Code 与 Codex。重开会话即可在 `/mcp` 看到 `repomind`，`list_repositories` 直接返回内置 demo 仓库。
+- **源码用户**：在仓库根目录运行 `python scripts/setup_mcp.py`，脚本会自动写入 Claude Code 全局配置（`.claude.json` 的 `mcpServers` + `settings.json` 的自动放行）和 Codex 全局配置（`.codex/config.toml`）。它会 **merge 不覆盖**、先写 `.bak` 备份、原子写入；`--dry-run` 只打印将写入什么。写完后必须重开会话。
+
+一键脚本不会删除你已有的其他 MCP 配置，也不会把 `required` 设为 `true`（Codex 的 server 配置若设成 `required=true`，server 挂了连 Codex 都起不来）。
 
 ## 本地启动
 
@@ -67,13 +91,17 @@ Invoke-RestMethod "http://127.0.0.1:8000/api/v1/metrics?days=30&repo_id=repo_xxx
 
 遥测只应用于真实 MCP 使用后的产品决策：先以 schema `9` 的桌面包索引真实仓库，再让已配置到同一用户数据库的 MCP 客户端自然产生 `search_code` 或 `locate_code` 请求，最后读取聚合指标。不得用单元测试、benchmark、合成 MCP 请求或直接写 SQLite 的方式填充 `retrieval_metrics`；这些操作会污染真实使用趋势，且不能替代离线检索评测。
 
+注意：安装版自带的**预建 demo 索引是只读的**，查询它不会写入遥测记录。要测量你自己仓库的真实检索趋势，请先把它索引到自己的可写数据目录（桌面端导入或 `--index`），再让 MCP 指向该目录。
+
 ## 使用 Windows 安装包中的 MCP Server
 
-通过 Setup 安装或使用 `win-unpacked` 目录时，不需要另外安装 Python。先在桌面端导入并索引仓库，再将安装目录中的冻结后端作为 MCP 命令：
+通过 Setup 安装或使用 `win-unpacked` 目录时，不需要另外安装 Python。安装版已内置 demo 预建索引，开箱即用；索引你自己的仓库可选：①桌面端导入，②`repomind-backend.exe --index --repo <路径>`。将安装目录中的冻结后端作为 MCP 命令：
 
 ```text
 <RepoMind 安装目录>\resources\backend\repomind-backend.exe --mcp
 ```
+
+不设置 `REPOMIND_PATHS__*` 环境变量时，冻结后端直接使用自带的预建 demo 索引（只读，安装版开箱即查 demo）；只有你想查询自己索引的仓库时，才需要像下面这样显式指定数据目录。
 
 桌面版默认数据库位于：
 

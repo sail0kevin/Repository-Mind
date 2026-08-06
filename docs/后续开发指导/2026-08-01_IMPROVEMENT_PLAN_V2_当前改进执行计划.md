@@ -1,4 +1,9 @@
-# RepoMind 改进方案 V2.1
+﻿# RepoMind 改进方案 V2.1
+
+> **2026-08-05 修订提示**：本文档的优先级排序建立在「冻结集指标反映混合检索能力」这一前提上。
+> 2026-08-05 实测确认该前提不成立（`retrieval_type` 683/683 为 `lexical`，`embedding_status` 3790/3790 为 `disabled`）。
+> 执行顺序与优先级请以 [2026-08-05_EXECUTION_PLAN_REVISION_实测修订与执行顺序.md](2026-08-05_EXECUTION_PLAN_REVISION_实测修订与执行顺序.md) 为准。
+
 > 文档生成时间：2026-07-30
 > 评审修订时间：2026-07-30
 > 基于：面试深度问答、源码逐行确认、企业级落地分析
@@ -412,6 +417,25 @@ Source-character 总量仅作为上下文体积 proxy，不能替代外部 Agent
 
 ---
 
+### 🚧 P1-6：复杂任务通过率优化与未见任务 A/B 验证
+
+**目标：** P1-5 的固定 60 个 cohort-task 中 baseline 与 `coding-agent` 均为 `60/60`，因此它只能证明在该任务集上 Token 节省且未观察到通过率下降，不能再用于证明通过率提升。本项在不改变 P1-5/V5 profile 的前提下，针对新的复杂、未见任务验证 `coding-agent-context` 是否提高外部 Coding Agent 的最终任务通过率。
+
+**已完成的机制前置（2026-08-03）：**
+
+1. ✅ 新增 `--profile coding-agent-context`，只暴露 `locate_code(question, limit)` 与 `get_code_context(question, limit)`。普通定位仅调用前者；实现解释、跨文件行为、修改影响或源码佐证时，Agent 最多额外调用一次后者；
+2. ✅ `get_code_context` 使用总计 `1200` Token、最多 `4` 条的 Evidence Budget 返回路径、行号、片段与理由，不返回完整文件；
+3. ✅ 对完整自然语言问题先检索原问题。只有无证据时才最多尝试两条 bounded identifier fallback；响应保留 `data.query` 的原问题，使用 `data.retrieval_query` 披露实际命中的回退词，并在 `limitations` 标明回退，不将恢复命中伪装为原问题直接命中；
+4. ✅ `locate_code` 仅在完整问题的候选不足时做同样受限的回退和按 `chunk_id/id` 去重；正常召回充足时不增加额外请求；
+5. ✅ 已增加 MCP stdio 集成回归和透明性单元回归，验证 context profile 的工具 schema、证据条数、`1200` Token 预算以及 fallback 的原问题/实际检索词/限制说明契约。该测试证明机制和协议，**不证明真实外部 Agent 的通过率已经提升**。
+6. ✅ 批量报告验收已区分原始重复轮次与有效独立重复轮次；整轮均为 provider/API 基础设施失败时，保留故障审计但不计入 `evaluable_independent_repeats`，避免错误满足“至少两轮可复现”门禁。
+7. ✅ 修复 `run_codex_context_ab.ps1` 的执行契约：`-Mode all` 才生成完整 baseline/treatment 矩阵并调用 scorer；`-Mode baseline` 或 `-Mode treatment` 只生成对应 raw/partial 结果，并在 metadata 中标明未配对、未评分状态，避免将未执行的一方误报为 `not_run` 后混入正式 A/B 结论。新增回归门禁覆盖该行为。
+
+**未完成的正式验证：** 新建 manifest-bound holdout，至少覆盖跨文件调用、实现解释、修改影响、测试定位、自然语言与符号名不一致五类任务；使用未参与当前 profile 设计的仓库/模块和冻结 Gold 或可执行 rubric。固定模型、reasoning effort、Codex/client 版本、超时、sandbox、任务和 repeat，以 baseline 对比 `coding-agent-context`。报告必须同时给出全量通过率、配对矩阵、失败类型、Input/Output/Total Token、延迟和每题工具调用轨迹；只有 treatment 通过率在预先声明门槛下不低于 baseline，且结果可复跑时，才能对外声称“未观察到通过率下降”或“通过率提高”。不得将 P1-5 的 `60/60` 与本项混批。
+
+**验收状态：** 当前为机制实现完成、真实 holdout A/B 待执行；不得填写虚构的通过率改善数据。
+
+---
 ## P2：一个月内（企业级落地）
 
 ### ✅ P2-1：可选的本地访问保护
@@ -586,6 +610,7 @@ def test_locate_code_benchmark():
 第8阶段: P2-2 已完成，先通过 `/api/v1/metrics` 收集真实 MCP 请求量、低分率和趋势；它不替代离线 benchmark
 第9阶段: 已完成真实 ingest profile、单文件第二 snapshot 实验、batch=32 对照和 provider client reuse profile；BGE-M3 embedding 占修复前全量 ingest 的 99.1%，client reuse 将同契约完整 ingest 从 640.657 秒降至 433.575 秒，embedding 从 634.751 秒降至 427.636 秒。单文件变化时已有缓存复用 8452/8478 个向量，但新增 26 个向量仍耗时 129.255 秒，batch=32 为 136.597 秒。当前不调整生产默认配置；只有新的刷新需求或 provider 性能证据出现时才继续专项，再决定是否立项 P2-3。只能实现 snapshot-aware 增量复用，不能在已发布 snapshot 内 DELETE 重建
 第10阶段: 按需要扩展 P1-2 的静态关系覆盖范围；P2 其余条目仅按真实产品需求和已测瓶颈推进，不默认全部实施
+第11阶段: ✅ 已完成 get_code_context 的 recommended_follow_up 补强；回归测试 `backend/tests/test_mcp_server.py -q` 结果为 `36 passed, 1 warning`。
 ```
 
 ---
@@ -598,6 +623,7 @@ def test_locate_code_benchmark():
 4. **评测工具：** `backend/service/evaluation/retrieval_metrics.py`（Recall@K 和 MRR 计算）
 5. **每完成一个 P0/P1 条目，请更新本文档对应条目状态为 ✅，并填写实测后的指标数字**
 6. **不得完全照抄示例实现。** 每项开始前先核对当前代码；验收以固定 benchmark 的实测结果和回归测试为准。
+7. **MCP 零配置接入方案：** `docs/后续开发指导/2026-08-06_MCP_ZERO_CONFIG_INSTALLER_PLAN_MCP零配置接入方案.md`。阶段 A（预建 demo 索引 + `--index` CLI）优先级高于既有 P0——它是"MCP 可被他人直接使用"这一卖点的前置条件；阶段 C（安装器）依赖阶段 A + B（`scripts/setup_mcp.py`）的注册逻辑。
 7. **P2-3 已暂停并改写。** 当前快照不可变；后续必须在新 snapshot 构建阶段复用未变化结果，成功后再原子 publish，不能按旧计划在当前数据上做文件级 DELETE/重建。
 
 ---

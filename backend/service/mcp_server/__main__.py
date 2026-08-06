@@ -7,8 +7,35 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
+
+
+def _apply_prebuilt_index_if_present() -> None:
+    """检测捆绑在冻结 exe 里的预建 demo 索引，并让 MCP 只读地使用它。
+
+    必须在任何 get_settings() 调用之前运行。one-file 模式启动时会把预建索引解压到
+    sys._MEIPASS/index/；只要存在 index.marker，就把数据库路径指向它并默认
+    sqlite_read_only，避免迁移/WAL/遥测写坏捆绑索引。
+    用户（或 smoke）显式设置了 REPOMIND_PATHS__DATABASE_PATH 时保持其设置，
+    也不额外强制只读——预建索引只读只适用于"我们接管默认路径"的场景。
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    if not meipass:
+        return
+    index_dir = Path(meipass) / "index"
+    if not (index_dir / "index.marker").exists():
+        return
+    if "REPOMIND_PATHS__DATABASE_PATH" not in os.environ:
+        os.environ["REPOMIND_PATHS__DATABASE_PATH"] = str(index_dir / "repomind.sqlite3")
+        os.environ["REPOMIND_PATHS__DATA_DIR"] = str(index_dir)
+        if "REPOMIND_SQLITE_READ_ONLY" not in os.environ:
+            os.environ["REPOMIND_SQLITE_READ_ONLY"] = "true"
+
+
+_apply_prebuilt_index_if_present()
 
 from service.mcp_server import tools as impl
 

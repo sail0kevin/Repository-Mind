@@ -42,6 +42,19 @@ npm run dev
 
 打开桌面端后点击"打开内置 Demo"。不配置 Chat 或 Embedding Key，也能完成 Snapshot、Catalog/Repo Map、词法检索、规则回答、Evidence 和 Trace。
 
+### 首次建索引需要多久
+
+RepoMind 不做"边扫边答"——它先把仓库解析成符号、关系和证据，建成可检索的 SQLite 索引（FTS5 词法 + 可选向量），之后的查询全部走索引。**不建索引，`list_repositories` 为空，任何工具都无法返回结果。**
+
+首次建索引耗时（实测，词法/无 Key 模式，数据来源：`index_location_benchmark.py` 与 `runtime-manifest.local.json`）：
+
+| 场景 | 规模 | 实测耗时 |
+| --- | --- | --- |
+| 内置 demo 仓库 | 10 文件 / 159 chunks | 约 1.5 秒 |
+| 中型仓库 | 196 文件 / 8,386 chunks | 约 61 秒 |
+
+启用语义索引（embedding）会显著变慢：每个 chunk 都要调用 embedding 模型生成向量（网络 + 计算密集），同样 196 文件仓库实测约 **5~20 分钟**（依赖 provider 延迟），因此默认不启用。索引建立后，后续查询直接复用，不再重复建。命令行建索引入口会先打印预计耗时，再提示"正在建索引，请不要中断"，最后打印实际耗时与 `repo_id`。
+
 ### 接入 Claude Code 等 Coding Agent
 
 RepoMind 也可以作为独立的只读 MCP Server，把已索引仓库的概览、代码片段、符号关系、影响范围和测试候选按需提供给外部 Coding Agent：
@@ -53,7 +66,7 @@ python -m service.mcp_server
 
 MCP Server 不依赖 FastAPI 常驻，不执行目标仓库代码，也不提供文件修改或 Shell 工具。Claude Code 与 Codex CLI 均已完成真实客户端调用验证；配置、验证范围与限制见 [MCP Server 使用指南](docs/2026-08-01_MCP_SERVER_GUIDE_MCP服务使用指南.md)。
 
-Windows Setup 安装版可直接使用内置的 `resources\backend\repomind-backend.exe --mcp`，不需要另装 Python。连接后先调用 `list_repositories` 发现已索引仓库；自然语言代码定位优先使用 `locate_code`，再按需调用其余只读工具。
+Windows Setup 安装版内置 demo 预建索引，安装后自动注册到 Claude Code / Codex，重开会话即可用，不需要另装 Python，也不需要手动写配置。连接后先调用 `list_repositories`——它直接返回内置 demo 仓库；索引你自己的仓库可选桌面端导入或 `repomind-backend.exe --index --repo <路径>`。自然语言代码定位优先使用 `locate_code`，再按需调用其余只读工具。
 
 <details>
 <summary><strong>构建 Windows Setup / Portable</strong></summary>
@@ -92,6 +105,8 @@ pip install -r backend/requirements-build.txt
 修复前后对比：Recall@5 `0.556 → 0.667`，MRR `0.667 → 0.833`，Citation hit rate `0.667 → 1.000`。
 
 > **评测边界：**这只是 3 个问题的 synthetic bundled Demo，衡量的是引用路径命中，不代表大型真实仓库的语义准确率或生产性能。实例方法调用边尚未完整解析，因此入口和测试只标记为"源码引用候选"，不是已证明的调用边；当前也没有受控的 P50/P95 延迟数据。
+>
+> **Fixture 说明：**上表指标基于旧 demo fixture（commit `8c5ac335`，含空 `README.md`）。安装版捆绑的**预建 demo 索引基于当前 fixture（commit `94d4aa63`，`README.md` 已改名 `OLD_REPOMIND_DEMO_README.md`）**，两者是不同内容，上述指标数字不能直接套用到预建索引上。
 
 ## 检索与代码定位评测
 
@@ -143,10 +158,13 @@ RepoMind 默认不会把整个仓库塞进 Prompt。Repo Map 先缩小范围，B
 
 以下是当前提交的可复现验证结果：
 
-- Backend：`cd backend; python -m pytest -q` → **329 passed**，包含 MCP、检索遥测、快照隔离、桌面访问保护与评测夹具回归门禁
+- Backend：`cd backend; python -m pytest -q` → **337 passed**，包含 MCP、`--index` CLI、检索遥测、快照隔离、桌面访问保护与评测夹具回归门禁
 - Desktop：`npm test`（vitest）→ **64 passed**（11 个测试文件）
 - Desktop build：`npm run build` → Vite renderer 与 Electron TypeScript 构建通过
 - Frozen MCP：打包后端以 `--mcp` 启动，完成仓库发现调用；当前源码 MCP 提供 7 个只读工具
+- Frozen `--index`：打包后端 `--index --repo <路径> --data-dir <目录>` 同步建索引，打印预计/实际耗时与 `repo_id`，产出可被 MCP 发现的已索引仓库
+- 一键注册：`python scripts/setup_mcp.py` 写入 Claude Code / Codex 全局配置并自动放行（merge 不覆盖 + `.bak` + 原子写）；`--dry-run` 只预览
+- 预建索引：打包后端自带 demo 预建索引，`--mcp` 不设任何环境变量即返回内置 demo 仓库（只读）
 - Packaged Demo：真实 Electron 流程覆盖索引、0/1 Tool 路由、Evidence、Trace 和导出，并验证包内 MCP 复用桌面索引数据库完成仓库发现
 
 Windows CI 会从干净环境重建冻结后端和 Electron 包，并运行打包应用 E2E；当前提交的真实状态以 GitHub Actions 页面为准。二进制尚未签名，也尚未发布 GitHub Release。
@@ -164,6 +182,7 @@ Windows CI 会从干净环境重建冻结后端和 Electron 包，并运行打�
 ## 文档
 
 - [文档导航](docs/2026-08-01_DOCUMENTATION_INDEX_文档导航.md)
+- [MCP 零配置接入方案](docs/后续开发指导/2026-08-06_MCP_ZERO_CONFIG_INSTALLER_PLAN_MCP零配置接入方案.md)
 - [当前改进执行计划](docs/后续开发指导/2026-08-01_IMPROVEMENT_PLAN_V2_当前改进执行计划.md)
 - [架构与后续路线图](docs/后续开发指导/2026-07-28_ARCHITECTURE_FUTURE_ROADMAP_未来架构路线图.md)
 - [RAG 与受约束 Agent 的分工](docs/后续开发指导/2026-07-26_RAG_VS_AGENTIC_RAG与智能体检索定位.md)
