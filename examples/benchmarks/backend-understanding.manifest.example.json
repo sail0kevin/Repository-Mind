@@ -5,7 +5,7 @@
     "commit": "c92e2f9af153212074da62d2d7fc1418bfbc0d72"
   },
   "gold_file": "examples/benchmarks/backend-understanding-gold.json",
-  "gold_sha256": "5aadace0da4a260826882b198778436c52f5b0116cbe4135126fbb8907d4f331",
+  "gold_sha256": "e4c92096a8c9e9ab3138dcab44136ba30a25624540a7b5b2b29057e2afc74c54",
   "retrieval": {
     "result_limit": 8,
     "candidate_multiplier": 4,
