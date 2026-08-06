@@ -113,3 +113,17 @@ Desktop.ini
 # Portable distribution
 RepoMindPortable/
 *.exe
+
+# Local audit / test workspaces (内部评测与临时数据，禁止提交)
+# 这些目录含冻结索引、数据库备份、Codex 本地配置与审计 JSON，绝不能进公开仓库。
+.tmp-*/
+.test-*/
+scripts/_tmp_*
+backend/.test-tmp-codex-*/
+backend/service/mcp_server/.tools-*.tmp.py
+
+# SQLite 备份与校验快照：`*.sqlite3` 只匹配以 .sqlite3 结尾的文件，
+# 以下后缀（.backup-... / .VERIFIED-...）会漏网，需单独覆盖。
+*.sqlite3.*
+*sqlite3.backup*
+*sqlite3.VERIFIED*
