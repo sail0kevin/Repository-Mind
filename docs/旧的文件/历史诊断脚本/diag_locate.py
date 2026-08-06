@@ -1,10 +1,10 @@
 """历史诊断脚本：检查 requests-location-v5 中特定符号的调用关系。
 
-脚本包含原开发机绝对数据库路径，仅用于保留当时的排障过程，不是当前 benchmark 入口。
+脚本中的数据库路径已按隐私要求脱敏为占位符，复现时请替换为你自己的本地路径；仅用于保留当时的排障过程，不是当前 benchmark 入口。
 """
 import sqlite3, json, sys
 
-DB = r"G:\projects\agent-learning\benchmarks\requests-location-v1\repomind-data-v5\repomind.sqlite3"
+DB = r"<benchmark-root>\requests-location-v1\repomind-data-v5\repomind.sqlite3"  # 已脱敏：复现时替换为你的本地数据库路径
 conn = sqlite3.connect(DB)
 conn.row_factory = sqlite3.Row
 

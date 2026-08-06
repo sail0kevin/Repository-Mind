@@ -16,7 +16,7 @@ and data directory.
 
 | Item | Value |
 | --- | --- |
-| Target checkout | `G:\projects\agent-learning\benchmarks\agentforge-location-v1\checkout` |
+| Target checkout | `<benchmark-root>\agentforge-location-v1\checkout` |
 | Target commit | `22f253b568980238334eec64e3a2b1eb10ddc163` |
 | Indexed files / chunks | 211 / 3,790 |
 | Tasks | 5 manually annotated two-location tasks |
@@ -75,10 +75,10 @@ retrieval under the same fixed conditions.
 
 ```powershell
 python .\scripts\validate_location_benchmark.py `
-  --manifest G:\projects\agent-learning\benchmarks\agentforge-location-v1\agentforge-location.manifest.json
+  --manifest <benchmark-root>\agentforge-location-v1\agentforge-location.manifest.json
 
 & .\scripts\run_codex_location_ab.ps1 `
-  -Manifest G:\projects\agent-learning\benchmarks\agentforge-location-v1\agentforge-location.manifest.json `
+  -Manifest <benchmark-root>\agentforge-location-v1\agentforge-location.manifest.json `
   -McpBackendPath .\backend `
   -OutputDir e2e-artifacts\agentforge-location-v2 `
   -Mode all `
