@@ -76,7 +76,7 @@ pip install -r backend/requirements-build.txt
 .\scripts\package_windows.ps1 -PythonCommand python -Release
 ```
 
-该命令使用与 Windows Release workflow 相同的打包链路。它不代表 GitHub Releases 中已经存在公开下载；当前构建也没有 Windows 代码签名。
+该命令使用与 Windows Release workflow 相同的打包链路。链路末尾还会用 Inno Setup（`build_installer.ps1` 自动探测 ISCC.exe，CI 预装）产出 **Windows Setup 安装器** `installer-output\RepoMindSetup-<version>.exe`。它不代表 GitHub Releases 中已经存在公开下载；当前构建也没有 Windows 代码签名。
 
 </details>
 
@@ -165,6 +165,7 @@ RepoMind 默认不会把整个仓库塞进 Prompt。Repo Map 先缩小范围，B
 - Frozen `--index`：打包后端 `--index --repo <路径> --data-dir <目录>` 同步建索引，打印预计/实际耗时与 `repo_id`，产出可被 MCP 发现的已索引仓库
 - 一键注册：`python scripts/setup_mcp.py` 写入 Claude Code / Codex 全局配置并自动放行（merge 不覆盖 + `.bak` + 原子写）；`--dry-run` 只预览
 - 预建索引：打包后端自带 demo 预建索引，`--mcp` 不设任何环境变量即返回内置 demo 仓库（只读）
+- Windows 安装器：`package_windows.ps1` 编译 `installer-output\RepoMindSetup-<version>.exe`；端到端验证安装→自动注册（merge+.bak+required=false）→已装 exe 预建模式 MCP 可用→卸载不碰配置文件且完整移除 `{app}`
 - Packaged Demo：真实 Electron 流程覆盖索引、0/1 Tool 路由、Evidence、Trace 和导出，并验证包内 MCP 复用桌面索引数据库完成仓库发现
 
 Windows CI 会从干净环境重建冻结后端和 Electron 包，并运行打包应用 E2E；当前提交的真实状态以 GitHub Actions 页面为准。二进制尚未签名，也尚未发布 GitHub Release。

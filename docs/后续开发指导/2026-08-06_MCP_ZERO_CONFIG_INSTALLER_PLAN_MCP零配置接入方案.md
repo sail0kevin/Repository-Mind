@@ -1,6 +1,6 @@
 # RepoMind MCP 零配置接入方案（MCP Zero-Config Installer Plan）
 
-> 状态：**已执行阶段 A（A1 `--index` CLI + A2 预建索引打进 exe）与阶段 B（`scripts/setup_mcp.py`），阶段 C（Inno Setup 安装器）待装工具后执行** · 制定日期 2026-08-06 · 对应分支 `main`
+> 状态：**阶段 A（A1 `--index` CLI + A2 预建索引打进 exe）、阶段 B（`scripts/setup_mcp.py`）、阶段 C（Inno Setup 安装器）均已执行并端到端验证** · 制定日期 2026-08-06 · 对应分支 `main`
 > 目标：让用户下载 → 安装 → 打开 Claude Code / Codex 就能直接用 RepoMind 的 MCP 服务，**全程零手写、零命令**。
 > 本报告同时列出**必须在 GitHub 各 `.md` 上同步的修改点**，避免文档与能力脱节。
 
@@ -254,6 +254,17 @@ python scripts/setup_mcp.py --dry-run  # 只打印将写入什么，不改文件
 - 安装完成页提示"已注册到 Claude Code 与 Codex，请重开会话"。
 - **安装/首次建索引时告知耗时**：若提供"导入并索引你的仓库"入口，必须先展示预计耗时（对照 §1.4 参考数据），并明示"建索引是检索的前提，请不要中断"。demo 预建索引开箱即用，无需用户等待。
 
+**阶段 C 已执行（2026-08-07）**，交付物与实测：
+
+- 新增 `installer/RepoMind_Setup.iss`（UTF-8 BOM，Inno Setup 6 语法）：`PrivilegesRequired=lowest`、`DefaultDirName={localappdata}\RepoMind`、打包 `repomind-backend.exe` + `demo/repomind-demo`（10 文件，`Excludes: __pycache__,*.pyc,.git`）+ `scripts/register_repomind.ps1`。
+- 新增 `scripts/register_repomind.ps1`（纯 ASCII PowerShell 5.1，把 `setup_mcp.py` 的 merge + `.bak` + 原子写逻辑搬到安装器 post-install，**不需要 Python**；`-Force` 让重装时把注册的 `command` 更新为当前安装路径；写入 `{app}\registration-status.txt` 供完成页如实显示）。
+- 新增 `scripts/build_installer.ps1`；`package_windows.ps1` 增加 "Windows installer" 阶段（版本与 `package.json` 一致）。产物 `installer-output\RepoMindSetup-<version>.exe` 已 gitignore，不入库。
+- 编译环境：本机无管理员权限，无法跑官方安装器（IsAdmin=False），改用 `innoextract` 从 Inno Setup 6.0.5 安装包无管理员解出便携 `ISCC.exe`（放 `G:\aiAgent\ClaudeWorkSpace\InnoSetup-6.0.5`）。`.iss` 只用 6.x 通用指令，CI（GitHub Actions 预装最新版）可直接编译。
+- 向导为英文（6.0.5 便携包不含中文语言包），安装完成页为中文（[Code] 按 `registration-status.txt` 显示"已注册到 Claude Code 与 Codex，请重开会话"或失败提示）。
+- 安装器**不提供**"导入并索引你的仓库"入口（demo 预建索引开箱即用；用户自己的仓库走桌面端或 `--index` CLI），故无需在安装器内展示建索引耗时；`--index` CLI 已打印预计/实际耗时并提示"请不要中断"。
+- 卸载安全：只删 `{app}` 下安装清单内文件；运行时生成的 `registration-status.txt` 用 `[UninstallDelete]` 显式删除；`.claude.json` / `.claude\settings.json` / `.codex\config.toml` 一律不动。
+- 端到端实测（沙盒 USERPROFILE 隔离真实配置）：静默安装 exit 0 → 文件齐、demo 10 文件 0 污染、`overall=ok` → 已安装 exe `--mcp` 通过 `smoke_mcp.ps1` 预建模式（tools=7、discovery=ok）→ 卸载 exit 0、`{app}` 完整移除、配置条目与原有内容全保留、真实配置未被动过。
+
 ---
 
 ## 6. 风险与诚实边界
@@ -274,8 +285,8 @@ python scripts/setup_mcp.py --dry-run  # 只打印将写入什么，不改文件
 - [x] 打包后 exe 自带预建索引，`--mcp` 启动（不设任何 env）即能查到 demo 仓库。（`smoke_mcp.ps1` 预建模式通过，tools=7、discovery=ok）
 - [x] `smoke_mcp.ps1` 在"有预建索引"和"空库"两种情形都通过。（prebuilt-index / empty-database / shared-index 三种模式全部通过）
 - [x] `setup_mcp.py --dry-run` 打印正确配置；真实运行 merge 不覆盖、写 `.bak`、`required=false`。（隔离 HOME 实测）
-- [ ] Inno Setup 安装 → 重开 Claude Code/Codex → `/mcp` 可见 repomind 并可调 `locate_code`。（阶段 C，待安装 Inno Setup 工具后执行）
-- [ ] 卸载不破坏 `.claude.json` / `config.toml` 其他内容。（阶段 C）
+- [x] Inno Setup 安装器：静默安装到临时目录 → 已安装 exe `--mcp` 通过 `smoke_mcp.ps1` 预建模式（tools=7、discovery=ok、list_repositories 返回内置 demo）。（阶段 C，2026-08-07 实测）
+- [x] 卸载不破坏 `.claude.json` / `config.toml` 其他内容：卸载后配置条目与既有内容全保留、真实配置未被动过；`{app}` 完整移除。（阶段 C，2026-08-07 实测）
 - [x] 后端测试全绿（**337 passed**，329 基线 + 新增 `--index`/预建索引检测 8 条），README/指南/文档导航同步更新且措辞如实。
 - [x] README 与 MCP 指南包含"首次建索引耗时"小节（§1.4 参考数据），并说明"建索引是检索的前提、后续查询复用"。
-- [x] `--index` CLI 与安装器建索引入口打印预计/实际耗时，并提示"请不要中断"。（`--index` 已实现；安装器建索引入口属于阶段 C）
+- [x] `--index` CLI 打印预计/实际耗时，并提示"请不要中断"。（安装器不设"导入并索引你的仓库"入口——demo 预建索引开箱即用，用户自己的仓库走桌面端或 `--index`，故安装器内无需建索引耗时展示）

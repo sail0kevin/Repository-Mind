@@ -85,6 +85,13 @@ $demoAlias = "RepoMind " + (-join [char[]](0x5185, 0x7F6E)) + " Demo"
     -IndexRepo $demoCheckout `
     -ExpectedRepositoryAlias $demoAlias
 
+$currentStage = "Windows installer"
+# 阶段 C：Inno Setup 安装器。版本与桌面端 package.json 保持一致，ISCC.exe 由
+# build_installer.ps1 自动探测（GitHub Actions 预装 / 本机便携版）。产物：
+# installer-output\RepoMindSetup-<version>.exe（已 gitignore，不入库）。
+$installerVersion = (Get-Content (Join-Path $desktopRoot "package.json") -Raw | ConvertFrom-Json).version
+& (Join-Path $scriptRoot "build_installer.ps1") -Version $installerVersion
+
 function Invoke-NativeBuildStep {
     param(
         [scriptblock] $Command,
