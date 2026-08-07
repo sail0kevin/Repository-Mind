@@ -4,11 +4,12 @@ $helper = Join-Path $PSScriptRoot "location_ab_diagnostics.ps1"
 . $helper
 
 $cases = @(
-    @{ name = "502 trace"; trace = "upstream returned HTTP 502"; error = ""; expected = "upstream_http_502_or_503" },
+    @{ name = "provider network unavailable"; trace = ""; error = "error sending request for url (https://api.openai.com/v1/responses): os error 10013"; expected = "provider_network_unavailable" },
+    @{ name = "502 error"; trace = ""; error = "upstream returned HTTP 502"; expected = "upstream_http_502_or_503" },
     @{ name = "503 error"; trace = ""; error = "status_code=503"; expected = "upstream_http_502_or_503" },
-    @{ name = "proxy refused"; trace = "proxy connection refused at 127.0.0.1:7890"; error = ""; expected = "proxy_connection_failure" },
-    @{ name = "rate limit"; trace = "provider rate limit: 429"; error = ""; expected = "provider_rate_limit" },
-    @{ name = "auth"; trace = "401 unauthorized"; error = ""; expected = "provider_authentication_failure" },
+    @{ name = "proxy refused"; trace = ""; error = "proxy connection refused at 127.0.0.1:7890"; expected = "proxy_connection_failure" },
+    @{ name = "rate limit"; trace = ""; error = "provider rate limit: 429"; expected = "provider_rate_limit" },
+    @{ name = "auth"; trace = ""; error = "401 unauthorized"; expected = "provider_authentication_failure" },
     @{ name = "ordinary failure"; trace = "agent_message missing"; error = ""; expected = $null }
 )
 
