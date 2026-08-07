@@ -16,10 +16,13 @@ param(
 #   1. $env:INNO_SETUP_ISCC            (GitHub Actions sets this)
 #   2. "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 #   3. "C:\Program Files\Inno Setup 6\ISCC.exe"
+#   4. $scriptRoot\local-iscc-path.txt (gitignored machine-local override)
 #
 # For a portable/unmanaged build (e.g. an ISCC extracted without admin rights),
-# pass -ISCCPath "C:\...\ISCC.exe" explicitly. Machine-specific locations must
-# never be hard-coded here so the public repo does not leak local paths.
+# put the absolute path in scripts\local-iscc-path.txt (gitignored, never
+# committed) or pass -ISCCPath "C:\...\ISCC.exe" explicitly. Machine-specific
+# locations must never be hard-coded here so the public repo does not leak
+# local paths.
 #
 # The .iss is compiled with 6.0.5 on the dev machine and is compatible with
 # any newer Inno Setup 6.x (CI ships the latest).
@@ -35,6 +38,11 @@ if ([string]::IsNullOrWhiteSpace($ISCCPath)) {
         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
         "C:\Program Files\Inno Setup 6\ISCC.exe"
     )
+    # Machine-local override (gitignored, never committed): scripts\local-iscc-path.txt
+    $localIsccFile = Join-Path $scriptRoot "local-iscc-path.txt"
+    if (Test-Path -LiteralPath $localIsccFile -PathType Leaf) {
+        $candidates += (Get-Content -LiteralPath $localIsccFile -Raw).Trim()
+    }
     foreach ($candidate in $candidates) {
         if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
             $ISCCPath = $candidate

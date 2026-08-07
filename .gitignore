@@ -116,6 +116,8 @@ Desktop.ini
 # Portable distribution
 RepoMindPortable/
 *.exe
+# 本机专属构建配置（如本地 ISCC.exe 便携路径），不得入库
+scripts/local-iscc-path.txt
 
 # Local audit / test workspaces (内部评测与临时数据，禁止提交)
 # 这些目录含冻结索引、数据库备份、Codex 本地配置与审计 JSON，绝不能进公开仓库。

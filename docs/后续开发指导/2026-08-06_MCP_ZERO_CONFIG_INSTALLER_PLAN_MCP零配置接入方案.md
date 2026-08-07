@@ -263,7 +263,7 @@ python scripts/setup_mcp.py --dry-run  # 只打印将写入什么，不改文件
 - 新增 `installer/RepoMind_Setup.iss`（UTF-8 BOM，Inno Setup 6 语法）：`PrivilegesRequired=lowest`、`DefaultDirName={localappdata}\RepoMind`、打包 `repomind-backend.exe` + `demo/repomind-demo`（10 文件，`Excludes: __pycache__,*.pyc,.git`）+ `scripts/register_repomind.ps1`。
 - 新增 `scripts/register_repomind.ps1`（纯 ASCII PowerShell 5.1，把 `setup_mcp.py` 的 merge + `.bak` + 原子写逻辑搬到安装器 post-install，**不需要 Python**；`-Force` 让重装时把注册的 `command` 更新为当前安装路径；写入 `{app}\registration-status.txt` 供完成页如实显示）。
 - 新增 `scripts/build_installer.ps1`；`package_windows.ps1` 增加 "Windows installer" 阶段（版本与 `package.json` 一致）。产物 `installer-output\RepoMindSetup-<version>.exe` 已 gitignore，不入库。
-- 编译环境：本机无管理员权限，无法跑官方安装器（IsAdmin=False），改用 `innoextract` 从 Inno Setup 6.0.5 安装包无管理员解出便携 `ISCC.exe`（放本机工具目录，路径不入库；`build_installer.ps1` 通过 `-ISCCPath` 或 `INNO_SETUP_ISCC` 指定）。`.iss` 只用 6.x 通用指令，CI（GitHub Actions 预装最新版）可直接编译。
+- 编译环境：本机无管理员权限，无法跑官方安装器（IsAdmin=False），改用 `innoextract` 从 Inno Setup 6.0.5 安装包无管理员解出便携 `ISCC.exe`（放本机工具目录，路径不入库；`build_installer.ps1` 按 `INNO_SETUP_ISCC` 环境变量 → Program Files → `scripts\local-iscc-path.txt`（gitignored 本机专属）→ `-ISCCPath` 参数 的顺序定位 ISCC）。`.iss` 只用 6.x 通用指令，CI（GitHub Actions 预装最新版）可直接编译。
 - 向导为英文（6.0.5 便携包不含中文语言包），安装完成页为中文（[Code] 按 `registration-status.txt` 显示"已注册到 Claude Code 与 Codex，请重开会话"或失败提示）。
 - 安装器**不提供**"导入并索引你的仓库"入口（demo 预建索引开箱即用；用户自己的仓库走桌面端或 `--index` CLI），故无需在安装器内展示建索引耗时；`--index` CLI 已打印预计/实际耗时并提示"请不要中断"。
 - 卸载安全：只删 `{app}` 下安装清单内文件；运行时生成的 `registration-status.txt` 用 `[UninstallDelete]` 显式删除；`.claude.json` / `.claude\settings.json` / `.codex\config.toml` 一律不动。
