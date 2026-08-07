@@ -16,7 +16,10 @@ param(
 #   1. $env:INNO_SETUP_ISCC            (GitHub Actions sets this)
 #   2. "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 #   3. "C:\Program Files\Inno Setup 6\ISCC.exe"
-#   4. "G:\aiAgent\ClaudeWorkSpace\InnoSetup-6.0.5\ISCC.exe"  (portable extract on dev machine)
+#
+# For a portable/unmanaged build (e.g. an ISCC extracted without admin rights),
+# pass -ISCCPath "C:\...\ISCC.exe" explicitly. Machine-specific locations must
+# never be hard-coded here so the public repo does not leak local paths.
 #
 # The .iss is compiled with 6.0.5 on the dev machine and is compatible with
 # any newer Inno Setup 6.x (CI ships the latest).
@@ -30,8 +33,7 @@ if ([string]::IsNullOrWhiteSpace($ISCCPath)) {
     $candidates = @(
         $env:INNO_SETUP_ISCC,
         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-        "C:\Program Files\Inno Setup 6\ISCC.exe",
-        "G:\aiAgent\ClaudeWorkSpace\InnoSetup-6.0.5\ISCC.exe"
+        "C:\Program Files\Inno Setup 6\ISCC.exe"
     )
     foreach ($candidate in $candidates) {
         if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {

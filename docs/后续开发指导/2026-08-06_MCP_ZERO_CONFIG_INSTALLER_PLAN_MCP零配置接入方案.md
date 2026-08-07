@@ -41,13 +41,15 @@
 
 ### 1.3 本次勘察核实的结论
 
-| 检查项 | 结果 | 依据 |
+> **勘察时点快照（2026-08-06，阶段 A/B/C 执行前）**：下表描述的是制定本方案时核实到的基线状态，不是当前状态。其中标 ❌ 的项已被后续执行阶段改变：`--index` CLI（阶段 A1）、预建索引打进 exe（阶段 A2）、安装器自动注册（阶段 C）均已落地，当前状态以 §5 各阶段"已执行"说明与 §7 验收清单为准。
+
+| 检查项 | 勘察时点结果 | 依据（勘察时点） |
 | --- | --- | --- |
 | 打包 exe 支持 `--mcp` | ✅ 支持，且独立于 Electron 运行 | `backend/service/launcher.py` L8 检测 `--mcp`，绕过 `main.py` |
 | exe 运行时自动建索引 | ❌ 不建，只查询已有 sqlite | MCP 工具全部走 `storage.get_connection()` 读库 |
-| 包内带预建索引 | ❌ 只有 demo 源码，无索引 | spec 无 datas 注入；`package_windows.ps1` L119-139 校验 demo 恰好 10 文件 |
+| 包内带预建索引 | ❌ 只有 demo 源码，无索引 | 勘察时 spec 无 datas 注入；**阶段 A2 已改为注入预建索引**（见 `backend/repomind-backend.spec` L27-36） |
 | 无 UI 建索引 CLI | ✅ 有源码脚本 | `scripts/rebuild_holdout_index.py` / `index_location_benchmark.py` / `profile_ingest.py` |
-| 冻结 exe 有 `--index` 开关 | ❌ 没有 | launcher 只分 `--mcp` / HTTP 两路 |
+| 冻结 exe 有 `--index` 开关 | ❌ 勘察时没有 | 勘察时 launcher 只分 `--mcp` / HTTP 两路；**阶段 A1 已加** |
 
 ### 1.4 首次建索引耗时：必须告知用户的预期（新增，用户明确要求）
 
@@ -91,12 +93,14 @@
 
 ## 3. 已核实的实现细节（勘察结论）
 
+> **勘察时点快照（2026-08-06，阶段 A/B/C 执行前）**：本节的代码行号与描述均为制定方案时的勘察快照，阶段 A/B/C 已按其落地并端到端验证，具体差异见 §5 各阶段说明与 §7 验收清单。
+
 ### 3.1 打包链路
 
 - **入口**：`backend/service/launcher.py`（PyInstaller one-file 模式，spec 在 `backend/repomind-backend.spec` L40 `Analysis([launcher.py])`）。
 - **`--mcp` 分发**：`launcher.py` L8 `if "--mcp" in sys.argv[1:]` → 导入 `service.mcp_server.__main__` 运行 MCP stdio server；否则走 FastAPI HTTP。
 - **产物**：`backend-dist/repomind-backend.exe`（单文件，约 47 MB，console=True, upx=True；spec 用 `excludes` 排除可选重型 ML 依赖后实测 46.8 MB）。
-- **spec 的 datas 当前为空**（L25 `datas = []`），只 `collect_data_files("mcp")` + tree-sitter 的 `collect_all`（L29-37）。**注入预建索引只需改 spec 加 datas**。
+- **spec 的 datas（勘察时为空）**：勘察时 `datas = []`，只 `collect_data_files("mcp")` + tree-sitter 的 `collect_all`。**阶段 A2 已在 spec 注入预建索引**（见 `backend/repomind-backend.spec` L27-36：存在 `index.marker` + `repomind.sqlite3` 时把两者写入 datas）。
 - **桌面端位置**：`desktop/app/release/win-unpacked/resources/backend/repomind-backend.exe`（electron-builder extraResources 拷贝，`main.ts` L216 引用）。
 - **包版本校验**：`package_windows.ps1` L109-117 比较打包后 exe 与 `backend-dist` 哈希一致，L119-139 校验 demo 目录**恰好 10 个文件**（demo 目录不能塞别的）。
 - `smoke_mcp.ps1` L75 断言"空库时 list_repositories 为空"——**若默认注册预建索引需同步改这条 smoke**。
@@ -259,7 +263,7 @@ python scripts/setup_mcp.py --dry-run  # 只打印将写入什么，不改文件
 - 新增 `installer/RepoMind_Setup.iss`（UTF-8 BOM，Inno Setup 6 语法）：`PrivilegesRequired=lowest`、`DefaultDirName={localappdata}\RepoMind`、打包 `repomind-backend.exe` + `demo/repomind-demo`（10 文件，`Excludes: __pycache__,*.pyc,.git`）+ `scripts/register_repomind.ps1`。
 - 新增 `scripts/register_repomind.ps1`（纯 ASCII PowerShell 5.1，把 `setup_mcp.py` 的 merge + `.bak` + 原子写逻辑搬到安装器 post-install，**不需要 Python**；`-Force` 让重装时把注册的 `command` 更新为当前安装路径；写入 `{app}\registration-status.txt` 供完成页如实显示）。
 - 新增 `scripts/build_installer.ps1`；`package_windows.ps1` 增加 "Windows installer" 阶段（版本与 `package.json` 一致）。产物 `installer-output\RepoMindSetup-<version>.exe` 已 gitignore，不入库。
-- 编译环境：本机无管理员权限，无法跑官方安装器（IsAdmin=False），改用 `innoextract` 从 Inno Setup 6.0.5 安装包无管理员解出便携 `ISCC.exe`（放 `G:\aiAgent\ClaudeWorkSpace\InnoSetup-6.0.5`）。`.iss` 只用 6.x 通用指令，CI（GitHub Actions 预装最新版）可直接编译。
+- 编译环境：本机无管理员权限，无法跑官方安装器（IsAdmin=False），改用 `innoextract` 从 Inno Setup 6.0.5 安装包无管理员解出便携 `ISCC.exe`（放本机工具目录，路径不入库；`build_installer.ps1` 通过 `-ISCCPath` 或 `INNO_SETUP_ISCC` 指定）。`.iss` 只用 6.x 通用指令，CI（GitHub Actions 预装最新版）可直接编译。
 - 向导为英文（6.0.5 便携包不含中文语言包），安装完成页为中文（[Code] 按 `registration-status.txt` 显示"已注册到 Claude Code 与 Codex，请重开会话"或失败提示）。
 - 安装器**不提供**"导入并索引你的仓库"入口（demo 预建索引开箱即用；用户自己的仓库走桌面端或 `--index` CLI），故无需在安装器内展示建索引耗时；`--index` CLI 已打印预计/实际耗时并提示"请不要中断"。
 - 卸载安全：只删 `{app}` 下安装清单内文件；运行时生成的 `registration-status.txt` 用 `[UninstallDelete]` 显式删除；`.claude.json` / `.claude\settings.json` / `.codex\config.toml` 一律不动。
