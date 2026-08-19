@@ -1,9 +1,18 @@
 # RepoMind
 
+![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
+![Node](https://img.shields.io/badge/Node.js-20+-green.svg)
+![License](https://img.shields.io/badge/License-MIT-brightgreen.svg)
+![Status](https://img.shields.io/badge/Status-Active-success.svg)
+
 ![Windows-first](https://img.shields.io/badge/platform-Windows-0078D4)
 ![Local-first](https://img.shields.io/badge/design-local--first-2E7D32)
 ![Read-only](https://img.shields.io/badge/repository-read--only-6A1B9A)
 ![Evidence-first](https://img.shields.io/badge/answers-evidence--first-C62828)
+
+[![Recall@5](https://img.shields.io/badge/Recall@5-0.440_(+64.8%25)-orange.svg)](https://github.com/sail0kevin/Repository-Mind/releases)
+[![MRR](https://img.shields.io/badge/MRR-0.558_(+48.8%25)-orange.svg)](https://github.com/sail0kevin/Repository-Mind/releases)
+[![Token Reduction](https://img.shields.io/badge/Token%20Reduction-50.22%25-brightgreen.svg)](https://github.com/sail0kevin/Repository-Mind)
 
 **面向 Codex、Claude Code 等 Coding Agent 的本地只读代码上下文服务。** RepoMind 先把陌生仓库解析为可检索的符号、关系和代码证据，再通过 MCP 按需返回关键上下文，减少 Agent 反复搜索和整文件读取；外部 Agent 仍负责规划、改代码和运行测试。
 

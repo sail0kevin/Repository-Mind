@@ -1,0 +1,76 @@
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  backend-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Run pytest
+        run: |
+          cd backend
+          python -m pytest -q
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: pytest-results
+          path: backend/.pytest_cache/
+
+  desktop-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          cd desktop/app
+          npm ci
+
+      - name: Run tests
+        run: |
+          cd desktop/app
+          npm test
+
+      - name: Build desktop
+        run: |
+          cd desktop/app
+          npm run build
+
+  benchmark-validation:
+    runs-on: windows-latest
+    needs: backend-tests
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Validate benchmark fixtures
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          python -m pytest tests/evaluation/ -v
