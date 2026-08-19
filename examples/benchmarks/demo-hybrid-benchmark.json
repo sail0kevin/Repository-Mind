@@ -1,0 +1,45 @@
+{
+  "target": {
+    "commit": "c92e2f9af153212074da62d2d7fc1418bfbc0d72"
+  },
+  "retrieval": {
+    "mode": "hybrid",
+    "queries": [
+      {
+        "query": "GreetingService.build_message 方法是做什么的？",
+        "relevant_paths": [
+          "README.md",
+          "tests/test_greeting.py"
+        ]
+      },
+      {
+        "query": "security token 安全风险",
+        "relevant_paths": [
+          "README.md",
+          "repomind_demo/security_examples.py"
+        ]
+      },
+      {
+        "query": "Changing GreetingService.build_message impact call chain and tests",
+        "relevant_paths": [
+          "expected/showcase.json",
+          "tests/test_greeting.py"
+        ]
+      }
+    ],
+    "candidate_multiplier": 4,
+    "result_limit": 8,
+    "max_candidates": 200,
+    "rrf_k": 60,
+    "structural_expansion": true
+  },
+  "gold_file": "examples/benchmarks/demo-evidence-capture-post-fix.json",
+  "benchmark_id": "demo-hybrid-8192-chars",
+  "embedding": {
+    "provider": "openai_compatible",
+    "base_url": "http://127.0.0.1:11434/v1",
+    "model": "bge-m3",
+    "key_environment_variable": "REPOMIND_EMBEDDING_API_KEY",
+    "max_input_characters": 8192
+  }
+}

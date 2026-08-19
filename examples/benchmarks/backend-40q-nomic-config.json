@@ -1,0 +1,22 @@
+{
+  "target": {
+    "commit": "c92e2f9af153212074da62d2d7fc1418bfbc0d72"
+  },
+  "gold_file": "examples/benchmarks/backend-understanding-gold.json",
+  "retrieval": {
+    "mode": "hybrid",
+    "candidate_multiplier": 4,
+    "result_limit": 10,
+    "max_candidates": 200,
+    "rrf_k": 60,
+    "structural_expansion": true
+  },
+  "benchmark_id": "backend-40q-nomic-hybrid-8192",
+  "embedding": {
+    "provider": "openai_compatible",
+    "base_url": "http://127.0.0.1:11434/v1",
+    "model": "nomic-embed-text",
+    "key_environment_variable": "REPOMIND_EMBEDDING_API_KEY",
+    "max_input_characters": 8192
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "project": "RepoMind bundled Demo",
+  "snapshot_commit": "8c5ac33542fbed5e117bfee19af1457e60bd166c",
+  "mode": "hybrid",
+  "queries": [
+    {
+      "query": "GreetingService.build_message 方法是做什么的？",
+      "ranked": [
+        "README.md",
+        "tests/test_greeting.py"
+      ],
+      "relevant": [
+        "README.md",
+        "tests/test_greeting.py"
+      ]
+    },
+    {
+      "query": "security token 安全风险",
+      "ranked": [
+        "README.md",
+        "repomind_demo/security_examples.py"
+      ],
+      "relevant": [
+        "README.md",
+        "repomind_demo/security_examples.py"
+      ]
+    },
+    {
+      "query": "Changing GreetingService.build_message impact call chain and tests",
+      "ranked": [
+        "expected/showcase.json",
+        "tests/test_greeting.py"
+      ],
+      "relevant": [
+        "expected/showcase.json",
+        "tests/test_greeting.py"
+      ]
+    }
+  ]
+}
