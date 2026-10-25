@@ -13,8 +13,24 @@ def _print_index_progress(progress: float, message: str | None = None) -> None:
     print(f"[{int(progress * 100):3d}%] {text}", flush=True)
 
 
+def _force_utf8_streams() -> None:
+    """CLI 模式在任意 Windows 代码页下都可打印中文提示。
+
+    Windows CI 与部分用户控制台的重定向 stdout 是 cp1252 等单字节编码，
+    `print` 中文进度会直接 UnicodeEncodeError；统一改为 UTF-8（不可编码
+    字符替换）保证 `--index` 不因输出编码崩溃。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
 def _run_index() -> int:
     """`--index` 分支：命令行同步建立仓库索引，最后打印 repo_id 与耗时。"""
+    _force_utf8_streams()
     args = sys.argv[1:]
     if "--repo" not in args:
         print("用法：repomind-backend --index --repo <git路径> --data-dir <目录> [--alias <名称>]")

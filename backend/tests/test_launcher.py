@@ -95,6 +95,33 @@ def test_index_mode_invalid_repo_path_returns_error(tmp_path: Path, monkeypatch)
     assert launcher._run_index() == 1
 
 
+def test_index_mode_survives_non_utf8_codepage(monkeypatch, tmp_path: Path) -> None:
+    """Windows cp1252 控制台下，中文进度提示不能让 --index 崩溃。
+
+    回归背景：Windows CI 的重定向 stdout 是 cp1252，`首次建索引耗时参考…`
+    等 print 直接 UnicodeEncodeError。
+    """
+    import io
+
+    repo = tmp_path / "cli-repo-cp1252"
+    repo.mkdir()
+    _git(repo, "init")
+    (repo / "app.py").write_text("def hello():\n    return 'hi'\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.name=T", "-c", "user.email=t@t", "commit", "-m", "initial")
+
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252", line_buffering=True))
+    monkeypatch.setattr(
+        sys, "argv", ["repomind-backend.exe", "--index", "--repo", str(repo), "--alias", "cp1252-demo"]
+    )
+
+    assert launcher._run_index() == 0
+
+    output = raw.getvalue().decode("utf-8", errors="replace")
+    assert "索引完成" in output
+
+
 def test_mcp_mode_consumes_launcher_flag_and_preserves_profile(
     monkeypatch,
 ) -> None:
