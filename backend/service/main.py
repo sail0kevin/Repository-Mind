@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from service.core.database_identity import compute_database_identity
 import logging
 import secrets
@@ -32,10 +34,30 @@ from service.storage.migrations.runner import (
 logger = logging.getLogger(__name__)
 
 
+def _initialize_runtime() -> None:
+    """初始化数据库，并把上次进程遗留的 running 任务标记为 interrupted。"""
+    with get_connection():
+        pass
+    recovered = recover_interrupted_jobs()
+    recovered_snapshots = recover_building_snapshots()
+    if recovered:
+        logger.warning("已恢复 %d 个中断任务。", recovered)
+    if recovered_snapshots:
+        logger.warning("已恢复 %d 个中断快照。", recovered_snapshots)
+
+
+@asynccontextmanager
+async def runtime_lifespan(app: FastAPI):
+    """取代已弃用的 startup 事件：进入时初始化运行时，退出时无需清理。"""
+    _initialize_runtime()
+    yield
+
+
 def create_app() -> FastAPI:
     """创建 FastAPI 应用。"""
     settings = get_settings()
-    app = FastAPI(title=settings.app_name, version=settings.app_version)
+    app = FastAPI(title=settings.app_name, version=settings.app_version,
+                  lifespan=runtime_lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -59,18 +81,6 @@ def create_app() -> FastAPI:
                 # 使用 404 减少向本机其他网页暴露服务身份和认证细节。
                 return JSONResponse(status_code=404, content={"detail": "Not found"})
         return await call_next(request)
-
-    @app.on_event("startup")
-    def initialize_runtime() -> None:
-        """初始化数据库，并把上次进程遗留的 running 任务标记为 interrupted。"""
-        with get_connection():
-            pass
-        recovered = recover_interrupted_jobs()
-        recovered_snapshots = recover_building_snapshots()
-        if recovered:
-            logger.warning("已恢复 %d 个中断任务。", recovered)
-        if recovered_snapshots:
-            logger.warning("已恢复 %d 个中断快照。", recovered_snapshots)
 
     @app.post("/api/v1/runtime/shutdown", status_code=202)
     def shutdown(x_repomind_shutdown_token: str | None = Header(default=None)) -> dict[str, str]:

@@ -7,7 +7,7 @@ from __future__ import annotations
 import ipaddress
 from pathlib import Path
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -51,9 +51,7 @@ class Settings(BaseSettings):
     sqlite_read_only: bool = False
     paths: Paths = Field(default_factory=Paths)
 
-    class Config:
-        env_prefix = "REPOMIND_"
-        env_nested_delimiter = "__"
+    model_config = ConfigDict(env_prefix="REPOMIND_", env_nested_delimiter="__")
 
     @model_validator(mode="after")
     def validate_bind_security(self) -> "Settings":
