@@ -65,6 +65,15 @@ def test_router_simple_question_uses_zero_tools_and_specialized_questions_are_na
     assert len(route_question("测试失败怎么运行").tools) <= 2
 
 
+def test_router_ascii_keywords_require_word_boundaries():
+    """子串误命中不应触发专业工具：latest 不等于 test，tokenize 不等于 token。"""
+    assert route_question("What are the latest changes in this repo").tools == ()
+    assert route_question("tokenizer 是怎么实现的").tools == ()
+    assert route_question("how to run the tests").intent == "test_runtime"
+    assert route_question("impacted callers need regression checks").intent == "dependency_impact"
+    assert route_question("token 校验是否安全").intent == "security_review"
+
+
 def test_router_only_selects_debate_for_complex_non_symbol_questions():
     complex_plan = route_question("Why was this architecture designed this way, and what tradeoffs should guide its future evolution?")
     assert complex_plan.debate_roles == ("developer", "architect")

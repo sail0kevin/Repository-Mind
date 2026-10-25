@@ -5,18 +5,42 @@ import re
 
 from service.core.agent.models import AgentPlan, ToolDecision
 
-_SECURITY = ("安全", "认证", "密钥", "注入", "权限", "漏洞", "secret", "token", "password", "security")
-_IMPACT = ("影响", "依赖", "调用链", "谁调用", "受影响", "改动", "回归", "impact", "dependency", "call chain")
+_SECURITY_KEYWORDS = ("安全", "认证", "密钥", "注入", "权限", "漏洞", "secret", "token", "password", "security")
+_IMPACT_KEYWORDS = ("影响", "依赖", "调用链", "谁调用", "受影响", "改动", "回归", "impact", "dependency", "call chain")
 # 不要使用裸的 ``build``：符号名如 ``GreetingService.build_message`` 不代表构建/测试问题。
-_TEST = ("测试", "用例", "失败", "运行", "启动", "报错", "构建", "test", "pytest", "vitest")
-_OVERVIEW = ("概览", "架构", "从哪里开始", "怎么读", "主要模块", "入口", "overview", "architecture", "reading guide")
-_LANGUAGE = ("继承", "接口", "符号", "类结构", "函数结构", "方法列表", "typescript", "python", "class hierarchy", "symbol")
-_DEBATE = ("为什么", "设计", "架构", "取舍", "权衡", "演进", "原因", "why", "design", "architecture", "tradeoff")
+_TEST_KEYWORDS = ("测试", "用例", "失败", "运行", "启动", "报错", "构建", "test", "pytest", "vitest")
+_OVERVIEW_KEYWORDS = ("概览", "架构", "从哪里开始", "怎么读", "主要模块", "入口", "overview", "architecture", "reading guide")
+_LANGUAGE_KEYWORDS = ("继承", "接口", "符号", "类结构", "函数结构", "方法列表", "typescript", "python", "class hierarchy", "symbol")
+_DEBATE_KEYWORDS = ("为什么", "设计", "架构", "取舍", "权衡", "演进", "原因", "why", "design", "architecture", "tradeoff")
+
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+# 允许常见屈折后缀，否则 "tests"/"impacted" 会被词边界拒掉；更长后缀（tokenize、latest）仍不命中。
+_ASCII_SUFFIX = r"(?:es|s|ed|ing|er)?"
 
 
-def _contains(question: str, keywords: tuple[str, ...]) -> bool:
+def _keyword_pattern(keyword: str) -> re.Pattern[str]:
+    """ASCII 关键词按词边界加屈折后缀匹配；中文关键词保持子串语义。"""
+    folded = keyword.casefold()
+    if _CJK_RE.search(folded):
+        return re.compile(re.escape(folded))
+    return re.compile(rf"(?<![A-Za-z0-9_]){re.escape(folded)}{_ASCII_SUFFIX}(?![A-Za-z0-9_])")
+
+
+def _compile(keywords: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
+    return tuple(_keyword_pattern(keyword) for keyword in keywords)
+
+
+_SECURITY = _compile(_SECURITY_KEYWORDS)
+_IMPACT = _compile(_IMPACT_KEYWORDS)
+_TEST = _compile(_TEST_KEYWORDS)
+_OVERVIEW = _compile(_OVERVIEW_KEYWORDS)
+_LANGUAGE = _compile(_LANGUAGE_KEYWORDS)
+_DEBATE = _compile(_DEBATE_KEYWORDS)
+
+
+def _contains(question: str, keywords: tuple[re.Pattern[str], ...]) -> bool:
     normalized = question.casefold()
-    return any(keyword.casefold() in normalized for keyword in keywords)
+    return any(pattern.search(normalized) for pattern in keywords)
 
 
 def _has_precise_symbol(question: str) -> bool:
