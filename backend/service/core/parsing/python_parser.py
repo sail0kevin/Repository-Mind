@@ -16,6 +16,9 @@ from service.core.parsing.models import (
 # 与 EvidenceBudget.max_evidence_tokens 保持一致。
 _MAX_FUNCTION_TOKENS = 600
 
+# attribute_bindings 中表示"多个不同构造器赋值过同一属性，类型不可判定"的哨兵。
+_AMBIGUOUS = object()
+
 
 class PythonParser(ParserAdapter):
     """提取 Python 定义、导入、继承和可静态确认的调用。"""
@@ -122,7 +125,10 @@ class _PythonCollector(ast.NodeVisitor):
         self.module_name = module_name
         self.scope: list[Symbol] = [module]
         self.imports: dict[str, str] = {}
-        self.receiver_bindings: list[dict[str, str]] = []
+        # 索引 0 是模块层帧：入口脚本里的 ``service = Client(); service.run()`` 也能解析。
+        self.receiver_bindings: list[dict[str, str]] = [{}]
+        # (类符号 ID, 属性名) -> 构造器限定名；值为 _AMBIGUOUS 表示多处赋值类型冲突。
+        self.attribute_bindings: dict[tuple[str, str], object] = {}
         self.local_symbols: dict[str, Symbol] = {}
         self.class_symbols: dict[str, Symbol] = {}
         self.symbol_ordinals: dict[tuple[str, str, str], int] = {}
@@ -180,6 +186,7 @@ class _PythonCollector(ast.NodeVisitor):
             target = self._resolve_expr(base)
             if target:
                 self._add_relation("inherits", symbol, target, base, observed=True, inferred=False, confidence=0.95)
+        self._collect_attribute_bindings(node, symbol)
         self.scope.append(symbol)
         for child in node.body:
             self.visit(child)
@@ -223,7 +230,7 @@ class _PythonCollector(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> None:
         """仅输出名称能由当前作用域或 import 绑定静态解析的调用。"""
         target = self._resolve_call(node.func)
-        if target and self.scope[-1].kind in {"function", "method"}:
+        if target and self.scope[-1].kind in {"function", "method", "module"}:
             self._add_relation("calls", self.scope[-1], target, node.func, observed=True, inferred=False, confidence=0.95)
         self.generic_visit(node)
 
@@ -425,6 +432,20 @@ class _PythonCollector(ast.NodeVisitor):
                 )
                 if enclosing_class is not None:
                     return f"{enclosing_class.qualified_name}.{node.attr}"
+            if (
+                isinstance(node.value, ast.Attribute)
+                and isinstance(node.value.value, ast.Name)
+                and node.value.value.id in {"self", "cls"}
+            ):
+                # self.client.send()：按类内构造器赋值预扫描解析实例属性类型。
+                enclosing_class = next(
+                    (scope for scope in reversed(self.scope) if scope.kind == "class"),
+                    None,
+                )
+                if enclosing_class is not None:
+                    constructor = self.attribute_bindings.get((enclosing_class.id, node.value.attr))
+                    if isinstance(constructor, str):
+                        return f"{constructor}.{node.attr}"
             if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
                 # An imported class constructor followed by a method call is a
                 # statically navigable relationship. Other factory calls remain
@@ -440,8 +461,14 @@ class _PythonCollector(ast.NodeVisitor):
         return None
 
     def _update_receiver_bindings(self, targets: list[ast.expr], value: ast.expr | None) -> None:
-        """Record ``client = ImportedClass()`` and clear all other direct rebindings."""
+        """记录局部/模块级 ``client = SomeClass()`` 并在其他重绑定上清除。
+
+        类体直接赋值是类属性而非接收者，跳过；``self.x = SomeClass()``
+        实例属性绑定由 ``_collect_attribute_bindings`` 预扫描统一处理。
+        """
         if not self.receiver_bindings:
+            return
+        if self.scope[-1].kind == "class":
             return
         names = [target.id for target in targets if isinstance(target, ast.Name)]
         if not names:
@@ -453,6 +480,49 @@ class _PythonCollector(ast.NodeVisitor):
                 bindings[name] = constructor
             else:
                 bindings.pop(name, None)
+
+    def _collect_attribute_bindings(self, node: ast.ClassDef, class_symbol: Symbol) -> None:
+        """预扫描类体内 ``self.x = SomeClass()`` 形式的直接构造器赋值。
+
+        结果流不敏感：同一属性在多处赋了不同构造器则记为歧义，不产出
+        调用边；这样解析结果不依赖方法定义顺序，也与属性绑定保守一致。
+        """
+        for statement in node.body:
+            if isinstance(statement, ast.ClassDef):
+                continue
+            for assign in ast.walk(statement):
+                if isinstance(assign, ast.Assign):
+                    targets, value = assign.targets, assign.value
+                elif isinstance(assign, ast.AnnAssign) and assign.value is not None:
+                    targets, value = [assign.target], assign.value
+                else:
+                    continue
+                constructor = self._direct_constructor(value)
+                if constructor is None:
+                    continue
+                for target in targets:
+                    attribute = self._self_attribute_name(target)
+                    if not attribute:
+                        continue
+                    key = (class_symbol.id, attribute)
+                    if key not in self.attribute_bindings:
+                        self.attribute_bindings[key] = constructor
+                    elif (
+                        self.attribute_bindings[key] is not _AMBIGUOUS
+                        and self.attribute_bindings[key] != constructor
+                    ):
+                        self.attribute_bindings[key] = _AMBIGUOUS
+
+    @staticmethod
+    def _self_attribute_name(target: ast.expr) -> str | None:
+        """赋值目标是 ``self.x`` 或 ``cls.x`` 时返回属性名。"""
+        if (
+            isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.value.id in {"self", "cls"}
+        ):
+            return target.attr
+        return None
 
     def _clear_receiver_bindings(self, targets: list[ast.expr]) -> None:
         if not self.receiver_bindings:

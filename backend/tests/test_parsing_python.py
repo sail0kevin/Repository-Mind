@@ -330,6 +330,104 @@ def test_receiver_binding_is_cleared_after_reassignment() -> None:
     assert all(item.target_qualified_name != "transport.HTTPAdapter.send" for item in calls)
 
 
+def test_instance_attribute_method_call_resolves_across_methods() -> None:
+    """``self.client = Client()`` 在 ``__init__``、调用在另一个方法也能产出调用边。"""
+    documents = [
+        SourceDocument(
+            snapshot_id="snap", path="service.py",
+            content=(
+                "from transport import HTTPAdapter\n\n"
+                "class Session:\n"
+                "    def __init__(self):\n"
+                "        self.adapter = HTTPAdapter()\n"
+                "\n"
+                "    def send(self, request):\n"
+                "        return self.adapter.send(request)\n"
+            ),
+            language="python",
+        ),
+        SourceDocument(
+            snapshot_id="snap", path="transport.py",
+            content="class HTTPAdapter:\n    def send(self, request):\n        return request\n",
+            language="python",
+        ),
+    ]
+
+    service = next(item for item in default_registry().parse_all(documents) if item.document.path == "service.py")
+    send = next(item for item in service.symbols if item.qualified_name == "service.Session.send")
+
+    assert any(
+        item.kind == "calls" and item.source_id == send.id
+        and item.target_qualified_name == "transport.HTTPAdapter.send"
+        for item in service.relations
+    )
+
+
+def test_instance_attribute_with_conflicting_constructors_stays_unresolved() -> None:
+    """同一实例属性在两个方法里赋值不同构造器时视为类型不可判定，不产出调用边。"""
+    documents = [
+        SourceDocument(
+            snapshot_id="snap", path="service.py",
+            content=(
+                "from transport import HTTPAdapter, RetryAdapter\n\n"
+                "class Session:\n"
+                "    def setup_http(self):\n"
+                "        self.adapter = HTTPAdapter()\n"
+                "\n"
+                "    def setup_retry(self):\n"
+                "        self.adapter = RetryAdapter()\n"
+                "\n"
+                "    def send(self, request):\n"
+                "        return self.adapter.send(request)\n"
+            ),
+            language="python",
+        ),
+        SourceDocument(
+            snapshot_id="snap", path="transport.py",
+            content=(
+                "class HTTPAdapter:\n    def send(self, request):\n        return request\n\n"
+                "class RetryAdapter:\n    def send(self, request):\n        return request\n"
+            ),
+            language="python",
+        ),
+    ]
+
+    service = next(item for item in default_registry().parse_all(documents) if item.document.path == "service.py")
+    calls = [item for item in service.relations if item.kind == "calls"]
+
+    assert all(item.target_qualified_name != "transport.HTTPAdapter.send" for item in calls)
+    assert all(item.target_qualified_name != "transport.RetryAdapter.send" for item in calls)
+
+
+def test_module_level_receiver_method_call_emits_module_calls_edge() -> None:
+    """入口脚本 ``service = GreetingService(); service.build_message()`` 以模块为调用源。"""
+    documents = [
+        SourceDocument(
+            snapshot_id="snap", path="entry.py",
+            content=(
+                "from greeting import GreetingService\n\n"
+                "service = GreetingService()\n"
+                "print(service.build_message())\n"
+            ),
+            language="python",
+        ),
+        SourceDocument(
+            snapshot_id="snap", path="greeting.py",
+            content="class GreetingService:\n    def build_message(self):\n        return 'hello'\n",
+            language="python",
+        ),
+    ]
+
+    entry = next(item for item in default_registry().parse_all(documents) if item.document.path == "entry.py")
+    module = next(item for item in entry.symbols if item.kind == "module")
+
+    assert any(
+        item.kind == "calls" and item.source_id == module.id
+        and item.target_qualified_name == "greeting.GreetingService.build_message"
+        for item in entry.relations
+    )
+
+
 def test_actual_mcp_search_wrapper_resolves_to_hybrid_retrieval_entry_point() -> None:
     """真实 MCP 搜索工具应能导航到 HybridRetriever 的实际方法入口。"""
     backend_root = Path(__file__).resolve().parents[1]
