@@ -14,6 +14,15 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+# 这些评测脚本属于本机 benchmark 工作区，从未随仓库发布；缺失时显式跳过而不是让整个套件收集失败。
+_UNPUBLISHED_SCRIPTS = ("context_benchmark", "score_context_ab_results", "validate_context_benchmark")
+_MISSING_SCRIPTS = [name for name in _UNPUBLISHED_SCRIPTS if not (SCRIPTS / f"{name}.py").is_file()]
+if _MISSING_SCRIPTS:
+    pytest.skip(
+        f"context benchmark scripts not published: {', '.join(_MISSING_SCRIPTS)}",
+        allow_module_level=True,
+    )
+
 
 def _load(name: str):
     spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")

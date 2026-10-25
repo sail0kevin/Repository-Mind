@@ -551,9 +551,11 @@ def test_location_benchmark_preflight_rejects_both_location_contracts(tmp_path: 
 
 def test_external_token_click_v4_manifest_freezes_equivalent_prompt_locations() -> None:
     artifact_dir = ROOT / "e2e-artifacts" / "external-token-study-20260801"
-    manifest = json.loads(
-        (artifact_dir / "click-eligible-manifest-v4.json").read_text(encoding="utf-8")
-    )
+    manifest_path = artifact_dir / "click-eligible-manifest-v4.json"
+    # external-token-study 产物只存在于本机评测工作区，未随仓库发布；缺失时跳过而不是失败。
+    if not manifest_path.is_file():
+        pytest.skip(f"token study artifact not published: {manifest_path.name}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     tasks = json.loads(
         (artifact_dir / manifest["task_file"]).read_text(encoding="utf-8")
     )
