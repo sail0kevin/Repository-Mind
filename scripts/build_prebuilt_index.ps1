@@ -30,14 +30,25 @@ if ($LASTEXITCODE -ne 0) { throw "Preparing demo checkout failed" }
 
 # 2) Build the index with no UI (lexical, no keys), synchronously.
 $demoAlias = "RepoMind " + (-join [char[]](0x5185, 0x7F6E)) + " Demo"
+$indexLog = Join-Path ([System.IO.Path]::GetTempPath()) ("repomind-prebuilt-index-" + [guid]::NewGuid().ToString("N") + ".log")
 Push-Location $backendRoot
 try {
     & $PythonCommand -m service.launcher --index --repo $checkout --data-dir $outputDir --alias $demoAlias 2>&1 |
-        ForEach-Object { Write-Host $_ }
-    if ($LASTEXITCODE -ne 0) { throw "Prebuilt index build failed with exit code $LASTEXITCODE" }
+        Tee-Object -FilePath $indexLog | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) {
+        # CI 完整日志需要登录才能查看；把失败现场写进注解（公开可见）便于远程定位。
+        Write-Host "launcher exit code: $LASTEXITCODE"
+        Write-Host "python version:"; & $PythonCommand --version
+        Write-Host "git version:"; git --version
+        Write-Host "demo checkout status:"; git -C $checkout status --porcelain=v1 --untracked-files=all
+        Write-Host "demo checkout HEAD:"; git -C $checkout rev-parse HEAD
+        $tail = ((Get-Content $indexLog -Tail 15) -join " | ")
+        throw "Prebuilt index build failed with exit code $LASTEXITCODE. Tail: $tail"
+    }
 }
 finally {
     Pop-Location
+    Remove-Item $indexLog -Force -ErrorAction SilentlyContinue
 }
 if (-not (Test-Path $databasePath -PathType Leaf)) { throw "Prebuilt index missing: $databasePath" }
 
