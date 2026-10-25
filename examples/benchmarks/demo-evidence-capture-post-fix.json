@@ -54,8 +54,8 @@
       "ranked": [
         "README.md",
         "repomind_demo/security_examples.py",
-        "repomind_demo/security_examples.py",
         "README.md",
+        "repomind_demo/security_examples.py",
         "repomind_demo/security_examples.py",
         "repomind_demo/security_examples.py",
         "repomind_demo/security_examples.py",
@@ -67,8 +67,8 @@
         "expected/showcase.json",
         "README.md",
         "repomind_demo/security_examples.py",
-        "repomind_demo/security_examples.py",
         "README.md",
+        "repomind_demo/security_examples.py",
         "repomind_demo/security_examples.py"
       ],
       "relevant": [
@@ -84,7 +84,7 @@
       ],
       "ranked": [
         "expected/showcase.json",
-        "tests/test_greeting.py",
+        "expected/showcase.json",
         "expected/showcase.json",
         "expected/showcase.json",
         "expected/showcase.json",

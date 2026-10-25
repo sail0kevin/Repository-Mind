@@ -95,7 +95,7 @@ pip install -r backend/requirements-build.txt
 | --- | --- | --- |
 | `GreetingService.build_message 方法是做什么的？` | 0 tools | 定义、README 与测试 |
 | `security token 安全风险` | `security_review` | `repomind_demo/security_examples.py` |
-| `Changing GreetingService.build_message impact call chain and tests` | `dependency_impact` | 定义、入口引用候选与测试 |
+| `Changing GreetingService.build_message impact call chain and tests` | `dependency_impact` | 定义、入口与测试的已解析调用方 |
 
 普通解释不调用工具；安全问题只调用安全审查；影响问题只调用依赖分析。最终 Ask API、synthesis Trace 和界面展示使用同一组预算化 Evidence。
 
@@ -107,15 +107,15 @@ pip install -r backend/requirements-build.txt
 | --- | ---: |
 | Snapshot | `8c5ac33542fbed5e117bfee19af1457e60bd166c` |
 | 模式 | `lexical-only/no-key-fallback` |
-| Recall@5 / Recall@10 | 0.667 / 0.667 |
-| MRR | 0.833 |
+| Recall@5 / Recall@10 | 0.556 / 0.556 |
+| MRR | 0.667 |
 | Citation hit rate / precision | 1.000 / 0.750 |
 
-修复前后对比：Recall@5 `0.556 → 0.667`，MRR `0.667 → 0.833`，Citation hit rate `0.667 → 1.000`。
+2026-10-25 重跑说明：capture 脚本改为从 git 对象物化 demo 文件（此前复制磁盘字节，受 `core.autocrlf` 影响可能是 CRLF）。字节规范化后重跑得到上表数字；此前记录的 `0.667 / 0.833` 产生于 CRLF 字节状态，两者是不同输入，不可直接比较。同一轮重跑中，`dependency_impact` 对影响题产出 **3 条已解析调用关系**（此前为 0 条，入口与测试仅是引用候选）。
 
-> **评测边界：**这只是 3 个问题的 synthetic bundled Demo，衡量的是引用路径命中，不代表大型真实仓库的语义准确率或生产性能。实例方法调用边尚未完整解析，因此入口和测试只标记为"源码引用候选"，不是已证明的调用边；当前也没有受控的 P50/P95 延迟数据。
+> **评测边界：**这只是 3 个问题的 synthetic bundled Demo，衡量的是引用路径命中，不代表大型真实仓库的语义准确率或生产性能。局部变量、`self`/`cls` 实例属性与模块级构造器绑定产生的调用边已可解析（含上表影响题的入口与测试）；工厂函数返回值、冲突构造器赋值与继承属性仍保守地不判定。当前也没有受控的 P50/P95 延迟数据。
 >
-> **Fixture 说明：**上表指标基于旧 demo fixture（commit `8c5ac335`，含空 `README.md`）。安装版捆绑的**预建 demo 索引基于当前 fixture（commit `94d4aa63`，`README.md` 已改名 `OLD_REPOMIND_DEMO_README.md`）**，两者是不同内容，上述指标数字不能直接套用到预建索引上。
+> **Fixture 说明：**capture 从 git 对象物化 fixture，并把 `OLD_REPOMIND_DEMO_README.md` 映射回 demo 仓库内的 `README.md`，以保持固定 commit `8c5ac335` 与 gold 路径契约。安装版捆绑的**预建 demo 索引按打包目录原样实例化**（保留 `OLD_REPOMIND_DEMO_README.md` 文件名，commit 为 `94d4aa63`），两者文件内容相同、路径名不同，指标数字不能直接套用到预建索引上。
 
 ## 检索与代码定位评测
 
@@ -167,7 +167,7 @@ RepoMind 默认不会把整个仓库塞进 Prompt。Repo Map 先缩小范围，B
 
 以下是当前提交的可复现验证结果：
 
-- Backend：`cd backend; python -m pytest -q` → **337 passed**，包含 MCP、`--index` CLI、检索遥测、快照隔离、桌面访问保护与评测夹具回归门禁
+- Backend：`cd backend; python -m pytest -q` → **311 passed, 2 skipped**（跳过项依赖未随仓库发布的本机评测脚本与产物；在具备这些脚本的工作区为 337 passed），包含 MCP、`--index` CLI、检索遥测、快照隔离、桌面访问保护与评测夹具回归门禁
 - Desktop：`npm test`（vitest）→ **64 passed**（11 个测试文件）
 - Desktop build：`npm run build` → Vite renderer 与 Electron TypeScript 构建通过
 - Frozen MCP：打包后端以 `--mcp` 启动，完成仓库发现调用；当前源码 MCP 提供 7 个只读工具
@@ -184,7 +184,7 @@ Windows CI 会从干净环境重建冻结后端和 Electron 包，并运行打�
 - 默认只读目标仓库，不执行其中的代码，不修改文件，不自动 commit、push 或创建 PR。
 - 当前规则路由每次选择 0 或 1 个窄边界只读 Specialist Tool；执行器额外保留最多 2 个工具的硬上限，不是自由无边界的 Multi-Agent 聊天室。
 - 开启远程 Chat/Embedding Provider 后，当前请求检索到的 Evidence 可能发送到用户配置的 Base URL；自定义 Endpoint 属于用户主动选择的信任边界。
-- Python parser 尚未完整解析局部实例变量的类型传播；静态关系和安全线索不等于运行时事实或完整安全审计。
+- Python parser 对局部变量、`self`/`cls` 实例属性（同文件直接构造器赋值且无冲突）和模块级构造绑定生成已解析调用边；工厂函数返回值、同一属性的不同构造器赋值与继承属性保守地不判定。静态关系和安全线索不等于运行时事实或完整安全审计。
 - 当前评测集规模很小，尚无大型真实仓库 benchmark 和受控延迟数据。
 
 详细数据边界和上线限制见 [产品上线与交付审计](docs/2026-08-01_PRODUCT_READINESS_AUDIT_产品上线与交付审计.md)。历史安全边界说明保留在 `docs/旧的文件/`，仅用于追溯。

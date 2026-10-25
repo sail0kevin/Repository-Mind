@@ -50,6 +50,10 @@ DEMO_FILES = (
     "tests/test_greeting.py",
 )
 
+# 源文件在 6de86f9 起改名为 OLD_REPOMIND_DEMO_README.md（内容未变）。demo 仓库内部
+# 仍必须叫 README.md：文件名参与确定性 commit 哈希与 gold 路径校验，改名会破坏两者。
+_DEMO_SOURCE_RENAMES = {"README.md": "OLD_REPOMIND_DEMO_README.md"}
+
 QUESTIONS = (
     {
         "id": "navigation-build-message",
@@ -105,16 +109,31 @@ def _run_git(repo: Path, *args: str, env: dict[str, str]) -> str:
     return result.stdout.strip()
 
 
+def _read_repo_blob(relative: str) -> bytes:
+    """从当前 HEAD 的 git 对象读取 demo 夹具文件的规范化字节。
+
+    磁盘文件受 core.autocrlf 影响可能是 CRLF，而 demo 仓库的确定性 commit 哈希
+    （EXPECTED_COMMIT）绑定 blob 原始字节；必须绕开工作区直接读对象内容。
+    """
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "show", f"HEAD:demo/repomind-demo/{relative}"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise FileNotFoundError(
+            f"内置 Demo 资源缺失（HEAD 中无此文件）：demo/repomind-demo/{relative}；{result.stderr.decode(errors='replace')}"
+        )
+    return result.stdout
+
+
 def _copy_packaged_fixture(target: Path) -> None:
-    """仅复制打包清单中的十个 tracked 文件，不跟随开发目录生成物。"""
+    """仅物化打包清单中的十个 tracked 文件，不跟随开发目录生成物。"""
     target.mkdir(parents=True)
     for relative in DEMO_FILES:
-        source = DEMO_SOURCE / Path(relative)
-        if not source.is_file():
-            raise FileNotFoundError(f"内置 Demo 资源缺失：{source}")
+        source_name = _DEMO_SOURCE_RENAMES.get(relative, relative)
         destination = target / Path(relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, destination)
+        destination.write_bytes(_read_repo_blob(source_name))
 
 
 def _prepare_demo(target: Path, git_home: Path) -> str:
